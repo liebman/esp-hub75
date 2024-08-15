@@ -4,6 +4,8 @@ Drive HUB75 displays from ESP32 series SOCs.
 
 **WARNING**: This is currently a very early WORK IN PROGRESS!
 
+**WARNING**: For now the `esp-hal` version required is not released yet this is pinned to a specific git commit.
+
 All implementations use DMA where supported.
 
 - [ ] - documentation!

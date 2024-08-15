@@ -13,8 +13,10 @@ defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "0.19.0" }
-esp-hal-procmacros = { version = "0.12.0", features = ["ram"] }
+# esp-hal = { version = "0.19.0" }
+# esp-hal-procmacros = { version = "0.12.0", features = ["ram"] }
+esp-hal = { version = "0.19.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal-procmacros = { version = "0.12.0", features = ["ram"], git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
 static_cell = { version = "2.1", features = ["nightly"] }
 
 [dev-dependencies]
@@ -23,10 +25,14 @@ embassy-embedded-hal = { version = "0.1.0" }
 embassy-executor = { version = "0.5.0" }
 embassy-sync = { version = "0.5.0" }
 embassy-time = { version = "0.3.0", features = ["generic-queue"]}
-esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"] }
-esp-println = { version = "0.10.0" }
-esp-hal = { version = "0.19.0", features = ["async"] }
-esp-hal-embassy = { version = "0.2.0" }
+# esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"] }
+# esp-println = { version = "0.10.0" }
+# esp-hal = { version = "0.19.0", features = ["async"] }
+# esp-hal-embassy = { version = "0.2.0" }
+esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"], git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-println = { version = "0.10.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal = { version = "0.19.0", features = ["async"], git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal-embassy = { version = "0.2.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
 heapless = { version = "0.8.0" , features = ["ufmt"] }
 
 [features]
@@ -36,10 +42,3 @@ debug = ["esp-hal/debug"]
 async = ["esp-hal/async"]
 defmt = ["dep:defmt"]
 println = ["esp-backtrace/println", "esp-println/auto"]
-
-[patch.crates-io]
-esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-hal-embassy = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-hal-procmacros = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
