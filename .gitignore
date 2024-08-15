@@ -1,0 +1,8 @@
+/.cargo
+/Cargo.lock
+/bootloader.bin
+/esp-hub75.code-workspace
+/espflash.toml
+/partitions.csv
+/rust-toolchain.toml
+/target

@@ -1,0 +1,45 @@
+[package]
+name = "esp-hub75"
+edition = "2021"
+version = "0.1.0"
+authors = ["liebman <liebman@zod.com>"]
+license = "MIT OR Apache-2.0"
+rust-version = "1.71"
+
+[dependencies]
+bitfield = { version = "0.14.0" }
+critical-section    = { version = "1.1.2" }
+defmt = { version = "0.3.8", optional = true }
+embedded-graphics = { version = "0.8.1" }
+embedded-hal = { version = "1.0.0" }
+embedded-hal-async = { version = "1.0.0" }
+esp-hal = { version = "0.19.0" }
+esp-hal-procmacros = { version = "0.12.0", features = ["ram"] }
+static_cell = { version = "2.1", features = ["nightly"] }
+
+[dev-dependencies]
+defmt-rtt = {version = "0.4.1" }
+embassy-embedded-hal = { version = "0.1.0" }
+embassy-executor = { version = "0.5.0" }
+embassy-sync = { version = "0.5.0" }
+embassy-time = { version = "0.3.0", features = ["generic-queue"]}
+esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"] }
+esp-println = { version = "0.10.0" }
+esp-hal = { version = "0.19.0", features = ["async"] }
+esp-hal-embassy = { version = "0.2.0" }
+heapless = { version = "0.8.0" , features = ["ufmt"] }
+
+[features]
+default = ["esp32s3", "async"]
+esp32s3 = ["esp-hal/esp32s3", "esp-backtrace/esp32s3", "esp-hal-embassy/esp32s3", "esp-println/esp32s3"]
+debug = ["esp-hal/debug"]
+async = ["esp-hal/async"]
+defmt = ["dep:defmt"]
+println = ["esp-backtrace/println", "esp-println/auto"]
+
+[patch.crates-io]
+esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal-embassy = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal-procmacros = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
