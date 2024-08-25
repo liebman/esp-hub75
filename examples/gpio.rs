@@ -10,9 +10,9 @@ use esp_hal::gpio::Output;
 use esp_hal::peripherals::Peripherals;
 use esp_hal::prelude::*;
 use esp_hal::system::SystemControl;
-use esp_hub75::Color;
 use esp_hub75::gpio::FrameBuffer;
 use esp_hub75::gpio::Hub75;
+use esp_hub75::Color;
 use static_cell::make_static;
 use static_cell::StaticCell;
 

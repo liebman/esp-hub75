@@ -22,7 +22,7 @@ static_cell = { version = "2.1", features = ["nightly"] }
 [dev-dependencies]
 defmt-rtt = {version = "0.4.1" }
 embassy-embedded-hal = { version = "0.1.0" }
-embassy-executor = { version = "0.5.0" }
+embassy-executor = { version = "0.6.0" }
 embassy-sync = { version = "0.5.0" }
 embassy-time = { version = "0.3.0", features = ["generic-queue"]}
 # esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"] }
@@ -36,9 +36,17 @@ esp-hal-embassy = { version = "0.2.0", git = "https://github.com/esp-rs/esp-hal.
 heapless = { version = "0.8.0" , features = ["ufmt"] }
 
 [features]
-default = ["esp32s3", "async"]
+default = ["async"]
 esp32s3 = ["esp-hal/esp32s3", "esp-backtrace/esp32s3", "esp-hal-embassy/esp32s3", "esp-println/esp32s3"]
+esp32c6 = ["esp-hal/esp32c6", "esp-backtrace/esp32c6", "esp-hal-embassy/esp32c6", "esp-println/esp32c6"]
 debug = ["esp-hal/debug"]
 async = ["esp-hal/async"]
 defmt = ["dep:defmt"]
 println = ["esp-backtrace/println", "esp-println/auto"]
+
+[patch."https://github.com/esp-rs/esp-hal.git"]
+esp-alloc = { path = "../esp-hal/esp-alloc" }
+esp-backtrace = { path = "../esp-hal/esp-backtrace" }
+esp-println = { path = "../esp-hal/esp-println" }
+esp-hal = { path = "../esp-hal/esp-hal" }
+esp-hal-embassy = { path = "../esp-hal/esp-hal-embassy" }

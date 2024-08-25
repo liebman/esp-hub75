@@ -12,7 +12,7 @@ All implementations use DMA where supported.
 - [x] - GPIO rudimentary brute force
 - [x] - LCD peripheral  (async) for: `esp32s3`
   - [ ] - sync support for LCD peripheral
-- [ ] - SPI peripheral in i8080 16 bit mode: `esp32`
+- [ ] - I2S peripheral in LCD mode: `esp32`
 - [ ] - PARL_IO peripheral: `esp32c6`
 
 ## Notes
