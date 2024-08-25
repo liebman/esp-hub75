@@ -1,6 +1,7 @@
 /.cargo
 /Cargo.lock
 /bootloader.bin
+/bootloader-c6.bin
 /esp-hub75.code-workspace
 /espflash.toml
 /partitions.csv
