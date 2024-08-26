@@ -1,8 +1,8 @@
 use esp_hal::clock::Clocks;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
-use esp_hal::gpio::any_pin::AnyPin;
-use esp_hal::gpio::dummy_pin::DummyPin;
+use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::DummyPin;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;

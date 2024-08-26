@@ -15,8 +15,8 @@ embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 # esp-hal = { version = "0.19.0" }
 # esp-hal-procmacros = { version = "0.12.0", features = ["ram"] }
-esp-hal = { version = "0.19.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-hal-procmacros = { version = "0.12.0", features = ["ram"], git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-hal = { version = "0.19.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "a41bc4cb3df08b254478cbe862420232e066b5e6" }
+esp-hal-procmacros = { version = "0.12.0", features = ["ram"], git = "https://github.com/esp-rs/esp-hal.git", rev = "a41bc4cb3df08b254478cbe862420232e066b5e6" }
 static_cell = { version = "2.1", features = ["nightly"] }
 
 [dev-dependencies]
@@ -29,10 +29,10 @@ embassy-time = { version = "0.3.0", features = ["generic-queue"]}
 # esp-println = { version = "0.10.0" }
 # esp-hal = { version = "0.19.0", features = ["async"] }
 # esp-hal-embassy = { version = "0.2.0" }
-esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"], git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-println = { version = "0.10.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-hal = { version = "0.19.0", features = ["async"], git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
-esp-hal-embassy = { version = "0.2.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "c53ba38c43c010093926f84331be05c7cf183b76" }
+esp-backtrace = { version = "0.13.0", features = ["panic-handler", "exception-handler", "println"], git = "https://github.com/esp-rs/esp-hal.git", rev = "a41bc4cb3df08b254478cbe862420232e066b5e6" }
+esp-println = { version = "0.10.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "a41bc4cb3df08b254478cbe862420232e066b5e6" }
+esp-hal = { version = "0.19.0", features = ["async"], git = "https://github.com/esp-rs/esp-hal.git", rev = "a41bc4cb3df08b254478cbe862420232e066b5e6" }
+esp-hal-embassy = { version = "0.2.0", git = "https://github.com/esp-rs/esp-hal.git", rev = "a41bc4cb3df08b254478cbe862420232e066b5e6" }
 heapless = { version = "0.8.0" , features = ["ufmt"] }
 
 [features]
@@ -44,9 +44,9 @@ async = ["esp-hal/async"]
 defmt = ["dep:defmt"]
 println = ["esp-backtrace/println", "esp-println/auto"]
 
-[patch."https://github.com/esp-rs/esp-hal.git"]
-esp-alloc = { path = "../esp-hal/esp-alloc" }
-esp-backtrace = { path = "../esp-hal/esp-backtrace" }
-esp-println = { path = "../esp-hal/esp-println" }
-esp-hal = { path = "../esp-hal/esp-hal" }
-esp-hal-embassy = { path = "../esp-hal/esp-hal-embassy" }
+# [patch."https://github.com/esp-rs/esp-hal.git"]
+# esp-alloc = { path = "../esp-hal/esp-alloc" }
+# esp-backtrace = { path = "../esp-hal/esp-backtrace" }
+# esp-println = { path = "../esp-hal/esp-println" }
+# esp-hal = { path = "../esp-hal/esp-hal" }
+# esp-hal-embassy = { path = "../esp-hal/esp-hal-embassy" }
