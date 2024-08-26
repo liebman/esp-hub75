@@ -25,7 +25,7 @@ use esp_hal::clock::ClockControl;
 use esp_hal::clock::Clocks;
 use esp_hal::cpu_control::CpuControl;
 use esp_hal::dma::Dma;
-use esp_hal::gpio::any_pin::AnyPin;
+use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Io;
 use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::Peripherals;
