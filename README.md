@@ -30,7 +30,7 @@ Expects a 64x64 matrix.
 Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
 Expects a 64x64 matrix.
 
-### [gpio](examples/gpio.rs) (currently broken!)
+### [gpio](examples/gpio.rs)
 
 Will display wide vertical bars of red/green/blue.
 
