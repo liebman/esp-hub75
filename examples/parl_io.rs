@@ -1,7 +1,9 @@
-//! Embassy "async" example of an ESP32-C6 driving a 64x64 HUB75 display using the PARL_IO peripheral.
+//! Embassy "async" example of an ESP32-C6 driving a 64x64 HUB75 display using
+//! the PARL_IO peripheral.
 //!
-//! This example draws a simple gradient on the display and shows the refresh rate and render rate plus a simple counter.
-//! 
+//! This example draws a simple gradient on the display and shows the refresh
+//! rate and render rate plus a simple counter.
+//!
 //! Folowing pins are used:
 //! - R1  => GPIO19
 //! - G1  => GPIO20
@@ -17,9 +19,9 @@
 //! - OE  => GPIO5
 //! - CLK => GPIO7
 //! - LAT => GPIO6
-//! 
-//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75 signals
 //!
+//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
+//! signals
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

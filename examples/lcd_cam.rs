@@ -1,7 +1,9 @@
-//! Embassy "async" example of an ESP32-S3 driving a 64x64 HUB75 display using the LCD_CAM peripheral.
+//! Embassy "async" example of an ESP32-S3 driving a 64x64 HUB75 display using
+//! the LCD_CAM peripheral.
 //!
-//! This example draws a simple gradient on the display and shows the refresh rate and render rate plus a simple counter.
-//! 
+//! This example draws a simple gradient on the display and shows the refresh
+//! rate and render rate plus a simple counter.
+//!
 //! Folowing pins are used:
 //! - R1  => GPIO38
 //! - G1  => GPIO42
@@ -17,9 +19,9 @@
 //! - OE  => GPIO11
 //! - CLK => GPIO12
 //! - LAT => GPIO10
-//! 
-//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75 signals
 //!
+//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
+//! signals
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
