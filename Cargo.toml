@@ -13,8 +13,6 @@ defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-# esp-hal = { version = "0.19.0" }
-# esp-hal-procmacros = { version = "0.12.0", features = ["ram"] }
 esp-hal = { version = "0.20.1" }
 esp-hal-procmacros = { version = "0.13.0", features = ["ram"] }
 static_cell = { version = "2.1", features = ["nightly"] }
@@ -39,10 +37,3 @@ debug = ["esp-hal/debug"]
 async = ["esp-hal/async"]
 defmt = ["dep:defmt"]
 println = ["esp-backtrace/println", "esp-println/auto"]
-
-# [patch."https://github.com/esp-rs/esp-hal.git"]
-# esp-alloc = { path = "../esp-hal/esp-alloc" }
-# esp-backtrace = { path = "../esp-hal/esp-backtrace" }
-# esp-println = { path = "../esp-hal/esp-println" }
-# esp-hal = { path = "../esp-hal/esp-hal" }
-# esp-hal-embassy = { path = "../esp-hal/esp-hal-embassy" }
