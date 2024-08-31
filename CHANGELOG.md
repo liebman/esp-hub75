@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `parl_io` Hub75 driver (untested)
+
 ### Changed
+
+- update `esp-hal` to 0.20.1
 
 ### Fixed
 
