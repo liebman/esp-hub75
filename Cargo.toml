@@ -25,7 +25,6 @@ embassy-sync = { version = "0.5.0" }
 embassy-time = { version = "0.3.0", features = ["generic-queue"]}
 esp-backtrace = { version = "0.14.0", features = ["panic-handler", "exception-handler", "println"] }
 esp-println = { version = "0.11.0" }
-esp-hal = { version = "0.20.1", features = ["async"] }
 esp-hal-embassy = { version = "0.3.0" }
 heapless = { version = "0.8.0" , features = ["ufmt"] }
 
