@@ -1,3 +1,27 @@
+//! Example driving a 64x64 HUB75 display (painfully) using GPIO pins
+//! programatically.
+//!
+//! This example draws simple vericle gradient of red, green, and blue bars.
+//!
+//! Folowing pins are used: (this is setup for an esp32s3 update for other
+//! chips)
+//! - R1  => GPIO38
+//! - G1  => GPIO42
+//! - B1  => GPIO48
+//! - R2  => GPIO47
+//! - G2  => GPIO2
+//! - B2  => GPIO21
+//! - A   => GPIO14
+//! - B   => GPIO46
+//! - C   => GPIO13
+//! - D   => GPIO9
+//! - E   => GPIO3
+//! - OE  => GPIO11
+//! - CLK => GPIO12
+//! - LAT => GPIO10
+//!
+//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
+//! signals
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

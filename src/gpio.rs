@@ -236,7 +236,7 @@ impl<
 
     #[esp_hal_procmacros::ram]
     pub fn blank(&mut self, state: bool) {
-        self.oe.set_state(state.into()).unwrap();
+        self.oe.set_state((!state).into()).unwrap();
     }
 
     #[esp_hal_procmacros::ram]
