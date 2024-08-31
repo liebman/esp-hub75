@@ -1,3 +1,25 @@
+//! Embassy "async" example of an ESP32-C6 driving a 64x64 HUB75 display using the PARL_IO peripheral.
+//!
+//! This example draws a simple gradient on the display and shows the refresh rate and render rate plus a simple counter.
+//! 
+//! Folowing pins are used:
+//! - R1  => GPIO19
+//! - G1  => GPIO20
+//! - B1  => GPIO21
+//! - R2  => GPIO22
+//! - G2  => GPIO23
+//! - B2  => GPIO15
+//! - A   => GPIO10
+//! - B   => GPIO8
+//! - C   => GPIO1
+//! - D   => GPIO0
+//! - E   => GPIO11
+//! - OE  => GPIO5
+//! - CLK => GPIO7
+//! - LAT => GPIO6
+//! 
+//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75 signals
+//!
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -276,13 +298,11 @@ async fn main(spawner: Spawner) {
         latch: AnyPin::new(io.pins.gpio6),
     };
 
-    // run hub75 and display on second core
+    // run hub75 as high priority task (interrupt executor)
     static HP_EXECUTOR: StaticCell<InterruptExecutor<2>> = StaticCell::new();
     let executor = InterruptExecutor::new(software_interrupt);
     let hp_executor = HP_EXECUTOR.init(executor);
     let high_pri_spawner = hp_executor.start(Priority::Priority3);
-
-    // hub75 runs as high priority task
     high_pri_spawner
         .spawn(hub75_task(display_peripherals, clocks, &RX, &TX, fb1))
         .ok();

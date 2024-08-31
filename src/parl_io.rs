@@ -145,7 +145,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             parl_io,
             channel.configure_for_async(false, DmaPriority::Priority0),
             tx_descriptors,
-            1.MHz(),
+            15.MHz(),
             clocks,
         )
         .unwrap(); // TODO: handle error

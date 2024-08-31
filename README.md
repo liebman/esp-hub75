@@ -4,8 +4,6 @@ Drive HUB75 displays from ESP32 series SOCs.
 
 **WARNING**: This is currently a very early WORK IN PROGRESS!
 
-**WARNING**: For now the `esp-hal` version required is not released yet this is pinned to a specific git commit.
-
 All implementations use DMA where supported.
 
 - [ ] - documentation!
@@ -13,22 +11,28 @@ All implementations use DMA where supported.
 - [x] - LCD peripheral  (async) for: `esp32s3`
   - [ ] - sync support for LCD peripheral
 - [ ] - I2S peripheral in LCD mode: `esp32`
-- [ ] - PARL_IO peripheral: `esp32c6`
+- [x] - PARL_IO peripheral: `esp32c6`
+  - [ ] - sync support for PARL_IO peripheral
 
 ## Notes
 
-- To drive HUB75 displays reliably you need a level converter between the GPIOs and the HUB75.
+- To drive HUB75 displays reliably you need a level converter between the GPIOs and the HUB75!
 
 ## Examples
 
-### [lcd_cam](examples/lcd_cam.rs)
+### [esp32s3: lcd_cam](examples/lcd_cam.rs)
+
+Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
+Expects a 64x64 matrix.
+
+### [esp32c6: parl_io](examples/parl_io.rs)
 
 Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
 Expects a 64x64 matrix.
 
 ### [gpio](examples/gpio.rs) (currently broken!)
 
-Will display wade vertical bars of red/green/blue.
+Will display wide vertical bars of red/green/blue.
 
 ## License
 
