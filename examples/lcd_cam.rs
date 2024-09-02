@@ -60,6 +60,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::timer::ErasedTimer;
 use esp_hal::timer::OneShotTimer;
 use esp_hal_embassy::InterruptExecutor;
+use esp_hub75::framebuffer::compute_buffer_size;
 use esp_hub75::framebuffer::DmaFrameBuffer;
 use esp_hub75::framebuffer::Entry;
 use esp_hub75::lcd_cam::Hub75;
@@ -91,7 +92,7 @@ pub struct DisplayPeripherals<'a> {
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const BITS: u8 = 4;
-const SIZE: usize = ROWS * COLS * (1 << BITS);
+const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
 
 type Hub75Type = Hub75<'static, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;

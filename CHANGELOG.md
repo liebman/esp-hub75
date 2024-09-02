@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- fixed GPIO implementation
+- fix buffer size calculation (it was doubling the buffer size)
 
 ### Removed
 

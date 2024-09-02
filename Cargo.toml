@@ -16,6 +16,7 @@ embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "0.20.1" }
 esp-hal-procmacros = { version = "0.13.0", features = ["ram"] }
 static_cell = { version = "2.1", features = ["nightly"] }
+xtensa-lx-rt = { version = "0.17.1", optional = true }
 
 [dev-dependencies]
 defmt-rtt = {version = "0.4.1" }
@@ -36,3 +37,4 @@ debug = ["esp-hal/debug"]
 async = ["esp-hal/async"]
 defmt = ["dep:defmt"]
 println = ["esp-backtrace/println", "esp-println/auto"]
+xtensa-lx-rt = ["dep:xtensa-lx-rt"]
