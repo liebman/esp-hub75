@@ -59,12 +59,16 @@ pub struct DmaFrameBuffer<const ROWS: usize, const COLS: usize, const BITS: u8, 
     brightness_step: u8,
 }
 
+pub const fn compute_buffer_size(rows: usize, cols: usize, bits: u8) -> usize {
+    rows * cols / 2 * (1 << bits)
+}
+
 impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
     DmaFrameBuffer<ROWS, COLS, BITS, SIZE>
 {
     pub const fn new() -> Self {
         assert!(BITS > 0 && BITS < 8);
-        assert!(SIZE == ROWS * COLS * (1 << BITS));
+        assert!(SIZE == compute_buffer_size(ROWS, COLS, BITS));
         Self {
             buffer: [Entry::new(); SIZE],
             frame_count: 1 << BITS,
@@ -141,10 +145,6 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
             }
         }
     }
-
-    pub const fn dma_buffer_size_bytes() -> usize {
-        SIZE * core::mem::size_of::<Entry>()
-    }
 }
 
 impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize> Default
@@ -198,7 +198,9 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize> de
 {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(f, "DmaFrameBuffer<{}, {}, {}>", ROWS, COLS, BITS);
-        defmt::write!(f, "frame_count: {}", self.frame_count);
-        defmt::write!(f, "entries: {}", &self.buffer[0..COLS]);
+        defmt::write!(f, " frame_count: {}", self.frame_count);
+        defmt::write!(f, " frame_size: {}", self.frame_size);
+        defmt::write!(f, " brightness_step: {}", self.brightness_step);
+        defmt::write!(f, " buffer size: {}", self.buffer.len());
     }
 }

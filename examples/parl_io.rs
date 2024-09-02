@@ -30,6 +30,8 @@ use core::fmt;
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::Ordering;
 
+use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::task;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -59,6 +61,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::timer::ErasedTimer;
 use esp_hal::timer::OneShotTimer;
 use esp_hal_embassy::InterruptExecutor;
+use esp_hub75::framebuffer::compute_buffer_size;
 use esp_hub75::framebuffer::DmaFrameBuffer;
 use esp_hub75::framebuffer::Entry;
 use esp_hub75::parl_io::Hub75;
@@ -90,7 +93,7 @@ pub struct DisplayPeripherals<'a> {
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const BITS: u8 = 4;
-const SIZE: usize = ROWS * COLS * (1 << BITS);
+const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
 
 type Hub75Type = Hub75<'static, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;
@@ -254,6 +257,7 @@ async fn hub75_task(
 
 #[main]
 async fn main(spawner: Spawner) {
+    info!("main starting!");
     let peripherals = Peripherals::take();
     let system = SystemControl::new(peripherals.SYSTEM);
     let software_interrupt = system.software_interrupt_control.software_interrupt2;
@@ -269,6 +273,7 @@ async fn main(spawner: Spawner) {
         OneShotTimer::new(timer0)
     };
 
+    info!("init embassy");
     let timers = make_static!([timer0, timer1]);
     esp_hal_embassy::init(&clocks, timers);
 
@@ -277,8 +282,12 @@ async fn main(spawner: Spawner) {
 
     static TX: FrameBufferExchange = FrameBufferExchange::new();
     static RX: FrameBufferExchange = FrameBufferExchange::new();
+    info!("init framebuffers");
     let fb0 = make_static!(FBType::new());
     let fb1 = make_static!(FBType::new());
+
+    info!("fb0: {:?}", fb0);
+    info!("fb1: {:?}", fb1);
 
     let display_peripherals = DisplayPeripherals {
         parl_io: peripherals.PARL_IO,
