@@ -1,4 +1,3 @@
-use esp_hal::clock::Clocks;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
 use esp_hal::dma::ReadBuffer;
@@ -68,7 +67,6 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         parl_io: PARL_IO,
         hub75_pins: Hub75Pins<'static>,
         channel: esp_hal::dma::ChannelCreator<0>,
-        clocks: &'d Clocks,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
         static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
@@ -96,8 +94,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
             parl_io,
             channel.configure(false, DmaPriority::Priority0),
             tx_descriptors,
-            1.MHz(),
-            clocks,
+            15.MHz(),
         )
         .unwrap(); // TODO: handle error
 
@@ -109,13 +106,11 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
     }
 }
 
-#[cfg(feature = "async")]
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         parl_io: PARL_IO,
         hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
         channel: esp_hal::dma::ChannelCreator<0>,
-        clocks: &'d Clocks,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
         // TODO: how can we make this non-static?
@@ -146,7 +141,6 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             channel.configure_for_async(false, DmaPriority::Priority0),
             tx_descriptors,
             15.MHz(),
-            clocks,
         )
         .unwrap(); // TODO: handle error
 
