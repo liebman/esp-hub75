@@ -1,4 +1,3 @@
-use esp_hal::clock::Clocks;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
@@ -12,10 +11,6 @@ use esp_hal::peripherals::LCD_CAM;
 use esp_hal::prelude::*;
 
 use crate::framebuffer::DmaFrameBuffer;
-
-pub trait GetBuffer {
-    fn get_buffer(&self) -> &'static [u8];
-}
 
 pub struct Hub75Pins<'d> {
     pub red1: AnyPin<'d>,
@@ -65,25 +60,22 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         lcd_cam: LCD_CAM,
         hub75_pins: Hub75Pins<'d>,
         channel: esp_hal::dma::ChannelCreator<0>,
-        clocks: &'d Clocks,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
         let lcd_cam = LcdCam::new(lcd_cam);
-        Self::new_internal(lcd_cam, hub75_pins, channel, clocks, tx_descriptors)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors)
     }
 }
 
-#[cfg(feature = "async")]
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         lcd_cam: LCD_CAM,
         hub75_pins: Hub75Pins<'d>,
         channel: esp_hal::dma::ChannelCreator<0>,
-        clocks: &'d Clocks,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
         let lcd_cam = LcdCam::new_async(lcd_cam);
-        Self::new_internal(lcd_cam, hub75_pins, channel, clocks, tx_descriptors)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors)
     }
 
     pub async fn render_async<
@@ -107,7 +99,6 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         lcd_cam: LcdCam<'d, DM>,
         hub75_pins: Hub75Pins<'d>,
         channel: esp_hal::dma::ChannelCreator<0>,
-        clocks: &'d Clocks,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
         let channel = channel.configure(false, DmaPriority::Priority0);
@@ -137,7 +128,6 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             pins,
             20.MHz(),
             i8080::Config::default(),
-            clocks,
         )
         .with_ctrl_pins(DummyPin::new(), hub75_pins.clock);
 

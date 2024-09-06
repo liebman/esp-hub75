@@ -24,13 +24,14 @@
 //! signals
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::fmt;
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::Ordering;
 
+#[cfg(feature = "defmt")]
 use defmt::info;
+#[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_executor::task;
 use embassy_executor::Spawner;
@@ -47,19 +48,14 @@ use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
-use esp_hal::clock::ClockControl;
-use esp_hal::clock::Clocks;
 use esp_hal::dma::Dma;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Io;
+use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
-use esp_hal::peripherals::Peripherals;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::prelude::*;
-use esp_hal::system::SystemControl;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::timer::ErasedTimer;
-use esp_hal::timer::OneShotTimer;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_buffer_size;
 use esp_hub75::framebuffer::DmaFrameBuffer;
@@ -68,8 +64,18 @@ use esp_hub75::parl_io::Hub75;
 use esp_hub75::parl_io::Hub75Pins;
 use esp_hub75::Color;
 use heapless::String;
-use static_cell::make_static;
-use static_cell::StaticCell;
+#[cfg(feature = "log")]
+use log::info;
+
+// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
 
 pub struct DisplayPeripherals<'a> {
     pub parl_io: PARL_IO,
@@ -92,7 +98,7 @@ pub struct DisplayPeripherals<'a> {
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 4;
+const BITS: u8 = 5;
 const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
 
 type Hub75Type = Hub75<'static, esp_hal::Async>;
@@ -109,6 +115,7 @@ async fn display_task(
     tx: &'static FrameBufferExchange,
     mut fb: &'static mut FBType,
 ) {
+    info!("display_task: starting!");
     let fps_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
         .text_color(Color::YELLOW)
@@ -199,13 +206,13 @@ async fn display_task(
 #[task]
 async fn hub75_task(
     peripherals: DisplayPeripherals<'static>,
-    clocks: &'static Clocks<'static>,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,
 ) {
-    let channel: esp_hal::dma::ChannelCreator<0> = peripherals.dma_channel;
-    let (tx_descriptors, _) = esp_hal::dma_descriptors!(SIZE * size_of::<Entry>(), 0);
+    info!("hub75_task: starting!");
+    let channel = peripherals.dma_channel;
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
 
     let pins = Hub75Pins {
         red1: peripherals.red1,
@@ -224,8 +231,7 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 =
-        Hub75Type::new_async(peripherals.parl_io, pins, channel, &clocks, tx_descriptors);
+    let mut hub75 = Hub75Type::new_async(peripherals.parl_io, pins, channel, tx_descriptors);
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -255,36 +261,43 @@ async fn hub75_task(
     }
 }
 
+extern "C" {
+    static _stack_end_cpu0: u32;
+    static _stack_start_cpu0: u32;
+}
+
 #[main]
 async fn main(spawner: Spawner) {
-    info!("main starting!");
-    let peripherals = Peripherals::take();
-    let system = SystemControl::new(peripherals.SYSTEM);
-    let software_interrupt = system.software_interrupt_control.software_interrupt2;
-
-    let clocks = make_static!(ClockControl::max(system.clock_control).freeze());
-
-    let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-    let timer0: ErasedTimer = timg0.timer0.into();
-    let timer0 = OneShotTimer::new(timer0);
-    let timer1 = {
-        let timg1 = TimerGroup::new(peripherals.TIMG1, &clocks);
-        let timer0: ErasedTimer = timg1.timer0.into();
-        OneShotTimer::new(timer0)
-    };
-
-    info!("init embassy");
-    let timers = make_static!([timer0, timer1]);
-    esp_hal_embassy::init(&clocks, timers);
-
+    #[cfg(feature = "log")]
+    esp_println::logger::init_logger(log::LevelFilter::Info);
+    info!("Main starting!");
+    info!("main: stack size:  {}", unsafe {
+        core::ptr::addr_of!(_stack_start_cpu0).offset_from(core::ptr::addr_of!(_stack_end_cpu0))
+    });
+    info!("ROWS: {}", ROWS);
+    info!("COLS: {}", COLS);
+    info!("BITS: {}", BITS);
+    info!("SIZE: {}", SIZE);
+    let mut config = esp_hal::Config::default();
+    config.cpu_clock = CpuClock::max();
+    let peripherals = esp_hal::init(config);
+    let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    let software_interrupt = sw_ints.software_interrupt2;
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     let dma = Dma::new(peripherals.DMA);
+
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+
+    info!("init embassy");
+    esp_hal_embassy::init(timg0.timer0);
 
     static TX: FrameBufferExchange = FrameBufferExchange::new();
     static RX: FrameBufferExchange = FrameBufferExchange::new();
     info!("init framebuffers");
-    let fb0 = make_static!(FBType::new());
-    let fb1 = make_static!(FBType::new());
+    let fb0 = mk_static!(FBType, FBType::new());
+    let fb1 = mk_static!(FBType, FBType::new());
+    fb0.clear();
+    fb1.clear();
 
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);
@@ -310,12 +323,13 @@ async fn main(spawner: Spawner) {
     };
 
     // run hub75 as high priority task (interrupt executor)
-    static HP_EXECUTOR: StaticCell<InterruptExecutor<2>> = StaticCell::new();
-    let executor = InterruptExecutor::new(software_interrupt);
-    let hp_executor = HP_EXECUTOR.init(executor);
+    let hp_executor = mk_static!(
+        InterruptExecutor<2>,
+        InterruptExecutor::new(software_interrupt)
+    );
     let high_pri_spawner = hp_executor.start(Priority::Priority3);
     high_pri_spawner
-        .spawn(hub75_task(display_peripherals, clocks, &RX, &TX, fb1))
+        .spawn(hub75_task(display_peripherals, &RX, &TX, fb1))
         .ok();
 
     // display task runs as low priority task

@@ -59,8 +59,12 @@ pub struct DmaFrameBuffer<const ROWS: usize, const COLS: usize, const BITS: u8, 
     brightness_step: u8,
 }
 
+pub const fn compute_frame_size(rows: usize, cols: usize) -> usize {
+    rows / 2 * cols
+}
+
 pub const fn compute_buffer_size(rows: usize, cols: usize, bits: u8) -> usize {
-    rows * cols / 2 * (1 << bits)
+    compute_frame_size(rows, cols) * (1 << bits)
 }
 
 impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
@@ -71,10 +75,18 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
         assert!(SIZE == compute_buffer_size(ROWS, COLS, BITS));
         Self {
             buffer: [Entry::new(); SIZE],
-            frame_count: 1 << BITS,
-            frame_size: ROWS / 2 * COLS,
+            frame_count: 1usize << BITS,
+            frame_size: compute_frame_size(ROWS, COLS),
             brightness_step: 1 << (8 - BITS),
         }
+    }
+
+    pub const fn dma_buffer_size_bytes() -> usize {
+        core::mem::size_of::<Entry>() * SIZE
+    }
+
+    pub fn frames(&self) -> core::slice::Chunks<'_, Entry> {
+        self.buffer.chunks(self.frame_size)
     }
 
     // clear and format the frame
@@ -85,11 +97,11 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
 
         let mut prev_addr = 0u8;
 
-        for y in 0..(ROWS / 2) as u8 {
+        for y in 0usize..(ROWS / 2) {
             // we render in reverse order because when the lcd_cam device finishes renering
             // it sets the address lines back to 0
-            let addr = ROWS as u8 / 2 - 1 - y;
-            let start = y as usize * COLS;
+            let addr = ROWS as u8 / 2 - 1 - y as u8;
+            let start = y * COLS;
             let mut entry: Entry = Entry::new();
             entry.set_addr(prev_addr as u16);
             entry.set_output_enable(false);
@@ -119,6 +131,9 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
     }
 
     pub fn set_pixel(&mut self, p: Point, color: Color) {
+        if p.x < 0 || p.y < 0 {
+            return;
+        }
         self.set_pixel_internal(p.x as usize, p.y as usize, color);
     }
 
@@ -189,6 +204,20 @@ unsafe impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: us
             self.buffer.as_ptr() as *const u8,
             self.buffer.len() * core::mem::size_of::<Entry>(),
         )
+    }
+}
+
+#[cfg(feature = "log")]
+impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize> core::fmt::Debug
+    for DmaFrameBuffer<ROWS, COLS, BITS, SIZE>
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DmaFrameBuffer")
+            .field("buffer_len", &self.buffer.len())
+            .field("frame_count", &self.frame_count)
+            .field("frame_size", &self.frame_size)
+            .field("brightness_step", &self.brightness_step)
+            .finish()
     }
 }
 
