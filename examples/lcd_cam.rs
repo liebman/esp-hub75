@@ -52,7 +52,7 @@ use esp_backtrace as _;
 use esp_hal::cpu_control::CpuControl;
 use esp_hal::cpu_control::Stack;
 use esp_hal::dma::Dma;
-use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::ErasedPin;
 use esp_hal::gpio::Io;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
@@ -94,23 +94,23 @@ type Hub75Type = Hub75<'static, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
-pub struct Hub75Peripherals<'a> {
+pub struct Hub75Peripherals {
     pub lcd_cam: LCD_CAM,
     pub dma_channel: esp_hal::dma::ChannelCreator<0>,
-    pub red1: AnyPin<'a>,
-    pub grn1: AnyPin<'a>,
-    pub blu1: AnyPin<'a>,
-    pub red2: AnyPin<'a>,
-    pub grn2: AnyPin<'a>,
-    pub blu2: AnyPin<'a>,
-    pub addr0: AnyPin<'a>,
-    pub addr1: AnyPin<'a>,
-    pub addr2: AnyPin<'a>,
-    pub addr3: AnyPin<'a>,
-    pub addr4: AnyPin<'a>,
-    pub blank: AnyPin<'a>,
-    pub clock: AnyPin<'a>,
-    pub latch: AnyPin<'a>,
+    pub red1: ErasedPin,
+    pub grn1: ErasedPin,
+    pub blu1: ErasedPin,
+    pub red2: ErasedPin,
+    pub grn2: ErasedPin,
+    pub blu2: ErasedPin,
+    pub addr0: ErasedPin,
+    pub addr1: ErasedPin,
+    pub addr2: ErasedPin,
+    pub addr3: ErasedPin,
+    pub addr4: ErasedPin,
+    pub blank: ErasedPin,
+    pub clock: ErasedPin,
+    pub latch: ErasedPin,
 }
 
 #[task]
@@ -212,7 +212,7 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: Hub75Peripherals<'static>,
+    peripherals: Hub75Peripherals,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,
@@ -315,21 +315,20 @@ async fn main(_spawner: Spawner) {
     let hub75_peripherals = Hub75Peripherals {
         lcd_cam: peripherals.LCD_CAM,
         dma_channel: dma.channel0,
-        red1: AnyPin::new(io.pins.gpio38),
-        grn1: AnyPin::new(io.pins.gpio42),
-        blu1: AnyPin::new(io.pins.gpio48),
-        red2: AnyPin::new(io.pins.gpio47),
-        grn2: AnyPin::new(io.pins.gpio2),
-        blu2: AnyPin::new(io.pins.gpio21),
-        addr0: AnyPin::new(io.pins.gpio14),
-        addr1: AnyPin::new(io.pins.gpio46),
-        addr2: AnyPin::new(io.pins.gpio13),
-        addr3: AnyPin::new(io.pins.gpio9),
-        addr4: AnyPin::new(io.pins.gpio3),
-        blank: AnyPin::new_inverted(io.pins.gpio11), /* inverted to prevent ghosting when
-                                                      * DMA stopped! */
-        clock: AnyPin::new(io.pins.gpio12),
-        latch: AnyPin::new(io.pins.gpio10),
+        red1: io.pins.gpio38.degrade(),
+        grn1: io.pins.gpio42.degrade(),
+        blu1: io.pins.gpio48.degrade(),
+        red2: io.pins.gpio47.degrade(),
+        grn2: io.pins.gpio2.degrade(),
+        blu2: io.pins.gpio21.degrade(),
+        addr0: io.pins.gpio14.degrade(),
+        addr1: io.pins.gpio46.degrade(),
+        addr2: io.pins.gpio13.degrade(),
+        addr3: io.pins.gpio9.degrade(),
+        addr4: io.pins.gpio3.degrade(),
+        blank: io.pins.gpio11.degrade(),
+        clock: io.pins.gpio12.degrade(),
+        latch: io.pins.gpio10.degrade(),
     };
 
     // run hub75 and display on second core
