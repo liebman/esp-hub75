@@ -238,7 +238,7 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors);
+    let mut hub75 = Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, 20.MHz());
 
     let mut count = 0u32;
     let mut start = Instant::now();

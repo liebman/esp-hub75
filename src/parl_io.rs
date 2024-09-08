@@ -11,9 +11,9 @@ use esp_hal::parl_io::ParlIoTxOnly;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
-use esp_hal::prelude::*;
 
 use crate::framebuffer::DmaFrameBuffer;
+use crate::HertzU32;
 use crate::Hub75Pins;
 
 type Hub75TxSixteenBits<'d> = TxSixteenBits<
@@ -93,6 +93,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
         channel: esp_hal::dma::ChannelCreator<0>,
         tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: HertzU32,
     ) -> Self {
         // TODO: how can we make this non-static?
         static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
@@ -121,7 +122,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             parl_io,
             channel.configure_for_async(false, DmaPriority::Priority0),
             tx_descriptors,
-            15.MHz(),
+            frequency,
         )
         .unwrap(); // TODO: handle error
 

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - update `esp-hal` to 0.20.1
+- parl_io, lcd_cam: frequency is required to be passed in
 
 ### Fixed
 

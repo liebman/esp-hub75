@@ -9,9 +9,9 @@ use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::peripherals::LCD_CAM;
-use esp_hal::prelude::*;
 
 use crate::framebuffer::DmaFrameBuffer;
+use crate::HertzU32;
 use crate::Hub75Pins;
 
 type Hub75TxSixteenBits<'d> = TxSixteenBits<
@@ -58,9 +58,10 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         hub75_pins: Hub75Pins,
         channel: esp_hal::dma::ChannelCreator<0>,
         tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: HertzU32,
     ) -> Self {
         let lcd_cam = LcdCam::new_async(lcd_cam);
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 
     pub async fn render_async<
@@ -85,6 +86,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         hub75_pins: Hub75Pins,
         channel: esp_hal::dma::ChannelCreator<0>,
         tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: HertzU32,
     ) -> Self {
         let channel = channel.configure(false, DmaPriority::Priority0);
         let pins = TxSixteenBits::new(
@@ -111,7 +113,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             channel.tx,
             tx_descriptors,
             pins,
-            20.MHz(),
+            frequency,
             i8080::Config::default(),
         )
         .with_ctrl_pins(DummyPin::new(), hub75_pins.clock);

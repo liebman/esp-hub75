@@ -8,13 +8,14 @@ rust-version = "1.71"
 
 [dependencies]
 bitfield = { version = "0.14.0" }
-critical-section    = { version = "1.1.2" }
+critical-section = { version = "1.1.2" }
 defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "0.20.1" }
 esp-hal-procmacros = { version = "0.13.0", features = ["ram"] }
+fugit = { version = "0.3.7" }
 log = { version = "0.4.22", optional = true }
 static_cell = { version = "2.1", features = ["nightly"] }
 xtensa-lx-rt = { version = "0.17.1", optional = true }
@@ -23,23 +24,41 @@ xtensa-lx-rt = { version = "0.17.1", optional = true }
 esp-build = "0.1.0"
 
 [dev-dependencies]
-defmt-rtt = {version = "0.4.1" }
+defmt-rtt = { version = "0.4.1" }
 embassy-embedded-hal = { version = "0.1.0" }
 embassy-executor = { version = "0.6.0" }
 embassy-sync = { version = "0.5.0" }
-embassy-time = { version = "0.3.0", features = ["generic-queue"]}
-esp-backtrace = { version = "0.14.0", features = ["panic-handler", "exception-handler"] }
+embassy-time = { version = "0.3.0", features = ["generic-queue"] }
+esp-backtrace = { version = "0.14.0", features = [
+    "panic-handler",
+    "exception-handler",
+] }
 esp-println = { version = "0.11.0" }
 esp-hal-embassy = { version = "0.3.0" }
-heapless = { version = "0.8.0" , features = ["ufmt"] }
+heapless = { version = "0.8.0", features = ["ufmt"] }
 
 [features]
 default = []
-esp32s3 = ["esp-hal/esp32s3", "esp-backtrace/esp32s3", "esp-hal-embassy/esp32s3", "esp-println/esp32s3"]
-esp32c6 = ["esp-hal/esp32c6", "esp-backtrace/esp32c6", "esp-hal-embassy/esp32c6", "esp-println/esp32c6"]
+esp32s3 = [
+    "esp-hal/esp32s3",
+    "esp-backtrace/esp32s3",
+    "esp-hal-embassy/esp32s3",
+    "esp-println/esp32s3",
+]
+esp32c6 = [
+    "esp-hal/esp32c6",
+    "esp-backtrace/esp32c6",
+    "esp-hal-embassy/esp32c6",
+    "esp-println/esp32c6",
+]
 debug = ["esp-hal/debug"]
-defmt = ["dep:defmt", "esp-backtrace/defmt"]
-log =   ["dep:log",   "esp-backtrace/println", "esp-println/auto", "esp-println/log"]
+defmt = ["dep:defmt", "esp-backtrace/defmt", "fugit/defmt"]
+log = [
+    "dep:log",
+    "esp-backtrace/println",
+    "esp-println/auto",
+    "esp-println/log",
+]
 xtensa-lx-rt = ["dep:xtensa-lx-rt"]
 
 [patch.crates-io]

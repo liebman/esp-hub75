@@ -12,6 +12,7 @@ pub mod lcd_cam;
 pub mod parl_io;
 
 pub type Color = Rgb888;
+pub use fugit::HertzU32;
 
 pub struct Hub75Pins {
     pub red1: ErasedPin,
