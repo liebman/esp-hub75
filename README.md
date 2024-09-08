@@ -7,7 +7,6 @@ Drive HUB75 displays from ESP32 series SOCs.
 All implementations use DMA where supported.
 
 - [ ] - documentation!
-- [x] - GPIO rudimentary brute force
 - [x] - LCD peripheral  (async) for: `esp32s3`
   - [ ] - sync support for LCD peripheral
 - [ ] - I2S peripheral in LCD mode: `esp32`
@@ -29,10 +28,6 @@ Expects a 64x64 matrix.
 
 Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
 Expects a 64x64 matrix.
-
-### [gpio](examples/gpio.rs)
-
-Will display wide vertical bars of red/green/blue.
 
 ## License
 

@@ -43,49 +43,49 @@ pub struct Hub75<'d, DM: esp_hal::Mode> {
     parl_io: ParlIoTx<'d, DmaChannel0, DM>,
 }
 
-impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new(
-        parl_io: PARL_IO,
-        hub75_pins: Hub75Pins,
-        channel: esp_hal::dma::ChannelCreator<0>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-    ) -> Self {
-        static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
-        let pins = PINS.init(TxSixteenBits::new(
-            hub75_pins.addr0,
-            hub75_pins.addr1,
-            hub75_pins.addr2,
-            hub75_pins.addr3,
-            hub75_pins.addr4,
-            hub75_pins.latch,
-            AnyPin::new_inverted(hub75_pins.blank),
-            DummyPin::new(),
-            DummyPin::new(),
-            DummyPin::new(),
-            hub75_pins.red1,
-            hub75_pins.grn1,
-            hub75_pins.blu1,
-            hub75_pins.red2,
-            hub75_pins.grn2,
-            hub75_pins.blu2,
-        ));
-        static CLOCK_PIN: StaticCell<ClkOutPin<ErasedPin>> = StaticCell::new();
-        let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-        let parl_io: ParlIoTxOnly<DmaChannel0, esp_hal::Blocking> = ParlIoTxOnly::new(
-            parl_io,
-            channel.configure(false, DmaPriority::Priority0),
-            tx_descriptors,
-            15.MHz(),
-        )
-        .unwrap(); // TODO: handle error
+// impl<'d> Hub75<'d, esp_hal::Blocking> {
+//     pub fn new(
+//         parl_io: PARL_IO,
+//         hub75_pins: Hub75Pins,
+//         channel: esp_hal::dma::ChannelCreator<0>,
+//         tx_descriptors: &'static mut [DmaDescriptor],
+//     ) -> Self {
+//         static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
+//         let pins = PINS.init(TxSixteenBits::new(
+//             hub75_pins.addr0,
+//             hub75_pins.addr1,
+//             hub75_pins.addr2,
+//             hub75_pins.addr3,
+//             hub75_pins.addr4,
+//             hub75_pins.latch,
+//             AnyPin::new_inverted(hub75_pins.blank),
+//             DummyPin::new(),
+//             DummyPin::new(),
+//             DummyPin::new(),
+//             hub75_pins.red1,
+//             hub75_pins.grn1,
+//             hub75_pins.blu1,
+//             hub75_pins.red2,
+//             hub75_pins.grn2,
+//             hub75_pins.blu2,
+//         ));
+//         static CLOCK_PIN: StaticCell<ClkOutPin<ErasedPin>> = StaticCell::new();
+//         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
+//         let parl_io: ParlIoTxOnly<DmaChannel0, esp_hal::Blocking> = ParlIoTxOnly::new(
+//             parl_io,
+//             channel.configure(false, DmaPriority::Priority0),
+//             tx_descriptors,
+//             15.MHz(),
+//         )
+//         .unwrap(); // TODO: handle error
 
-        let parl_io = parl_io
-            .tx
-            .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)
-            .unwrap(); // TODO: handle error
-        Self { parl_io }
-    }
-}
+//         let parl_io = parl_io
+//             .tx
+//             .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)
+//             .unwrap(); // TODO: handle error
+//         Self { parl_io }
+//     }
+// }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
@@ -127,7 +127,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 
         let parl_io = parl_io
             .tx
-            .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)
+            .with_config(pins, clock_pin, 0, SampleEdge::Invert, BitPackOrder::Msb)
             .unwrap(); // TODO: handle error
         Self { parl_io }
     }
