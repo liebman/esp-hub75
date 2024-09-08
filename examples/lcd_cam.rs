@@ -65,8 +65,8 @@ use esp_hub75::framebuffer::compute_buffer_size;
 use esp_hub75::framebuffer::DmaFrameBuffer;
 use esp_hub75::framebuffer::Entry;
 use esp_hub75::lcd_cam::Hub75;
-use esp_hub75::lcd_cam::Hub75Pins;
 use esp_hub75::Color;
+use esp_hub75::Hub75Pins;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;

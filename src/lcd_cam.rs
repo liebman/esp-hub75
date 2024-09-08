@@ -1,8 +1,8 @@
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::ErasedPin;
 use esp_hal::gpio::DummyPin;
+use esp_hal::gpio::ErasedPin;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
@@ -12,23 +12,7 @@ use esp_hal::peripherals::LCD_CAM;
 use esp_hal::prelude::*;
 
 use crate::framebuffer::DmaFrameBuffer;
-
-pub struct Hub75Pins {
-    pub red1: ErasedPin,
-    pub grn1: ErasedPin,
-    pub blu1: ErasedPin,
-    pub red2: ErasedPin,
-    pub grn2: ErasedPin,
-    pub blu2: ErasedPin,
-    pub addr0: ErasedPin,
-    pub addr1: ErasedPin,
-    pub addr2: ErasedPin,
-    pub addr3: ErasedPin,
-    pub addr4: ErasedPin,
-    pub blank: ErasedPin,
-    pub clock: ErasedPin,
-    pub latch: ErasedPin,
-}
+use crate::Hub75Pins;
 
 type Hub75TxSixteenBits<'d> = TxSixteenBits<
     'd,

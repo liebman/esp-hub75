@@ -49,7 +49,7 @@ use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::dma::Dma;
-use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::ErasedPin;
 use esp_hal::gpio::Io;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
@@ -61,8 +61,8 @@ use esp_hub75::framebuffer::compute_buffer_size;
 use esp_hub75::framebuffer::DmaFrameBuffer;
 use esp_hub75::framebuffer::Entry;
 use esp_hub75::parl_io::Hub75;
-use esp_hub75::parl_io::Hub75Pins;
 use esp_hub75::Color;
+use esp_hub75::Hub75Pins;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -77,28 +77,28 @@ macro_rules! mk_static {
     }};
 }
 
-pub struct DisplayPeripherals<'a> {
+pub struct DisplayPeripherals {
     pub parl_io: PARL_IO,
     pub dma_channel: esp_hal::dma::ChannelCreator<0>,
-    pub red1: AnyPin<'a>,
-    pub grn1: AnyPin<'a>,
-    pub blu1: AnyPin<'a>,
-    pub red2: AnyPin<'a>,
-    pub grn2: AnyPin<'a>,
-    pub blu2: AnyPin<'a>,
-    pub addr0: AnyPin<'a>,
-    pub addr1: AnyPin<'a>,
-    pub addr2: AnyPin<'a>,
-    pub addr3: AnyPin<'a>,
-    pub addr4: AnyPin<'a>,
-    pub blank: AnyPin<'a>,
-    pub clock: AnyPin<'a>,
-    pub latch: AnyPin<'a>,
+    pub red1: ErasedPin,
+    pub grn1: ErasedPin,
+    pub blu1: ErasedPin,
+    pub red2: ErasedPin,
+    pub grn2: ErasedPin,
+    pub blu2: ErasedPin,
+    pub addr0: ErasedPin,
+    pub addr1: ErasedPin,
+    pub addr2: ErasedPin,
+    pub addr3: ErasedPin,
+    pub addr4: ErasedPin,
+    pub blank: ErasedPin,
+    pub clock: ErasedPin,
+    pub latch: ErasedPin,
 }
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 5;
+const BITS: u8 = 4;
 const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
 
 type Hub75Type = Hub75<'static, esp_hal::Async>;
@@ -205,7 +205,7 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: DisplayPeripherals<'static>,
+    peripherals: DisplayPeripherals,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,
@@ -305,21 +305,20 @@ async fn main(spawner: Spawner) {
     let display_peripherals = DisplayPeripherals {
         parl_io: peripherals.PARL_IO,
         dma_channel: dma.channel0,
-        red1: AnyPin::new(io.pins.gpio19),
-        grn1: AnyPin::new(io.pins.gpio20),
-        blu1: AnyPin::new(io.pins.gpio21),
-        red2: AnyPin::new(io.pins.gpio22),
-        grn2: AnyPin::new(io.pins.gpio23),
-        blu2: AnyPin::new(io.pins.gpio15),
-        addr0: AnyPin::new(io.pins.gpio10),
-        addr1: AnyPin::new(io.pins.gpio8),
-        addr2: AnyPin::new(io.pins.gpio1),
-        addr3: AnyPin::new(io.pins.gpio0),
-        addr4: AnyPin::new(io.pins.gpio11),
-        blank: AnyPin::new_inverted(io.pins.gpio5), /* inverted to prevent ghosting when
-                                                     * DMA stopped! */
-        clock: AnyPin::new(io.pins.gpio7),
-        latch: AnyPin::new(io.pins.gpio6),
+        red1: io.pins.gpio19.degrade(),
+        grn1: io.pins.gpio20.degrade(),
+        blu1: io.pins.gpio21.degrade(),
+        red2: io.pins.gpio22.degrade(),
+        grn2: io.pins.gpio23.degrade(),
+        blu2: io.pins.gpio15.degrade(),
+        addr0: io.pins.gpio10.degrade(),
+        addr1: io.pins.gpio8.degrade(),
+        addr2: io.pins.gpio1.degrade(),
+        addr3: io.pins.gpio0.degrade(),
+        addr4: io.pins.gpio11.degrade(),
+        blank: io.pins.gpio5.degrade(),
+        clock: io.pins.gpio7.degrade(),
+        latch: io.pins.gpio6.degrade(),
     };
 
     // run hub75 as high priority task (interrupt executor)

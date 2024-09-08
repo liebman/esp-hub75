@@ -3,6 +3,7 @@ use esp_hal::dma::DmaPriority;
 use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::DummyPin;
+use esp_hal::gpio::ErasedPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ParlIoTx;
@@ -13,46 +14,26 @@ use esp_hal::peripherals::PARL_IO;
 use esp_hal::prelude::*;
 
 use crate::framebuffer::DmaFrameBuffer;
-
-pub trait GetBuffer {
-    fn get_buffer(&self) -> &'static [u8];
-}
-
-pub struct Hub75Pins<'d> {
-    pub red1: AnyPin<'d>,
-    pub grn1: AnyPin<'d>,
-    pub blu1: AnyPin<'d>,
-    pub red2: AnyPin<'d>,
-    pub grn2: AnyPin<'d>,
-    pub blu2: AnyPin<'d>,
-    pub addr0: AnyPin<'d>,
-    pub addr1: AnyPin<'d>,
-    pub addr2: AnyPin<'d>,
-    pub addr3: AnyPin<'d>,
-    pub addr4: AnyPin<'d>,
-    pub blank: AnyPin<'d>,
-    pub clock: AnyPin<'d>,
-    pub latch: AnyPin<'d>,
-}
+use crate::Hub75Pins;
 
 type Hub75TxSixteenBits<'d> = TxSixteenBits<
     'd,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
     AnyPin<'d>,
     DummyPin,
     DummyPin,
     DummyPin,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
-    AnyPin<'d>,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
+    ErasedPin,
 >;
 
 // TODO: make DMA channel a type parameter
@@ -65,7 +46,7 @@ pub struct Hub75<'d, DM: esp_hal::Mode> {
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new(
         parl_io: PARL_IO,
-        hub75_pins: Hub75Pins<'static>,
+        hub75_pins: Hub75Pins,
         channel: esp_hal::dma::ChannelCreator<0>,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
@@ -77,7 +58,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
             hub75_pins.addr3,
             hub75_pins.addr4,
             hub75_pins.latch,
-            hub75_pins.blank,
+            AnyPin::new_inverted(hub75_pins.blank),
             DummyPin::new(),
             DummyPin::new(),
             DummyPin::new(),
@@ -88,7 +69,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
             hub75_pins.grn2,
             hub75_pins.blu2,
         ));
-        static CLOCK_PIN: StaticCell<ClkOutPin<AnyPin>> = StaticCell::new();
+        static CLOCK_PIN: StaticCell<ClkOutPin<ErasedPin>> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
         let parl_io: ParlIoTxOnly<DmaChannel0, esp_hal::Blocking> = ParlIoTxOnly::new(
             parl_io,
@@ -109,7 +90,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         parl_io: PARL_IO,
-        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
+        hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
         channel: esp_hal::dma::ChannelCreator<0>,
         tx_descriptors: &'static mut [DmaDescriptor],
     ) -> Self {
@@ -122,7 +103,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             hub75_pins.addr3,
             hub75_pins.addr4,
             hub75_pins.latch,
-            hub75_pins.blank,
+            AnyPin::new_inverted(hub75_pins.blank),
             DummyPin::new(),
             DummyPin::new(),
             DummyPin::new(),
@@ -134,7 +115,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             hub75_pins.blu2,
         ));
         // TODO: how can we make this non-static?
-        static CLOCK_PIN: StaticCell<ClkOutPin<AnyPin>> = StaticCell::new();
+        static CLOCK_PIN: StaticCell<ClkOutPin<ErasedPin>> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
         let parl_io = ParlIoTxOnly::new(
             parl_io,
