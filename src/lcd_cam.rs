@@ -2,7 +2,7 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::DummyPin;
-use esp_hal::gpio::ErasedPin;
+use esp_hal::gpio::interconnect::OutputSignal;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
@@ -16,22 +16,22 @@ use crate::Hub75Pins;
 
 type Hub75TxSixteenBits<'d> = TxSixteenBits<
     'd,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    AnyPin<'d>,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    OutputSignal,
     DummyPin,
     DummyPin,
     DummyPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
-    ErasedPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
 >;
 
 // TODO: make DMA channel a type parameter
@@ -96,7 +96,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             hub75_pins.addr3,
             hub75_pins.addr4,
             hub75_pins.latch,
-            AnyPin::new_inverted(hub75_pins.blank),
+            hub75_pins.blank.into_peripheral_output().inverted(),
             DummyPin::new(),
             DummyPin::new(),
             DummyPin::new(),

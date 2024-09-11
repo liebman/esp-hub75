@@ -2,7 +2,7 @@
 #![feature(type_alias_impl_trait)]
 
 use embedded_graphics::pixelcolor::Rgb888;
-use esp_hal::gpio::ErasedPin;
+use esp_hal::gpio::AnyPin;
 
 #[cfg(any(feature = "esp32s3", feature = "esp32c6"))]
 pub mod framebuffer;
@@ -15,18 +15,18 @@ pub type Color = Rgb888;
 pub use fugit::HertzU32;
 
 pub struct Hub75Pins {
-    pub red1: ErasedPin,
-    pub grn1: ErasedPin,
-    pub blu1: ErasedPin,
-    pub red2: ErasedPin,
-    pub grn2: ErasedPin,
-    pub blu2: ErasedPin,
-    pub addr0: ErasedPin,
-    pub addr1: ErasedPin,
-    pub addr2: ErasedPin,
-    pub addr3: ErasedPin,
-    pub addr4: ErasedPin,
-    pub blank: ErasedPin,
-    pub clock: ErasedPin,
-    pub latch: ErasedPin,
+    pub red1: AnyPin,
+    pub grn1: AnyPin,
+    pub blu1: AnyPin,
+    pub red2: AnyPin,
+    pub grn2: AnyPin,
+    pub blu2: AnyPin,
+    pub addr0: AnyPin,
+    pub addr1: AnyPin,
+    pub addr2: AnyPin,
+    pub addr3: AnyPin,
+    pub addr4: AnyPin,
+    pub blank: AnyPin,
+    pub clock: AnyPin,
+    pub latch: AnyPin,
 }
