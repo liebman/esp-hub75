@@ -3,7 +3,7 @@ use esp_hal::dma::DmaPriority;
 use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::interconnect::OutputSignal;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::DummyPin;
+use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ParlIoTx;
@@ -25,9 +25,9 @@ type Hub75TxSixteenBits<'d> = TxSixteenBits<
     AnyPin,
     AnyPin,
     OutputSignal,
-    DummyPin,
-    DummyPin,
-    DummyPin,
+    NoPin,
+    NoPin,
+    NoPin,
     AnyPin,
     AnyPin,
     AnyPin,
@@ -59,9 +59,9 @@ pub struct Hub75<'d, DM: esp_hal::Mode> {
 //             hub75_pins.addr4,
 //             hub75_pins.latch,
 //             AnyPin::new_inverted(hub75_pins.blank),
-//             DummyPin::new(),
-//             DummyPin::new(),
-//             DummyPin::new(),
+//             NoPin::new(),
+//             NoPin::new(),
+//             NoPin::new(),
 //             hub75_pins.red1,
 //             hub75_pins.grn1,
 //             hub75_pins.blu1,
@@ -105,9 +105,9 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             hub75_pins.addr4,
             hub75_pins.latch,
             hub75_pins.blank.into_peripheral_output().inverted(),
-            DummyPin::new(),
-            DummyPin::new(),
-            DummyPin::new(),
+            NoPin,
+            NoPin,
+            NoPin,
             hub75_pins.red1,
             hub75_pins.grn1,
             hub75_pins.blu1,

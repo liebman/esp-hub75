@@ -1,7 +1,7 @@
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::DummyPin;
+use esp_hal::gpio::NoPin;
 use esp_hal::gpio::interconnect::OutputSignal;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
@@ -23,9 +23,9 @@ type Hub75TxSixteenBits<'d> = TxSixteenBits<
     AnyPin,
     AnyPin,
     OutputSignal,
-    DummyPin,
-    DummyPin,
-    DummyPin,
+    NoPin,
+    NoPin,
+    NoPin,
     AnyPin,
     AnyPin,
     AnyPin,
@@ -97,9 +97,9 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             hub75_pins.addr4,
             hub75_pins.latch,
             hub75_pins.blank.into_peripheral_output().inverted(),
-            DummyPin::new(),
-            DummyPin::new(),
-            DummyPin::new(),
+            NoPin,
+            NoPin,
+            NoPin,
             hub75_pins.red1,
             hub75_pins.grn1,
             hub75_pins.blu1,
@@ -116,7 +116,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             frequency,
             i8080::Config::default(),
         )
-        .with_ctrl_pins(DummyPin::new(), hub75_pins.clock);
+        .with_ctrl_pins(NoPin::new(), hub75_pins.clock);
 
         Self { i8080 }
     }
