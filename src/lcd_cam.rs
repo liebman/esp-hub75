@@ -1,8 +1,6 @@
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaPriority;
-use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
-use esp_hal::gpio::interconnect::OutputSignal;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
@@ -14,30 +12,10 @@ use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Pins;
 
-type Hub75TxSixteenBits<'d> = TxSixteenBits<
-    'd,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    OutputSignal,
-    NoPin,
-    NoPin,
-    NoPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
->;
-
 // TODO: make DMA channel a type parameter
 use esp_hal::dma::DmaChannel0;
 pub struct Hub75<'d, DM: esp_hal::Mode> {
-    i8080: I8080<'d, DmaChannel0, Hub75TxSixteenBits<'d>, DM>,
+    i8080: I8080<'d, DmaChannel0, DM>,
 }
 
 // impl<'d> Hub75<'d, esp_hal::Blocking> {
@@ -116,7 +94,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             frequency,
             i8080::Config::default(),
         )
-        .with_ctrl_pins(NoPin::new(), hub75_pins.clock);
+        .with_ctrl_pins(NoPin, hub75_pins.clock);
 
         Self { i8080 }
     }
