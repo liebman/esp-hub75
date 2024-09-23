@@ -18,18 +18,6 @@ pub struct Hub75<'d, DM: esp_hal::Mode> {
     i8080: I8080<'d, DmaChannel0, DM>,
 }
 
-// impl<'d> Hub75<'d, esp_hal::Blocking> {
-//     pub fn new(
-//         lcd_cam: LCD_CAM,
-//         hub75_pins: Hub75Pins,
-//         channel: esp_hal::dma::ChannelCreator<0>,
-//         tx_descriptors: &'static mut [DmaDescriptor],
-//     ) -> Self {
-//         let lcd_cam = LcdCam::new(lcd_cam);
-//         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors)
-//     }
-// }
-
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         lcd_cam: LCD_CAM,
@@ -74,16 +62,16 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             hub75_pins.addr3,
             hub75_pins.addr4,
             hub75_pins.latch,
+            NoPin,
+            NoPin,
             hub75_pins.blank.into_peripheral_output().inverted(),
-            NoPin,
-            NoPin,
-            NoPin,
             hub75_pins.red1,
             hub75_pins.grn1,
             hub75_pins.blu1,
             hub75_pins.red2,
             hub75_pins.grn2,
             hub75_pins.blu2,
+            NoPin,
         );
 
         let i8080 = I8080::new(

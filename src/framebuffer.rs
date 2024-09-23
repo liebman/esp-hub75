@@ -13,16 +13,16 @@ bitfield! {
     #[repr(transparent)]
     pub struct Entry(u16);
     impl Debug;
-    blu2, set_blu2: 15;
-    grn2, set_grn2: 14;
-    red2, set_red2: 13;
-    blu1, set_blu1: 12;
-    grn1, set_grn1: 11;
-    red1, set_red1: 10;
-    dummy2, set_dummy2: 9;
-    dummy1, set_dummy1: 8;
-    dummy0, set_dummy0: 7;
-    output_enable, set_output_enable: 6;
+    dummy2, set_dummy2: 15;
+    blu2, set_blu2: 14;
+    grn2, set_grn2: 13;
+    red2, set_red2: 12;
+    blu1, set_blu1: 11;
+    grn1, set_grn1: 10;
+    red1, set_red1: 9;
+    output_enable, set_output_enable: 8;
+    dummy1, set_dummy1: 7;
+    dummy0, set_dummy0: 6;
     latch, set_latch: 5;
     addr, set_addr: 4, 0;
 }

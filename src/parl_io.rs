@@ -9,6 +9,8 @@ use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ParlIoTx;
 use esp_hal::parl_io::ParlIoTxOnly;
 use esp_hal::parl_io::SampleEdge;
+#[cfg(feature = "valid-pin")]
+use esp_hal::parl_io::TxPinConfigIncludingValidPin;
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
 
@@ -16,6 +18,7 @@ use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Pins;
 
+#[cfg(feature = "valid-pin")]
 type Hub75TxSixteenBits<'d> = TxSixteenBits<
     'd,
     AnyPin,
@@ -24,16 +27,36 @@ type Hub75TxSixteenBits<'d> = TxSixteenBits<
     AnyPin,
     AnyPin,
     AnyPin,
+    NoPin,
+    NoPin,
     OutputSignal,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+>;
+#[cfg(not(feature = "valid-pin"))]
+type Hub75TxSixteenBits<'d> = TxSixteenBits<
+    'd,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
     NoPin,
     NoPin,
+    OutputSignal,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
+    AnyPin,
     NoPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
 >;
 
 // TODO: make DMA channel a type parameter
@@ -42,50 +65,6 @@ use static_cell::StaticCell;
 pub struct Hub75<'d, DM: esp_hal::Mode> {
     parl_io: ParlIoTx<'d, DmaChannel0, DM>,
 }
-
-// impl<'d> Hub75<'d, esp_hal::Blocking> {
-//     pub fn new(
-//         parl_io: PARL_IO,
-//         hub75_pins: Hub75Pins,
-//         channel: esp_hal::dma::ChannelCreator<0>,
-//         tx_descriptors: &'static mut [DmaDescriptor],
-//     ) -> Self {
-//         static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
-//         let pins = PINS.init(TxSixteenBits::new(
-//             hub75_pins.addr0,
-//             hub75_pins.addr1,
-//             hub75_pins.addr2,
-//             hub75_pins.addr3,
-//             hub75_pins.addr4,
-//             hub75_pins.latch,
-//             AnyPin::new_inverted(hub75_pins.blank),
-//             NoPin::new(),
-//             NoPin::new(),
-//             NoPin::new(),
-//             hub75_pins.red1,
-//             hub75_pins.grn1,
-//             hub75_pins.blu1,
-//             hub75_pins.red2,
-//             hub75_pins.grn2,
-//             hub75_pins.blu2,
-//         ));
-//         static CLOCK_PIN: StaticCell<ClkOutPin<AnyPin>> = StaticCell::new();
-//         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-//         let parl_io: ParlIoTxOnly<DmaChannel0, esp_hal::Blocking> = ParlIoTxOnly::new(
-//             parl_io,
-//             channel.configure(false, DmaPriority::Priority0),
-//             tx_descriptors,
-//             15.MHz(),
-//         )
-//         .unwrap(); // TODO: handle error
-
-//         let parl_io = parl_io
-//             .tx
-//             .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)
-//             .unwrap(); // TODO: handle error
-//         Self { parl_io }
-//     }
-// }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
@@ -96,25 +75,50 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         frequency: HertzU32,
     ) -> Self {
         // TODO: how can we make this non-static?
-        static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
-        let pins = PINS.init(TxSixteenBits::new(
-            hub75_pins.addr0,
-            hub75_pins.addr1,
-            hub75_pins.addr2,
-            hub75_pins.addr3,
-            hub75_pins.addr4,
-            hub75_pins.latch,
-            hub75_pins.blank.into_peripheral_output().inverted(),
-            NoPin,
-            NoPin,
-            NoPin,
-            hub75_pins.red1,
-            hub75_pins.grn1,
-            hub75_pins.blu1,
-            hub75_pins.red2,
-            hub75_pins.grn2,
-            hub75_pins.blu2,
-        ));
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "valid-pin")] {
+                static PINS: StaticCell<TxPinConfigIncludingValidPin<Hub75TxSixteenBits<'static>>> = StaticCell::new();
+                let pins = PINS.init(TxPinConfigIncludingValidPin::new(TxSixteenBits::new(
+                    hub75_pins.addr0,
+                    hub75_pins.addr1,
+                    hub75_pins.addr2,
+                    hub75_pins.addr3,
+                    hub75_pins.addr4,
+                    hub75_pins.latch,
+                    NoPin,
+                    NoPin,
+                    hub75_pins.blank.into_peripheral_output().inverted(),
+                    hub75_pins.red1,
+                    hub75_pins.grn1,
+                    hub75_pins.blu1,
+                    hub75_pins.red2,
+                    hub75_pins.grn2,
+                    hub75_pins.blu2,
+                    hub75_pins.valid,
+                )));
+            } else {
+                static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
+                let pins = PINS.init(TxSixteenBits::new(
+                    hub75_pins.addr0,
+                    hub75_pins.addr1,
+                    hub75_pins.addr2,
+                    hub75_pins.addr3,
+                    hub75_pins.addr4,
+                    hub75_pins.latch,
+                    NoPin,
+                    NoPin,
+                    hub75_pins.blank.into_peripheral_output().inverted(),
+                    hub75_pins.red1,
+                    hub75_pins.grn1,
+                    hub75_pins.blu1,
+                    hub75_pins.red2,
+                    hub75_pins.grn2,
+                    hub75_pins.blu2,
+                    NoPin,
+                ));
+            }
+        }
+
         // TODO: how can we make this non-static?
         static CLOCK_PIN: StaticCell<ClkOutPin<AnyPin>> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
@@ -128,7 +132,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 
         let parl_io = parl_io
             .tx
-            .with_config(pins, clock_pin, 0, SampleEdge::Invert, BitPackOrder::Msb)
+            .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)
             .unwrap(); // TODO: handle error
         Self { parl_io }
     }
@@ -148,7 +152,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             let (ptr, len) = fb.read_buffer();
             core::slice::from_raw_parts(ptr, len)
         };
-        for chunk in buffer.chunks(32736) {
+        for chunk in buffer.chunks(4096) {
             self.parl_io
                 .write_dma_async(&chunk)
                 .await

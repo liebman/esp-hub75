@@ -9,6 +9,9 @@ fn main() {
 
     #[cfg(feature = "esp32s3")]
     {
+        #[cfg(feature = "valid-pin")]
+        compile_error!("feature 'valid-pin' is not supported on esp32s3");
+
         assert!(
             target == "xtensa-esp32s3-none-elf",
             "feature esp32s3 does not match target {}",

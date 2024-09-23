@@ -8,6 +8,7 @@ rust-version = "1.71"
 
 [dependencies]
 bitfield = { version = "0.14.0" }
+cfg-if = "1.0.0"
 critical-section = { version = "1.1.2" }
 defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
@@ -60,6 +61,7 @@ log = [
     "esp-println/log",
 ]
 xtensa-lx-rt = ["dep:xtensa-lx-rt"]
+valid-pin = [] # only for parl_io debugging
 
 [patch.crates-io]
 esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "d71434a" }

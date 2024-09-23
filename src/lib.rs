@@ -29,4 +29,6 @@ pub struct Hub75Pins {
     pub blank: AnyPin,
     pub clock: AnyPin,
     pub latch: AnyPin,
+    #[cfg(all(feature = "esp32c6", feature = "valid-pin"))]
+    pub valid: AnyPin,
 }
