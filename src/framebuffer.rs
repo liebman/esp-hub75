@@ -230,6 +230,7 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize> de
         defmt::write!(f, " frame_count: {}", self.frame_count);
         defmt::write!(f, " frame_size: {}", self.frame_size);
         defmt::write!(f, " brightness_step: {}", self.brightness_step);
+        defmt::write!(f, " buffer: {:x}", self.buffer.as_ptr());
         defmt::write!(f, " buffer size: {}", self.buffer.len());
     }
 }
