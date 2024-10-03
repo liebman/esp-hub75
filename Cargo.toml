@@ -64,7 +64,7 @@ xtensa-lx-rt = ["dep:xtensa-lx-rt"]
 valid-pin = [] # only for parl_io debugging
 
 [patch.crates-io]
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "d71434a" }
-esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "d71434a" }
-esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "d71434a" }
-esp-hal-embassy = { git = "https://github.com/esp-rs/esp-hal.git", rev = "d71434a" }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "3e9a506c00858e9b7b84703d01481b447f0ae6e3" }
+esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "3e9a506c00858e9b7b84703d01481b447f0ae6e3" }
+esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "3e9a506c00858e9b7b84703d01481b447f0ae6e3" }
+esp-hal-embassy = { git = "https://github.com/esp-rs/esp-hal.git", rev = "3e9a506c00858e9b7b84703d01481b447f0ae6e3" }

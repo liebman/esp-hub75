@@ -52,7 +52,7 @@ use esp_backtrace as _;
 use esp_hal::cpu_control::CpuControl;
 use esp_hal::cpu_control::Stack;
 use esp_hal::dma::Dma;
-use esp_hal::gpio::ErasedPin;
+use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Io;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
@@ -97,20 +97,20 @@ type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 pub struct Hub75Peripherals {
     pub lcd_cam: LCD_CAM,
     pub dma_channel: esp_hal::dma::ChannelCreator<0>,
-    pub red1: ErasedPin,
-    pub grn1: ErasedPin,
-    pub blu1: ErasedPin,
-    pub red2: ErasedPin,
-    pub grn2: ErasedPin,
-    pub blu2: ErasedPin,
-    pub addr0: ErasedPin,
-    pub addr1: ErasedPin,
-    pub addr2: ErasedPin,
-    pub addr3: ErasedPin,
-    pub addr4: ErasedPin,
-    pub blank: ErasedPin,
-    pub clock: ErasedPin,
-    pub latch: ErasedPin,
+    pub red1: AnyPin,
+    pub grn1: AnyPin,
+    pub blu1: AnyPin,
+    pub red2: AnyPin,
+    pub grn2: AnyPin,
+    pub blu2: AnyPin,
+    pub addr0: AnyPin,
+    pub addr1: AnyPin,
+    pub addr2: AnyPin,
+    pub addr3: AnyPin,
+    pub addr4: AnyPin,
+    pub blank: AnyPin,
+    pub clock: AnyPin,
+    pub latch: AnyPin,
 }
 
 #[task]
@@ -254,7 +254,7 @@ async fn hub75_task(
             tx.signal(old_fb);
         }
 
-        if let Some(ref fb) = fb {
+        if let Some(ref mut fb) = fb {
             hub75.render_async(fb).await;
         }
 
