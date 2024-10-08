@@ -1,7 +1,9 @@
 use core::cell::Cell;
 
+use esp_hal::dma::Channel;
+use esp_hal::dma::DmaChannelConvert;
+use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaPriority;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::lcd::i8080;
@@ -15,21 +17,22 @@ use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Pins;
 
-// TODO: make DMA channel a type parameter
-use esp_hal::dma::DmaChannel0;
 pub struct Hub75<'d, DM: esp_hal::Mode> {
-    i8080: Cell<Option<I8080<'d, DmaChannel0, DM>>>,
+    i8080: Cell<Option<I8080<'d, DM>>>,
     tx_descriptors: Cell<Option<&'static mut [DmaDescriptor]>>,
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async(
+    pub fn new_async<CH>(
         lcd_cam: LCD_CAM,
         hub75_pins: Hub75Pins,
-        channel: esp_hal::dma::ChannelCreator<0>,
+        channel: Channel<'d, CH, esp_hal::Async>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
-    ) -> Self {
+    ) -> Self
+    where
+        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
+    {
         let lcd_cam = LcdCam::new_async(lcd_cam);
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
@@ -63,14 +66,16 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 }
 
 impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
-    fn new_internal(
+    fn new_internal<CH>(
         lcd_cam: LcdCam<'d, DM>,
         hub75_pins: Hub75Pins,
-        channel: esp_hal::dma::ChannelCreator<0>,
+        channel: Channel<'d, CH, DM>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
-    ) -> Self {
-        let channel = channel.configure(false, DmaPriority::Priority0);
+    ) -> Self
+    where
+        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
+    {
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
             hub75_pins.addr1,
