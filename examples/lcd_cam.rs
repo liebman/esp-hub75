@@ -52,6 +52,7 @@ use esp_backtrace as _;
 use esp_hal::cpu_control::CpuControl;
 use esp_hal::cpu_control::Stack;
 use esp_hal::dma::Dma;
+use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Io;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -218,7 +219,7 @@ async fn hub75_task(
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
-    let channel: esp_hal::dma::ChannelCreator<0> = peripherals.dma_channel;
+    let channel = peripherals.dma_channel.configure_for_async(false, DmaPriority::Priority0);
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
 
     let pins = Hub75Pins {
