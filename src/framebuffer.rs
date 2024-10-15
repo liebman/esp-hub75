@@ -117,6 +117,10 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
                     entry.set_latch(true);
                     entry.set_addr(addr as u16);
                 }
+
+                #[cfg(feature = "esp32")]
+                let x = x ^ 1; // esp32 has words swapped!
+
                 buffer[start + x] = entry;
             }
             // next address
@@ -138,6 +142,9 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
     }
 
     fn set_pixel_internal(&mut self, x: usize, y: usize, color: Rgb888) {
+        #[cfg(feature = "esp32")]
+        let x = x ^ 1; // esp32 has words swapped!
+
         if x >= COLS || y >= ROWS {
             return;
         }

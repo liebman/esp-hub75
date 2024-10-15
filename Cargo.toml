@@ -40,6 +40,12 @@ heapless = { version = "0.8.0", features = ["ufmt"] }
 
 [features]
 default = []
+esp32 = [
+    "esp-hal/esp32",
+    "esp-backtrace/esp32",
+    "esp-hal-embassy/esp32",
+    "esp-println/esp32",
+]
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
@@ -53,7 +59,11 @@ esp32c6 = [
     "esp-println/esp32c6",
 ]
 debug = ["esp-hal/debug"]
-defmt = ["dep:defmt", "esp-backtrace/defmt", "fugit/defmt"]
+defmt = [
+    "dep:defmt",
+    "esp-backtrace/defmt",
+    "fugit/defmt"
+]
 log = [
     "dep:log",
     "esp-backtrace/println",
