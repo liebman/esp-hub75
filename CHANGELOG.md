@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `parl_io` Hub75 driver
+- `i2s_parallel` Hub75 driver for `esp32` (#5)
 
 ### Changed
 

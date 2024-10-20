@@ -4,8 +4,9 @@
 use embedded_graphics::pixelcolor::Rgb888;
 use esp_hal::gpio::AnyPin;
 
-#[cfg(any(feature = "esp32s3", feature = "esp32c6"))]
 pub mod framebuffer;
+#[cfg(feature = "esp32")]
+pub mod i2s_parallel;
 #[cfg(feature = "esp32s3")]
 pub mod lcd_cam;
 #[cfg(feature = "esp32c6")]

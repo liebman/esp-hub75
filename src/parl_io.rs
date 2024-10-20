@@ -1,7 +1,7 @@
 use esp_hal::dma::Channel;
 use esp_hal::dma::DmaChannelConvert;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaDescriptor;
+use esp_hal::dma::DmaEligible;
 use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::interconnect::OutputSignal;
 use esp_hal::gpio::AnyPin;
@@ -125,13 +125,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         // TODO: how can we make this non-static?
         static CLOCK_PIN: StaticCell<ClkOutPin<AnyPin>> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-        let parl_io = ParlIoTxOnly::new(
-            parl_io,
-            channel,
-            tx_descriptors,
-            frequency,
-        )
-        .unwrap(); // TODO: handle error
+        let parl_io = ParlIoTxOnly::new(parl_io, channel, tx_descriptors, frequency).unwrap(); // TODO: handle error
 
         let parl_io = parl_io
             .tx

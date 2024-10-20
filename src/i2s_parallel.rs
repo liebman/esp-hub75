@@ -6,36 +6,30 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
-use esp_hal::lcd_cam::lcd::i8080;
-use esp_hal::lcd_cam::lcd::i8080::Command;
-use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
-use esp_hal::lcd_cam::lcd::i8080::I8080;
-use esp_hal::lcd_cam::LcdCam;
-use esp_hal::peripherals::LCD_CAM;
+use esp_hal::i2s_parallel::I2sParallel;
+use esp_hal::i2s_parallel::TxSixteenBits;
+use esp_hal::peripherals::I2S0;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Pins;
 
 pub struct Hub75<'d, DM: esp_hal::Mode> {
-    i8080: Cell<Option<I8080<'d, DM>>>,
+    i2s: Cell<Option<I2sParallel<'d, I2S0, DM>>>,
     tx_descriptors: Cell<Option<&'static mut [DmaDescriptor]>>,
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async<CH>(
-        lcd_cam: LCD_CAM,
-        hub75_pins: Hub75Pins,
-        channel: Channel<'d, CH, esp_hal::Async>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: HertzU32,
-    ) -> Self
-    where
-        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
-    {
-        let lcd_cam = LcdCam::new_async(lcd_cam);
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
-    }
+    // pub fn new_async(
+    //     i2s: I2S0,
+    //     hub75_pins: Hub75Pins,
+    //     channel: Channel<esp_hal::Async>,
+    //     tx_descriptors: &'static mut [DmaDescriptor],
+    //     frequency: HertzU32,
+    // ) -> Self {
+    //     let lcd_cam = I2sParallel::new(i2s);
+    //     Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency)
+    // }
 
     pub async fn render_async<
         const ROWS: usize,
@@ -46,7 +40,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         &mut self,
         fb: &mut DmaFrameBuffer<ROWS, COLS, BITS, SIZE>,
     ) {
-        let i8080 = self.i8080.take().expect("i8080 is None!");
+        let i2s = self.i2s.take().expect("i2s is None!");
         let tx_descriptors = self.tx_descriptors.take().expect("tx_descriptors is None!");
         let tx_buffer = unsafe {
             use esp_hal::dma::ReadBuffer;
@@ -55,29 +49,28 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("DmaTxBuf::new failed");
-        let mut xfer = i8080
-            .send(Command::<u16>::None, 0, tx_buf)
-            .expect("send failed");
-        xfer.wait_for_done().await;
-        let (result, i8080, tx_buf) = xfer.wait();
-        result.expect("transfer failed");
+        let mut xfer = match i2s.send(tx_buf) {
+            Ok(xfer) => xfer,
+            Err(_) => {
+                panic!("Failed to send buffer");
+            }
+        };
+        xfer.wait_for_done().await.expect("transfer failed");
+        let (i2s, tx_buf) = xfer.wait();
         let (tx_descriptors, _) = tx_buf.split();
-        self.i8080.set(Some(i8080));
+        self.i2s.set(Some(i2s));
         self.tx_descriptors.set(Some(tx_descriptors));
     }
 }
 
 impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
-    fn new_internal<CH>(
-        lcd_cam: LcdCam<'d, DM>,
+    pub fn new<CH: DmaChannelConvert<<esp_hal::peripherals::I2S0 as DmaEligible>::Dma>>(
+        i2s: I2S0,
         hub75_pins: Hub75Pins,
         channel: Channel<'d, CH, DM>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
-    ) -> Self
-    where
-        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
-    {
+    ) -> Self {
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
             hub75_pins.addr1,
@@ -97,18 +90,11 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             NoPin,
         );
 
-        let i8080 = I8080::new(
-            lcd_cam.lcd,
-            channel.tx,
-            pins,
-            frequency,
-            i8080::Config::default(),
-        )
-        .with_ctrl_pins(NoPin, hub75_pins.clock);
-        let i8080 = Cell::new(Some(i8080));
+        let i2s = I2sParallel::new(i2s, channel, frequency, pins, hub75_pins.clock);
+        let i2s = Cell::new(Some(i2s));
         let tx_descriptors = Cell::new(Some(tx_descriptors));
         Self {
-            i8080,
+            i2s,
             tx_descriptors,
         }
     }

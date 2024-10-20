@@ -3,9 +3,22 @@ use esp_build::assert_unique_used_features;
 fn main() {
     // NOTE: update when adding new device support!
     // Ensure that exactly one chip has been specified:
-    assert_unique_used_features!("esp32c6", "esp32s3");
+    assert_unique_used_features!("esp32", "esp32c6", "esp32s3");
 
     let target = std::env::var("TARGET").unwrap();
+
+    #[cfg(feature = "esp32")]
+    {
+        #[cfg(feature = "valid-pin")]
+        compile_error!("feature 'valid-pin' is not supported on esp32");
+
+        assert!(
+            target == "xtensa-esp32-none-elf",
+            "feature esp32 does not match target {}",
+            target
+        );
+        println!("cargo:rustc-cfg=esp32");
+    }
 
     #[cfg(feature = "esp32s3")]
     {

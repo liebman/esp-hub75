@@ -14,7 +14,7 @@ defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "0.21.0" }
+esp-hal = { version = "0.21.1" }
 esp-hal-procmacros = { version = "0.14.0", features = ["ram"] }
 fugit = { version = "0.3.7" }
 log = { version = "0.4.22", optional = true }
@@ -40,6 +40,12 @@ heapless = { version = "0.8.0", features = ["ufmt"] }
 
 [features]
 default = []
+esp32 = [
+    "esp-hal/esp32",
+    "esp-backtrace/esp32",
+    "esp-hal-embassy/esp32",
+    "esp-println/esp32",
+]
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
@@ -53,7 +59,11 @@ esp32c6 = [
     "esp-println/esp32c6",
 ]
 debug = ["esp-hal/debug"]
-defmt = ["dep:defmt", "esp-backtrace/defmt", "fugit/defmt"]
+defmt = [
+    "dep:defmt",
+    "esp-backtrace/defmt",
+    "fugit/defmt"
+]
 log = [
     "dep:log",
     "esp-backtrace/println",
