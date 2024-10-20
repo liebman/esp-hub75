@@ -1,9 +1,9 @@
 use core::cell::Cell;
 
 use esp_hal::dma::Channel;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaChannelConvert;
 use esp_hal::dma::DmaDescriptor;
+use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s_parallel::I2sParallel;
@@ -93,6 +93,9 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         let i2s = I2sParallel::new(i2s, channel, frequency, pins, hub75_pins.clock);
         let i2s = Cell::new(Some(i2s));
         let tx_descriptors = Cell::new(Some(tx_descriptors));
-        Self { i2s, tx_descriptors }
+        Self {
+            i2s,
+            tx_descriptors,
+        }
     }
 }

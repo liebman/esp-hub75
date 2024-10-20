@@ -64,7 +64,7 @@ pub const fn compute_frame_size(rows: usize, cols: usize) -> usize {
 }
 
 pub const fn compute_buffer_size(rows: usize, cols: usize, bits: u8) -> usize {
-    compute_frame_size(rows, cols) * (1 << (bits-1))
+    compute_frame_size(rows, cols) * (1 << (bits - 1))
 }
 
 impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
@@ -75,7 +75,7 @@ impl<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>
         assert!(SIZE == compute_buffer_size(ROWS, COLS, BITS));
         Self {
             buffer: [Entry::new(); SIZE],
-            frame_count: 1usize << (BITS-1),
+            frame_count: 1usize << (BITS - 1),
             frame_size: compute_frame_size(ROWS, COLS),
             brightness_step: 1 << (8 - BITS),
         }
