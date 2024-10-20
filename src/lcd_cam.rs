@@ -2,8 +2,8 @@ use core::cell::Cell;
 
 use esp_hal::dma::Channel;
 use esp_hal::dma::DmaChannelConvert;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaDescriptor;
+use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::lcd::i8080;
@@ -55,7 +55,9 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("DmaTxBuf::new failed");
-        let mut xfer = i8080.send(Command::<u16>::None, 0, tx_buf).expect("send failed");
+        let mut xfer = i8080
+            .send(Command::<u16>::None, 0, tx_buf)
+            .expect("send failed");
         xfer.wait_for_done().await;
         let (result, i8080, tx_buf) = xfer.wait();
         result.expect("transfer failed");
@@ -105,6 +107,9 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         .with_ctrl_pins(NoPin, hub75_pins.clock);
         let i8080 = Cell::new(Some(i8080));
         let tx_descriptors = Cell::new(Some(tx_descriptors));
-        Self { i8080, tx_descriptors }
+        Self {
+            i8080,
+            tx_descriptors,
+        }
     }
 }
