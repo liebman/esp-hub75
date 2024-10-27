@@ -3,8 +3,6 @@ use esp_hal::dma::DmaChannelConvert;
 use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::ReadBuffer;
-use esp_hal::gpio::interconnect::OutputSignal;
-use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
@@ -20,46 +18,7 @@ use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Pins;
 
-#[cfg(feature = "valid-pin")]
-type Hub75TxSixteenBits<'d> = TxSixteenBits<
-    'd,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    NoPin,
-    NoPin,
-    OutputSignal,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
->;
-#[cfg(not(feature = "valid-pin"))]
-type Hub75TxSixteenBits<'d> = TxSixteenBits<
-    'd,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    NoPin,
-    NoPin,
-    OutputSignal,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    AnyPin,
-    NoPin,
->;
+type Hub75TxSixteenBits<'d> = TxSixteenBits<'d>;
 
 use static_cell::StaticCell;
 pub struct Hub75<'d, DM: esp_hal::Mode> {
@@ -123,7 +82,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         }
 
         // TODO: how can we make this non-static?
-        static CLOCK_PIN: StaticCell<ClkOutPin<AnyPin>> = StaticCell::new();
+        static CLOCK_PIN: StaticCell<ClkOutPin> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
         let parl_io = ParlIoTxOnly::new(
             parl_io,
