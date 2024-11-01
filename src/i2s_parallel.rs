@@ -8,14 +8,15 @@ use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s_parallel::I2sParallel;
 use esp_hal::i2s_parallel::TxSixteenBits;
-use esp_hal::peripherals::I2S0;
+use esp_hal::i2s_parallel::AnyI2s;
+use esp_hal::peripheral::Peripheral;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Pins;
 
 pub struct Hub75<'d, DM: esp_hal::Mode> {
-    i2s: Cell<Option<I2sParallel<'d, I2S0, DM>>>,
+    i2s: Cell<Option<I2sParallel<'d, DM>>>,
     tx_descriptors: Cell<Option<&'static mut [DmaDescriptor]>>,
 }
 
@@ -64,8 +65,8 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 }
 
 impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
-    pub fn new<CH: DmaChannelConvert<<esp_hal::peripherals::I2S0 as DmaEligible>::Dma>>(
-        i2s: I2S0,
+    pub fn new<CH: DmaChannelConvert<<AnyI2s as DmaEligible>::Dma>>(
+        i2s: impl Peripheral<P = AnyI2s> + 'd,
         hub75_pins: Hub75Pins,
         channel: Channel<'d, CH, DM>,
         tx_descriptors: &'static mut [DmaDescriptor],
