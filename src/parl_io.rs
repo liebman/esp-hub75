@@ -36,6 +36,8 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     where
         CH: DmaChannelConvert<<PARL_IO as DmaEligible>::Dma>,
     {
+        let (_, blank) = hub75_pins.blank.split();
+
         // TODO: how can we make this non-static?
         cfg_if::cfg_if! {
             if #[cfg(feature = "valid-pin")] {
@@ -49,7 +51,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
                     hub75_pins.latch,
                     NoPin,
                     NoPin,
-                    hub75_pins.blank.into_peripheral_output().inverted(),
+                    blank.inverted(),
                     hub75_pins.red1,
                     hub75_pins.grn1,
                     hub75_pins.blu1,
@@ -69,7 +71,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
                     hub75_pins.latch,
                     NoPin,
                     NoPin,
-                    hub75_pins.blank.into_peripheral_output().inverted(),
+                    blank.inverted(),
                     hub75_pins.red1,
                     hub75_pins.grn1,
                     hub75_pins.blu1,

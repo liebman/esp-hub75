@@ -72,6 +72,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Self {
+        let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
             hub75_pins.addr1,
@@ -81,7 +82,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             hub75_pins.latch,
             NoPin,
             NoPin,
-            hub75_pins.blank.into_peripheral_output().inverted(),
+            blank.inverted(),
             hub75_pins.red1,
             hub75_pins.grn1,
             hub75_pins.blu1,

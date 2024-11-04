@@ -33,7 +33,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     where
         CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
     {
-        let lcd_cam = LcdCam::new_async(lcd_cam);
+        let lcd_cam = LcdCam::new(lcd_cam).into_async();
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 
@@ -78,6 +78,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
     where
         CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
     {
+        let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
             hub75_pins.addr1,
@@ -87,7 +88,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             hub75_pins.latch,
             NoPin,
             NoPin,
-            hub75_pins.blank.into_peripheral_output().inverted(),
+            blank.inverted(),
             hub75_pins.red1,
             hub75_pins.grn1,
             hub75_pins.blu1,
