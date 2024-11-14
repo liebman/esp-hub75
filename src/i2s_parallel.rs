@@ -21,16 +21,41 @@ pub struct Hub75<'d, DM: esp_hal::Mode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    // pub fn new_async(
-    //     i2s: I2S0,
-    //     hub75_pins: Hub75Pins,
-    //     channel: Channel<esp_hal::Async>,
-    //     tx_descriptors: &'static mut [DmaDescriptor],
-    //     frequency: HertzU32,
-    // ) -> Self {
-    //     let lcd_cam = I2sParallel::new(i2s);
-    //     Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency)
-    // }
+    pub fn new_async<CH: DmaChannelConvert<<AnyI2s as DmaEligible>::Dma>>(
+        i2s: impl Peripheral<P = AnyI2s> + 'd,
+        hub75_pins: Hub75Pins,
+        channel: Channel<'d, esp_hal::Blocking, CH>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: HertzU32,
+    ) -> Self {
+        let (_, blank) = hub75_pins.blank.split();
+        let pins = TxSixteenBits::new(
+            hub75_pins.addr0,
+            hub75_pins.addr1,
+            hub75_pins.addr2,
+            hub75_pins.addr3,
+            hub75_pins.addr4,
+            hub75_pins.latch,
+            NoPin,
+            NoPin,
+            blank.inverted(),
+            hub75_pins.red1,
+            hub75_pins.grn1,
+            hub75_pins.blu1,
+            hub75_pins.red2,
+            hub75_pins.grn2,
+            hub75_pins.blu2,
+            NoPin,
+        );
+
+        let i2s = I2sParallel::new(i2s, channel.into_async(), frequency, pins, hub75_pins.clock);
+        let i2s = Cell::new(Some(i2s));
+        let tx_descriptors = Cell::new(Some(tx_descriptors));
+        Self {
+            i2s,
+            tx_descriptors,
+        }
+    }
 
     pub async fn render_async<
         const ROWS: usize,
@@ -61,43 +86,5 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         let (tx_descriptors, _) = tx_buf.split();
         self.i2s.set(Some(i2s));
         self.tx_descriptors.set(Some(tx_descriptors));
-    }
-}
-
-impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
-    pub fn new<CH: DmaChannelConvert<<AnyI2s as DmaEligible>::Dma>>(
-        i2s: impl Peripheral<P = AnyI2s> + 'd,
-        hub75_pins: Hub75Pins,
-        channel: Channel<'d, CH, DM>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: HertzU32,
-    ) -> Self {
-        let (_, blank) = hub75_pins.blank.split();
-        let pins = TxSixteenBits::new(
-            hub75_pins.addr0,
-            hub75_pins.addr1,
-            hub75_pins.addr2,
-            hub75_pins.addr3,
-            hub75_pins.addr4,
-            hub75_pins.latch,
-            NoPin,
-            NoPin,
-            blank.inverted(),
-            hub75_pins.red1,
-            hub75_pins.grn1,
-            hub75_pins.blu1,
-            hub75_pins.red2,
-            hub75_pins.grn2,
-            hub75_pins.blu2,
-            NoPin,
-        );
-
-        let i2s = I2sParallel::new(i2s, channel, frequency, pins, hub75_pins.clock);
-        let i2s = Cell::new(Some(i2s));
-        let tx_descriptors = Cell::new(Some(tx_descriptors));
-        Self {
-            i2s,
-            tx_descriptors,
-        }
     }
 }

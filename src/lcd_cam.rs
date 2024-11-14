@@ -26,7 +26,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async<CH>(
         lcd_cam: LCD_CAM,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, CH, esp_hal::Async>,
+        channel: Channel<'d, esp_hal::Blocking, CH>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Self
@@ -71,7 +71,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
     fn new_internal<CH>(
         lcd_cam: LcdCam<'d, DM>,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, CH, DM>,
+        channel: Channel<'d, esp_hal::Blocking, CH>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Self
