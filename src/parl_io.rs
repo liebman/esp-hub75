@@ -86,7 +86,8 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         // TODO: how can we make this non-static?
         static CLOCK_PIN: StaticCell<ClkOutPin> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-        let parl_io = ParlIoTxOnly::new(parl_io, channel.into_async(), tx_descriptors, frequency).unwrap(); // TODO: handle error
+        let parl_io =
+            ParlIoTxOnly::new(parl_io, channel.into_async(), tx_descriptors, frequency).unwrap(); // TODO: handle error
 
         let parl_io = parl_io
             .tx
