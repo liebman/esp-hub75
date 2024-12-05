@@ -1,9 +1,7 @@
 use core::cell::Cell;
 
-use esp_hal::dma::Channel;
-use esp_hal::dma::DmaChannelConvert;
+use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::AnyI2s;
@@ -21,13 +19,16 @@ pub struct Hub75<'d, DM: esp_hal::Mode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async<CH: DmaChannelConvert<<AnyI2s as DmaEligible>::Dma>>(
+    pub fn new_async<CH>(
         i2s: impl Peripheral<P = AnyI2s> + 'd,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, esp_hal::Blocking, CH>,
+        channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
-    ) -> Self {
+    ) -> Result<Self, Hub75Error>
+    where
+        CH: DmaChannelFor<AnyI2s>,
+    {
         let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
@@ -48,13 +49,13 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             NoPin,
         );
 
-        let i2s = I2sParallel::new(i2s, channel.into_async(), frequency, pins, hub75_pins.clock);
+        let i2s = I2sParallel::new(i2s, channel, frequency, pins, hub75_pins.clock).into_async();
         let i2s = Cell::new(Some(i2s));
         let tx_descriptors = Cell::new(Some(tx_descriptors));
-        Self {
+        Ok(Self {
             i2s,
             tx_descriptors,
-        }
+        })
     }
 
     pub async fn render_async<
@@ -87,4 +88,9 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         self.i2s.set(Some(i2s));
         self.tx_descriptors.set(Some(tx_descriptors));
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Hub75Error {
 }
