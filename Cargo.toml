@@ -9,12 +9,12 @@ rust-version = "1.71"
 [dependencies]
 bitfield = { version = "0.17.0" }
 cfg-if = "1.0.0"
-critical-section = { version = "1.1.2" }
+critical-section = { version = "1.2.0" }
 defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "0.22.0" }
+esp-hal = { version = "0.22.0", features = ["unstable"] }
 esp-hal-procmacros = { version = "0.15.0", features = ["ram"] }
 fugit = { version = "0.3.7" }
 log = { version = "0.4.22", optional = true }
