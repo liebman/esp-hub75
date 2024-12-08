@@ -19,7 +19,6 @@ esp-hal-procmacros = { version = "0.15.0", features = ["ram"] }
 fugit = { version = "0.3.7" }
 log = { version = "0.4.22", optional = true }
 static_cell = { version = "2.1", features = ["nightly"] }
-xtensa-lx-rt = { version = "0.17.1", optional = true }
 
 [build-dependencies]
 esp-build = "0.1.0"
@@ -61,15 +60,25 @@ esp32c6 = [
 debug = ["esp-hal/debug"]
 defmt = [
     "dep:defmt",
+    "esp-hal/defmt",
     "esp-backtrace/defmt",
     "fugit/defmt"
 ]
 log = [
     "dep:log",
+    "esp-hal/log",
     "esp-backtrace/println",
     "esp-println/auto",
     "esp-println/log",
     "esp-println/colors",
 ]
-xtensa-lx-rt = ["dep:xtensa-lx-rt"]
 valid-pin = [] # only for parl_io debugging
+
+[patch.crates-io]
+esp-backtrace    = { path = "../esp-hal/esp-backtrace" }
+esp-build        = { path = "../esp-hal/esp-build" }
+esp-hal          = { path = "../esp-hal/esp-hal" }
+esp-hal-embassy  = { path = "../esp-hal/esp-hal-embassy" }
+esp-println      = { path = "../esp-hal/esp-println" }
+esp-riscv-rt     = { path = "../esp-hal/esp-riscv-rt" }
+xtensa-lx-rt     = { path = "../esp-hal/xtensa-lx-rt" }

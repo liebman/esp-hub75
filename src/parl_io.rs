@@ -1,8 +1,6 @@
-use esp_hal::dma::Channel;
-use esp_hal::dma::DmaChannelConvert;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::ReadBuffer;
+use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
@@ -12,6 +10,7 @@ use esp_hal::parl_io::SampleEdge;
 #[cfg(feature = "valid-pin")]
 use esp_hal::parl_io::TxPinConfigIncludingValidPin;
 use esp_hal::parl_io::TxSixteenBits;
+use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::PARL_IO;
 
 use crate::framebuffer::DmaFrameBuffer;
@@ -29,12 +28,12 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async<CH>(
         parl_io: PARL_IO,
         hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
-        channel: Channel<'d, esp_hal::Blocking, CH>,
+        channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Self
     where
-        CH: DmaChannelConvert<<PARL_IO as DmaEligible>::Dma>,
+        CH: TxChannelFor<PARL_IO>,
     {
         let (_, blank) = hub75_pins.blank.split();
 
@@ -86,8 +85,9 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         // TODO: how can we make this non-static?
         static CLOCK_PIN: StaticCell<ClkOutPin> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-        let parl_io =
-            ParlIoTxOnly::new(parl_io, channel.into_async(), tx_descriptors, frequency).unwrap(); // TODO: handle error
+        let parl_io = ParlIoTxOnly::new(parl_io, channel, tx_descriptors, frequency)
+            .unwrap()
+            .into_async(); // TODO: handle error
 
         let parl_io = parl_io
             .tx

@@ -13,16 +13,16 @@
 //! - G1  => GPIO4
 //! - B1  => GPIO17
 //! - R2  => GPIO18
-//! - G2  => GPIO19
-//! - B2  => GPIO5
-//! - A   => GPIO12
-//! - B   => GPIO14
-//! - C   => GPIO26
-//! - D   => GPIO27
-//! - E   => GPIO13
-//! - OE  => GPIO32
-//! - CLK => GPIO25
-//! - LAT => GPIO33
+//! - G2  => GPIO5
+//! - B2  => GPIO19
+//! - A   => GPIO15
+//! - B   => GPIO13
+//! - C   => GPIO12
+//! - D   => GPIO14
+//! - E   => GPIO2
+//! - OE  => GPIO25
+//! - CLK => GPIO27
+//! - LAT => GPIO26
 //!
 //! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
 //! signals
@@ -53,9 +53,6 @@ use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
-use esp_hal::dma::Dma;
-use esp_hal::dma::DmaPriority;
-use esp_hal::dma::I2s0DmaChannelCreator;
 use esp_hal::gpio::AnyPin;
 use esp_hal::i2s::parallel::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -242,7 +239,13 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 19.MHz());
+    let mut hub75 = Hub75Type::new_async(
+        <esp_hal::peripherals::I2S0 as Into<AnyI2s>>::into(peripherals.i2s),
+        pins,
+        channel,
+        tx_descriptors,
+        19.MHz(),
+    ).expect("failed to construct Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -292,7 +295,6 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
-    let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 

@@ -92,5 +92,4 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Hub75Error {
-}
+pub enum Hub75Error {}
