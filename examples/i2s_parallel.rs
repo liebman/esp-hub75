@@ -13,16 +13,16 @@
 //! - G1  => GPIO4
 //! - B1  => GPIO17
 //! - R2  => GPIO18
-//! - G2  => GPIO19
-//! - B2  => GPIO5
-//! - A   => GPIO12
-//! - B   => GPIO14
-//! - C   => GPIO26
-//! - D   => GPIO27
-//! - E   => GPIO13
-//! - OE  => GPIO32
-//! - CLK => GPIO25
-//! - LAT => GPIO33
+//! - G2  => GPIO5
+//! - B2  => GPIO19
+//! - A   => GPIO15
+//! - B   => GPIO13
+//! - C   => GPIO12
+//! - D   => GPIO14
+//! - E   => GPIO2
+//! - OE  => GPIO25
+//! - CLK => GPIO27
+//! - LAT => GPIO26
 //!
 //! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
 //! signals
@@ -53,11 +53,8 @@ use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
-use esp_hal::dma::Dma;
-use esp_hal::dma::DmaPriority;
-use esp_hal::dma::I2s0DmaChannelCreator;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::Io;
+use esp_hal::i2s::parallel::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::I2S0;
@@ -99,7 +96,7 @@ type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals {
     pub i2s: I2S0,
-    pub dma_channel: I2s0DmaChannelCreator,
+    pub dma_channel: esp_hal::dma::I2s0DmaChannel,
     pub red1: AnyPin,
     pub grn1: AnyPin,
     pub blu1: AnyPin,
@@ -241,13 +238,13 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new(
-        peripherals.i2s,
+    let mut hub75 = Hub75Type::new_async(
+        <esp_hal::peripherals::I2S0 as Into<AnyI2s>>::into(peripherals.i2s),
         pins,
-        channel.configure_for_async(false, DmaPriority::Priority0),
+        channel,
         tx_descriptors,
         19.MHz(),
-    );
+    ).expect("failed to construct Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -297,8 +294,6 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
@@ -320,22 +315,22 @@ async fn main(spawner: Spawner) {
 
     let hub75_peripherals = Hub75Peripherals {
         i2s: peripherals.I2S0,
-        dma_channel: dma.i2s0channel,
-        red1: io.pins.gpio16.degrade(),
-        grn1: io.pins.gpio4.degrade(),
-        blu1: io.pins.gpio17.degrade(),
-        red2: io.pins.gpio18.degrade(),
-        grn2: io.pins.gpio5.degrade(),
-        blu2: io.pins.gpio19.degrade(),
-        addr0: io.pins.gpio12.degrade(),
-        addr1: io.pins.gpio14.degrade(),
-        addr2: io.pins.gpio27.degrade(),
-        addr3: io.pins.gpio26.degrade(),
-        addr4: io.pins.gpio13.degrade(),
-        blank: io.pins.gpio32.degrade(),
-        clock: io.pins.gpio25.degrade(),
-        latch: io.pins.gpio33.degrade(),
-    };
+        dma_channel: peripherals.DMA_I2S0,
+        red1: peripherals.GPIO16.degrade(),
+        grn1: peripherals.GPIO4.degrade(),
+        blu1: peripherals.GPIO17.degrade(),
+        red2: peripherals.GPIO18.degrade(),
+        grn2: peripherals.GPIO5.degrade(),
+        blu2: peripherals.GPIO19.degrade(),
+        addr0: peripherals.GPIO15.degrade(),
+        addr1: peripherals.GPIO13.degrade(),
+        addr2: peripherals.GPIO12.degrade(),
+        addr3: peripherals.GPIO14.degrade(),
+        addr4: peripherals.GPIO2.degrade(),
+        blank: peripherals.GPIO25.degrade(),
+        clock: peripherals.GPIO27.degrade(),
+        latch: peripherals.GPIO26.degrade(),
+};
 
     let hp_executor = mk_static!(
         InterruptExecutor<2>,
