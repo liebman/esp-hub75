@@ -1,5 +1,7 @@
 use core::cell::Cell;
 
+#[cfg(feature = "defmt")]
+use defmt::debug;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::dma::TxChannelFor;
@@ -11,6 +13,8 @@ use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::LCD_CAM;
+#[cfg(feature = "log")]
+use log::debug;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
@@ -54,10 +58,13 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("DmaTxBuf::new failed");
+        debug!("lcd_cam: Sending buffer");
         let mut xfer = i8080
             .send(Command::<u16>::None, 0, tx_buf)
             .expect("send failed");
+        debug!("lcd_cam: Waiting for transfer to complete");
         xfer.wait_for_done().await;
+        debug!("lcd_cam: Transfer complete");
         let (result, i8080, tx_buf) = xfer.wait();
         result.expect("transfer failed");
         let (tx_descriptors, _) = tx_buf.split();
