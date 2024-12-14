@@ -6,9 +6,9 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
+use esp_hal::i2s::parallel::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::TxSixteenBits;
-use esp_hal::i2s::parallel::AnyI2s;
 use esp_hal::peripheral::Peripheral;
 
 use crate::framebuffer::DmaFrameBuffer;

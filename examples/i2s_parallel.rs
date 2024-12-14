@@ -220,7 +220,9 @@ async fn hub75_task(
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
-    let channel = peripherals.dma_channel.configure(false, DmaPriority::Priority0);
+    let channel = peripherals
+        .dma_channel
+        .configure(false, DmaPriority::Priority0);
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
 
     let pins = Hub75Pins {
@@ -240,13 +242,7 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new_async(
-        peripherals.i2s,
-        pins,
-        channel,
-        tx_descriptors,
-        19.MHz(),
-    );
+    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 19.MHz());
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -333,7 +329,7 @@ async fn main(spawner: Spawner) {
         blank: peripherals.GPIO25.degrade(),
         clock: peripherals.GPIO27.degrade(),
         latch: peripherals.GPIO26.degrade(),
-};
+    };
 
     let hp_executor = mk_static!(
         InterruptExecutor<2>,
