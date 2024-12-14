@@ -57,10 +57,9 @@ use esp_hal::dma::Dma;
 use esp_hal::dma::DmaPriority;
 use esp_hal::dma::I2s0DmaChannelCreator;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::Io;
+use esp_hal::i2s::parallel::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
-use esp_hal::peripherals::I2S0;
 use esp_hal::prelude::*;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
@@ -98,7 +97,7 @@ type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals {
-    pub i2s: I2S0,
+    pub i2s: AnyI2s,
     pub dma_channel: I2s0DmaChannelCreator,
     pub red1: AnyPin,
     pub grn1: AnyPin,
@@ -221,7 +220,7 @@ async fn hub75_task(
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
-    let channel = peripherals.dma_channel;
+    let channel = peripherals.dma_channel.configure(false, DmaPriority::Priority0);
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
 
     let pins = Hub75Pins {
@@ -241,10 +240,10 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new(
+    let mut hub75 = Hub75Type::new_async(
         peripherals.i2s,
         pins,
-        channel.configure_for_async(false, DmaPriority::Priority0),
+        channel,
         tx_descriptors,
         19.MHz(),
     );
@@ -297,7 +296,6 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -319,23 +317,23 @@ async fn main(spawner: Spawner) {
     info!("fb1: {:?}", fb1);
 
     let hub75_peripherals = Hub75Peripherals {
-        i2s: peripherals.I2S0,
+        i2s: peripherals.I2S0.into(),
         dma_channel: dma.i2s0channel,
-        red1: io.pins.gpio16.degrade(),
-        grn1: io.pins.gpio4.degrade(),
-        blu1: io.pins.gpio17.degrade(),
-        red2: io.pins.gpio18.degrade(),
-        grn2: io.pins.gpio5.degrade(),
-        blu2: io.pins.gpio19.degrade(),
-        addr0: io.pins.gpio12.degrade(),
-        addr1: io.pins.gpio14.degrade(),
-        addr2: io.pins.gpio27.degrade(),
-        addr3: io.pins.gpio26.degrade(),
-        addr4: io.pins.gpio13.degrade(),
-        blank: io.pins.gpio32.degrade(),
-        clock: io.pins.gpio25.degrade(),
-        latch: io.pins.gpio33.degrade(),
-    };
+        red1: peripherals.GPIO16.degrade(),
+        grn1: peripherals.GPIO4.degrade(),
+        blu1: peripherals.GPIO17.degrade(),
+        red2: peripherals.GPIO18.degrade(),
+        grn2: peripherals.GPIO5.degrade(),
+        blu2: peripherals.GPIO19.degrade(),
+        addr0: peripherals.GPIO15.degrade(),
+        addr1: peripherals.GPIO13.degrade(),
+        addr2: peripherals.GPIO12.degrade(),
+        addr3: peripherals.GPIO14.degrade(),
+        addr4: peripherals.GPIO2.degrade(),
+        blank: peripherals.GPIO25.degrade(),
+        clock: peripherals.GPIO27.degrade(),
+        latch: peripherals.GPIO26.degrade(),
+};
 
     let hp_executor = mk_static!(
         InterruptExecutor<2>,

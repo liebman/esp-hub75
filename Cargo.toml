@@ -27,15 +27,15 @@ esp-build = "0.1.0"
 [dev-dependencies]
 defmt-rtt = { version = "0.4.1" }
 embassy-embedded-hal = { version = "0.2.0" }
-embassy-executor = { version = "0.6.0" }
-embassy-sync = { version = "0.6.0" }
+embassy-executor = { version = "0.6.3" }
+embassy-sync = { version = "0.6.1" }
 embassy-time = { version = "0.3.0", features = ["generic-queue"] }
 esp-backtrace = { version = "0.14.2", features = [
     "panic-handler",
     "exception-handler",
 ] }
 esp-println = { version = "0.12.0" }
-esp-hal-embassy = { version = "0.4.0" }
+esp-hal-embassy = { version = "0.5.0" }
 heapless = { version = "0.8.0", features = ["ufmt"] }
 
 [features]

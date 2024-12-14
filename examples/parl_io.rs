@@ -214,7 +214,7 @@ async fn hub75_task(
     info!("hub75_task: starting!");
     let channel = peripherals
         .dma_channel
-        .configure_for_async(false, DmaPriority::Priority0);
+        .configure(false, DmaPriority::Priority0);
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
 
     let pins = Hub75Pins {
@@ -287,7 +287,6 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -309,20 +308,20 @@ async fn main(spawner: Spawner) {
     let display_peripherals = DisplayPeripherals {
         parl_io: peripherals.PARL_IO,
         dma_channel: dma.channel0,
-        red1: io.pins.gpio19.degrade(),
-        grn1: io.pins.gpio20.degrade(),
-        blu1: io.pins.gpio21.degrade(),
-        red2: io.pins.gpio22.degrade(),
-        grn2: io.pins.gpio23.degrade(),
-        blu2: io.pins.gpio15.degrade(),
-        addr0: io.pins.gpio10.degrade(),
-        addr1: io.pins.gpio8.degrade(),
-        addr2: io.pins.gpio1.degrade(),
-        addr3: io.pins.gpio0.degrade(),
-        addr4: io.pins.gpio11.degrade(),
-        blank: io.pins.gpio5.degrade(),
-        clock: io.pins.gpio7.degrade(),
-        latch: io.pins.gpio6.degrade(),
+        red1: peripherals.GPIO19.degrade(),
+        grn1: peripherals.GPIO20.degrade(),
+        blu1: peripherals.GPIO21.degrade(),
+        red2: peripherals.GPIO22.degrade(),
+        grn2: peripherals.GPIO23.degrade(),
+        blu2: peripherals.GPIO15.degrade(),
+        addr0: peripherals.GPIO10.degrade(),
+        addr1: peripherals.GPIO8.degrade(),
+        addr2: peripherals.GPIO1.degrade(),
+        addr3: peripherals.GPIO0.degrade(),
+        addr4: peripherals.GPIO11.degrade(),
+        blank: peripherals.GPIO5.degrade(),
+        clock: peripherals.GPIO7.degrade(),
+        latch: peripherals.GPIO6.degrade(),
     };
 
     // run hub75 as high priority task (interrupt executor)
