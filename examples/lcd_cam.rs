@@ -51,7 +51,7 @@ use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::cpu_control::CpuControl;
 use esp_hal::cpu_control::Stack;
-use esp_hal::dma::Dma;
+use esp_hal::dma::DmaChannel;
 use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -96,7 +96,7 @@ type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals {
     pub lcd_cam: LCD_CAM,
-    pub dma_channel: esp_hal::dma::ChannelCreator<0>,
+    pub dma_channel: esp_hal::dma::DmaChannel0,
     pub red1: AnyPin,
     pub grn1: AnyPin,
     pub blu1: AnyPin,
@@ -219,8 +219,8 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals
-        .dma_channel
-        .configure(false, DmaPriority::Priority0);
+        .dma_channel;
+    channel.set_priority(DmaPriority::Priority0);
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
 
     let pins = Hub75Pins {
@@ -241,7 +241,8 @@ async fn hub75_task(
     };
 
     let mut hub75 =
-        Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, 20.MHz());
+        Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, 20.MHz())
+            .expect("failed to construct Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -294,7 +295,6 @@ async fn main(_spawner: Spawner) {
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
     let cpu_control = CpuControl::new(peripherals.CPU_CTRL);
-    let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
@@ -316,7 +316,7 @@ async fn main(_spawner: Spawner) {
 
     let hub75_peripherals = Hub75Peripherals {
         lcd_cam: peripherals.LCD_CAM,
-        dma_channel: dma.channel0,
+        dma_channel: peripherals.DMA_CH0,
         red1: peripherals.GPIO38.degrade(),
         grn1: peripherals.GPIO42.degrade(),
         blu1: peripherals.GPIO48.degrade(),
