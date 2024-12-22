@@ -262,7 +262,7 @@ async fn hub75_task(
                 .render(fb)
                 .map_err(|(e, _hub75)| e)
                 .expect("failed to start render!");
-            xfer.wait_for_done().await;
+            xfer.wait_for_done().await.expect("render DMA transfer failed");
             let (result, new_hub75) = xfer.wait();
             hub75 = new_hub75;
             result.expect("transfer failed");
