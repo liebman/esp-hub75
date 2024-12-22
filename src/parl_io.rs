@@ -16,6 +16,7 @@ use esp_hal::peripherals::PARL_IO;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
+use crate::Hub75Error;
 use crate::Hub75Pins;
 
 type Hub75TxSixteenBits<'d> = TxSixteenBits<'d>;
@@ -32,7 +33,47 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         channel: Channel<'d, esp_hal::Blocking, CH>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
-    ) -> Self
+    ) -> Result<Self, Hub75Error>
+    where
+        CH: DmaChannelConvert<<PARL_IO as DmaEligible>::Dma>,
+    {
+        Self::new(
+            parl_io,
+            hub75_pins,
+            channel.into_async(),
+            tx_descriptors,
+            frequency,
+        )
+    }
+
+    pub async fn render_async<
+        const ROWS: usize,
+        const COLS: usize,
+        const BITS: u8,
+        const SIZE: usize,
+    >(
+        &mut self,
+        fb: &DmaFrameBuffer<ROWS, COLS, BITS, SIZE>,
+    ) -> Result<(), Hub75Error> {
+        // parl_io has a max size limit of 32736 bytes so we need to send the
+        // framebuffer in chunks
+        let buffer = unsafe {
+            let (ptr, len) = fb.read_buffer();
+            core::slice::from_raw_parts(ptr, len)
+        };
+        self.parl_io.write_dma_async(&buffer).await?;
+        Ok(())
+    }
+}
+
+impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
+    pub fn new<CH>(
+        parl_io: PARL_IO,
+        hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
+        channel: Channel<'d, DM, CH>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: HertzU32,
+    ) -> Result<Self, Hub75Error>
     where
         CH: DmaChannelConvert<<PARL_IO as DmaEligible>::Dma>,
     {
@@ -86,36 +127,27 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         // TODO: how can we make this non-static?
         static CLOCK_PIN: StaticCell<ClkOutPin> = StaticCell::new();
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-        let parl_io =
-            ParlIoTxOnly::new(parl_io, channel.into_async(), tx_descriptors, frequency).unwrap(); // TODO: handle error
+        let parl_io = ParlIoTxOnly::new(parl_io, channel, tx_descriptors, frequency)?;
 
-        let parl_io = parl_io
-            .tx
-            .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)
-            .unwrap(); // TODO: handle error
-        Self { parl_io }
+        let parl_io =
+            parl_io
+                .tx
+                .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)?;
+        Ok(Self { parl_io })
     }
 
-    pub async fn render_async<
-        const ROWS: usize,
-        const COLS: usize,
-        const BITS: u8,
-        const SIZE: usize,
-    >(
+    pub async fn render<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>(
         &mut self,
         fb: &DmaFrameBuffer<ROWS, COLS, BITS, SIZE>,
-    ) {
+    ) -> Result<(), Hub75Error> {
         // parl_io has a max size limit of 32736 bytes so we need to send the
         // framebuffer in chunks
         let buffer = unsafe {
             let (ptr, len) = fb.read_buffer();
             core::slice::from_raw_parts(ptr, len)
         };
-        for chunk in buffer.chunks(4096) {
-            self.parl_io
-                .write_dma_async(&chunk)
-                .await
-                .expect("render_async failed");
-        }
+        let xfer = self.parl_io.write_dma(&buffer)?;
+        xfer.wait()?;
+        Ok(())
     }
 }

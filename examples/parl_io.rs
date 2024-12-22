@@ -51,7 +51,6 @@ use esp_backtrace as _;
 use esp_hal::dma::Dma;
 use esp_hal::dma::DmaPriority;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::Io;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::PARL_IO;
@@ -99,10 +98,10 @@ pub struct DisplayPeripherals {
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 4;
+const BITS: u8 = 3;
 const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
 
-type Hub75Type = Hub75<'static, esp_hal::Async>;
+type Hub75Type<'d> = Hub75<'d, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
@@ -235,25 +234,24 @@ async fn hub75_task(
     };
 
     let mut hub75 =
-        Hub75Type::new_async(peripherals.parl_io, pins, channel, tx_descriptors, 15.MHz());
+        Hub75Type::new_async(peripherals.parl_io, pins, channel, tx_descriptors, 15.MHz())
+            .expect("failed to create hub75");
 
     let mut count = 0u32;
     let mut start = Instant::now();
 
     // keep the frame buffer in an option so we can swap it
-    let mut fb = Some(fb);
+    let mut fb = fb;
 
     loop {
         // if there is a new buffer available, swap it and send the old one
         if rx.signaled() {
             let new_fb = rx.wait().await;
-            let old_fb = fb.replace(new_fb).unwrap();
-            tx.signal(old_fb);
+            tx.signal(fb);
+            fb = new_fb;
         }
 
-        if let Some(ref mut fb) = fb {
-            hub75.render_async(fb).await;
-        }
+        hub75.render_async(fb).await.expect("transfer failed");
 
         count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);

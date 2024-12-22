@@ -92,7 +92,7 @@ const COLS: usize = 64;
 const BITS: u8 = 4;
 const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
 
-type Hub75Type = Hub75<'static, esp_hal::Async>;
+type Hub75Type<'d> = Hub75<'d, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
@@ -242,12 +242,12 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 19.MHz());
+    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 19.MHz())
+        .expect("failed to create Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
 
-    // keep the frame buffer in an option so we can swap it
     let mut fb = fb;
 
     loop {
@@ -258,7 +258,16 @@ async fn hub75_task(
             fb = new_fb;
         }
 
-        hub75.render_async(fb).await;
+        let mut xfer = hub75
+            .render(fb)
+            .map_err(|(e, _hub75)| e)
+            .expect("failed to start render!");
+        xfer.wait_for_done()
+            .await
+            .expect("rendering wait_for_done failed!");
+        let (result, new_hub75) = xfer.wait();
+        hub75 = new_hub75;
+        result.expect("transfer failed");
 
         count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);

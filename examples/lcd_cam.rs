@@ -241,7 +241,8 @@ async fn hub75_task(
     };
 
     let mut hub75 =
-        Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, 20.MHz());
+        Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, 20.MHz())
+            .expect("failed to create Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -256,9 +257,15 @@ async fn hub75_task(
             let old_fb = fb.replace(new_fb).unwrap();
             tx.signal(old_fb);
         }
-
         if let Some(ref mut fb) = fb {
-            hub75.render_async(fb).await;
+            let mut xfer = hub75
+                .render(fb)
+                .map_err(|(e, _hub75)| e)
+                .expect("failed to start render!");
+            xfer.wait_for_done().await;
+            let (result, new_hub75) = xfer.wait();
+            hub75 = new_hub75;
+            result.expect("transfer failed");
         }
 
         count += 1;

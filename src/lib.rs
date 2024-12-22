@@ -33,3 +33,31 @@ pub struct Hub75Pins {
     #[cfg(all(feature = "esp32c6", feature = "valid-pin"))]
     pub valid: AnyPin,
 }
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Hub75Error {
+    Dma(esp_hal::dma::DmaError),
+    DmaBuf(esp_hal::dma::DmaBufError),
+    #[cfg(feature = "esp32c6")]
+    ParlIo(esp_hal::parl_io::Error),
+}
+
+impl From<esp_hal::dma::DmaError> for Hub75Error {
+    fn from(e: esp_hal::dma::DmaError) -> Self {
+        Hub75Error::Dma(e)
+    }
+}
+
+impl From<esp_hal::dma::DmaBufError> for Hub75Error {
+    fn from(e: esp_hal::dma::DmaBufError) -> Self {
+        Hub75Error::DmaBuf(e)
+    }
+}
+
+#[cfg(feature = "esp32c6")]
+impl From<esp_hal::parl_io::Error> for Hub75Error {
+    fn from(e: esp_hal::parl_io::Error) -> Self {
+        Hub75Error::ParlIo(e)
+    }
+}
