@@ -74,3 +74,6 @@ log = [
 ]
 xtensa-lx-rt = ["dep:xtensa-lx-rt"]
 valid-pin = [] # only for parl_io debugging
+
+[patch.crates-io]
+esp-hal          = { path = "../esp-hal/esp-hal" }

@@ -1,0 +1,282 @@
+use core::convert::Infallible;
+
+use bitfield::bitfield;
+use embedded_graphics::pixelcolor::Rgb888;
+use embedded_graphics::pixelcolor::RgbColor;
+use embedded_graphics::prelude::Point;
+use esp_hal::dma::ReadBuffer;
+type Color = Rgb888;
+
+pub const fn compute_rows(rows: usize) -> usize {
+    rows / 2
+}
+
+pub const fn compute_frame_count(bits: usize) -> usize {
+    1usize << (bits - 1)
+}
+
+bitfield! {
+    #[derive(Clone, Copy, Default, PartialEq)]
+    #[repr(transparent)]
+    pub struct Address(u8);
+    impl Debug;
+    pub blank, set_blank: 7;
+    pub latch, set_latch: 6;
+    pub addr, set_addr: 4, 0;
+}
+
+bitfield! {
+    #[derive(Clone, Copy, Default, PartialEq)]
+    #[repr(transparent)]
+    pub struct Entry(u8);
+    impl Debug;
+    pub blank, set_blank: 7;
+    pub latch, set_latch: 6;
+    pub blu2, set_blu2: 5;
+    pub grn2, set_grn2: 4;
+    pub red2, set_red2: 3;
+    pub blu1, set_blu1: 2;
+    pub grn1, set_grn1: 1;
+    pub red1, set_red1: 0;
+}
+
+impl Entry {
+    fn set_color0<C: RgbColor>(&mut self, color: C, brightness: u8) {
+        self.set_red1(color.r() >= brightness);
+        self.set_grn1(color.g() >= brightness);
+        self.set_blu1(color.b() >= brightness);
+    }
+
+    fn set_color1<C: RgbColor>(&mut self, color: C, brightness: u8) {
+        self.set_red2(color.r() >= brightness);
+        self.set_grn2(color.g() >= brightness);
+        self.set_blu2(color.b() >= brightness);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(C)]
+pub struct Row<const COLS: usize> {
+    data: [Entry; COLS],
+    address: [Address; 4],
+}
+
+// bytes are output in the order 2, 3, 0, 1
+pub fn map_index(index: usize) -> usize {
+    let bits = match index & 0b11 {
+        0 => 2,
+        1 => 3,
+        2 => 0,
+        3 => 1,
+        _ => unreachable!(),
+    };
+    (index & !0b11) | bits
+}
+
+impl<const COLS: usize> Row<COLS> {
+    pub fn new() -> Self {
+        Self {
+            address: [Address::default(); 4],
+            data: [Entry::default(); COLS],
+        }
+    }
+
+    pub fn format(&mut self, addr: u8) {
+        for i in 0..4 {
+            let blank = true;
+            let latch = match i {
+                3 => false,
+                _ => true,
+            };
+            let i = map_index(i);
+            self.address[i].set_blank(blank);
+            self.address[i].set_latch(latch);
+            self.address[i].set_addr(addr as u8);
+        }
+        let mut entry = Entry::default();
+        entry.set_latch(false);
+        entry.set_blank(false);
+        for i in 0..COLS {
+            let i = map_index(i);
+            self.data[i] = entry;
+        }
+    }
+
+    pub fn set_color0(&mut self, col: usize, color: Color, brightness: u8) {
+        let entry = &mut self.data[map_index(col)];
+        entry.set_color0(color, brightness);
+    }
+
+    pub fn set_color1(&mut self, col: usize, color: Color, brightness: u8) {
+        let entry = &mut self.data[map_index(col)];
+        entry.set_color1(color, brightness);
+    }
+}
+
+impl<const COLS: usize> Default for Row<COLS> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct Frame<const ROWS: usize, const COLS: usize, const NROWS: usize> {
+    rows: [Row<COLS>; NROWS],
+}
+
+impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Frame<ROWS, COLS, NROWS> {
+    pub fn new() -> Self {
+        Self {
+            rows: [Row::default(); NROWS],
+        }
+    }
+
+    pub fn format(&mut self) {
+        for (addr, row) in self.rows.iter_mut().enumerate() {
+            row.format(addr as u8);
+        }
+    }
+
+    pub fn set_pixel(&mut self, y: usize, x: usize, color: Color, brightness: u8) {
+        let row = &mut self.rows[if y < NROWS { y } else { y - NROWS }];
+        if y < NROWS {
+            row.set_color0(x, color, brightness);
+        } else {
+            row.set_color1(x, color, brightness);
+        }
+    }
+
+    // pub fn set_pixel(&mut self, y: usize, x: usize, r: bool, g: bool, b: bool) {
+
+    //     let (row, color1, color2) = if y < NROWS {
+    //         (y, Some((r, g, b)), None)
+    //     } else {
+    //         (y - NROWS, None, Some((r, g, b)))
+    //     };
+    //     self.rows[row].set_color(x, color1, color2);
+    // }
+}
+
+impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
+    for Frame<ROWS, COLS, NROWS>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+unsafe impl<const ROWS: usize, const COLS: usize, const NROWS: usize> ReadBuffer
+    for Frame<ROWS, COLS, NROWS>
+{
+    unsafe fn read_buffer(&self) -> (*const u8, usize) {
+        let ptr = self as *const _ as *const u8;
+        let len = core::mem::size_of_val(self);
+        (ptr, len)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct DmaFrameBuffer<
+    const ROWS: usize,
+    const COLS: usize,
+    const NROWS: usize,
+    const BITS: u8,
+    const FRAME_COUNT: usize,
+> {
+    frames: [Frame<ROWS, COLS, NROWS>; FRAME_COUNT],
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    pub fn new() -> Self {
+        Self {
+            frames: [Frame::default(); FRAME_COUNT],
+        }
+    }
+
+    pub fn clear(&mut self) {
+        for frame in self.frames.iter_mut() {
+            frame.format();
+        }
+    }
+
+    pub fn set_pixel(&mut self, p: Point, color: Color) {
+        if p.x < 0 || p.y < 0 {
+            return;
+        }
+        self.set_pixel_internal(p.x as usize, p.y as usize, color);
+    }
+
+    fn set_pixel_internal(&mut self, x: usize, y: usize, color: Rgb888) {
+        if x >= COLS || y >= ROWS {
+            return;
+        }
+        // set the pixel in all frames
+        for frame in 0..FRAME_COUNT {
+            let brightness_step = 1 << (8 - BITS);
+            let brightness = (frame as u8 + 1).saturating_mul(brightness_step);
+            self.frames[frame].set_pixel(y, x, color, brightness);
+        }
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > embedded_graphics::prelude::OriginDimensions
+    for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        embedded_graphics::prelude::Size::new(COLS as u32, ROWS as u32)
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > embedded_graphics::draw_target::DrawTarget
+    for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    type Color = Color;
+
+    type Error = Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+    {
+        for pixel in pixels {
+            self.set_pixel_internal(pixel.0.x as usize, pixel.0.y as usize, pixel.1);
+        }
+        Ok(())
+    }
+}
+
+unsafe impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > ReadBuffer for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    unsafe fn read_buffer(&self) -> (*const u8, usize) {
+        let ptr = &self.frames as *const _ as *const u8;
+        let len = core::mem::size_of_val(&self.frames);
+        (ptr, len)
+    }
+}
