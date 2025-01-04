@@ -53,7 +53,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Result<Self, Hub75Error> {
-        // let (_, blank) = hub75_pins.blank.split();
+        let (_, blank) = hub75_pins.blank.split();
         let pins = TxEightBits::new(
             hub75_pins.red1,
             hub75_pins.grn1,
@@ -62,8 +62,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
             hub75_pins.grn2,
             hub75_pins.blu2,
             hub75_pins.latch,
-            // blank.inverted(),
-            hub75_pins.blank,
+            blank.inverted(),
         );
 
         let i2s = I2sParallel::new(i2s, channel, frequency, pins, hub75_pins.clock);
