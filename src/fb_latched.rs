@@ -108,6 +108,9 @@ impl<const COLS: usize> Row<COLS> {
         entry.set_blank(false);
         for i in 0..COLS {
             let i = map_index(i);
+            if i == COLS - 1 {
+                entry.set_blank(true);
+            }
             self.data[i] = entry;
         }
     }

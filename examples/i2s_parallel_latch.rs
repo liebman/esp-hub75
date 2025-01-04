@@ -84,7 +84,7 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 const ROWS: usize = 32;
 const COLS: usize = 64;
-const BITS: u8 = 1;
+const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS as usize);
 
@@ -228,7 +228,7 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 19.MHz())
+    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 20.MHz())
         .expect("failed to create Hub75!");
 
     let mut count = 0u32;
