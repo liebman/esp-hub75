@@ -93,7 +93,7 @@ impl<const COLS: usize> Row<COLS> {
 
     pub fn format(&mut self, addr: u8) {
         for i in 0..4 {
-            let blank = true;
+            let blank = false; // inverted
             let latch = match i {
                 3 => false,
                 _ => true,
@@ -105,11 +105,11 @@ impl<const COLS: usize> Row<COLS> {
         }
         let mut entry = Entry::default();
         entry.set_latch(false);
-        entry.set_blank(false);
+        entry.set_blank(true); // inverted
         for i in 0..COLS {
             let i = map_index(i);
             if i == COLS - 1 {
-                entry.set_blank(true);
+                entry.set_blank(false); // inverted
             }
             self.data[i] = entry;
         }
