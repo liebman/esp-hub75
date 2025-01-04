@@ -25,6 +25,12 @@ bitfield! {
     pub addr, set_addr: 4, 0;
 }
 
+impl Address {
+    pub const fn new() -> Self {
+        Self(0)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, Default, PartialEq)]
     #[repr(transparent)]
@@ -41,6 +47,10 @@ bitfield! {
 }
 
 impl Entry {
+    pub const fn new() -> Self {
+        Self(0)
+    }
+
     fn set_color0<C: RgbColor>(&mut self, color: C, brightness: u8) {
         self.set_red1(color.r() >= brightness);
         self.set_grn1(color.g() >= brightness);
@@ -74,10 +84,10 @@ pub fn map_index(index: usize) -> usize {
 }
 
 impl<const COLS: usize> Row<COLS> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            address: [Address::default(); 4],
-            data: [Entry::default(); COLS],
+            address: [Address::new(); 4],
+            data: [Entry::new(); COLS],
         }
     }
 
@@ -126,9 +136,9 @@ pub struct Frame<const ROWS: usize, const COLS: usize, const NROWS: usize> {
 }
 
 impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Frame<ROWS, COLS, NROWS> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            rows: [Row::default(); NROWS],
+            rows: [Row::new(); NROWS],
         }
     }
 
@@ -166,16 +176,6 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
     }
 }
 
-unsafe impl<const ROWS: usize, const COLS: usize, const NROWS: usize> ReadBuffer
-    for Frame<ROWS, COLS, NROWS>
-{
-    unsafe fn read_buffer(&self) -> (*const u8, usize) {
-        let ptr = self as *const _ as *const u8;
-        let len = core::mem::size_of_val(self);
-        (ptr, len)
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct DmaFrameBuffer<
@@ -196,9 +196,9 @@ impl<
         const FRAME_COUNT: usize,
     > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            frames: [Frame::default(); FRAME_COUNT],
+            frames: [Frame::new(); FRAME_COUNT],
         }
     }
 
