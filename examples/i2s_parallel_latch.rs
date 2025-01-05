@@ -86,7 +86,7 @@ const ROWS: usize = 32;
 const COLS: usize = 64;
 const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
-const FRAME_COUNT: usize = compute_frame_count(BITS as usize);
+const FRAME_COUNT: usize = compute_frame_count(BITS);
 
 type Hub75Type<'d> = Hub75<'d, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
