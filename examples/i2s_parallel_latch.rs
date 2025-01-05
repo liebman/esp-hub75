@@ -1,12 +1,13 @@
-//! Embassy "async" example driving a 64x64 HUB75 display using
+//! Embassy "async" example driving a 64x32 HUB75 display using
 //! the I2S peripheral of an `esp32` with a SmartLEDShield_ESP32_V0 style
-//! circuit.
-//!
+//! circuit.  This example should also work for 64x64 displays if you change
+//! the ROWS constant to 64.
 //!
 //! This example draws a simple gradient on the display and shows the refresh
 //! rate and render rate plus a simple counter.
 //!
 //! Folowing pins are used:
+//!
 //!   SIG     LAT  PIN
 //! - R1      A  => GPIO4
 //! - G1      B  => GPIO21
@@ -19,7 +20,9 @@
 //! - CLK        => GPIO26
 //! - LAT        => GPIO27
 //!
-//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
+//! NOTE1: these are not the default pins for the SmartLEDShield_ESP32_V0
+//!
+//! NOTE2: you most likeliy need level converters 3.3v to 5v for all HUB75
 //! signals
 #![no_std]
 #![no_main]
@@ -58,9 +61,9 @@ use esp_hal::interrupt::Priority;
 use esp_hal::prelude::*;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
-use esp_hub75::fb_latched::compute_frame_count;
-use esp_hub75::fb_latched::compute_rows;
-use esp_hub75::fb_latched::DmaFrameBuffer;
+use esp_hub75::framebuffer::compute_frame_count;
+use esp_hub75::framebuffer::compute_rows;
+use esp_hub75::framebuffer::latched::DmaFrameBuffer;
 use esp_hub75::i2s_parallel_latch::Hub75;
 use esp_hub75::i2s_parallel_latch::Hub75Pins;
 use esp_hub75::Color;
@@ -87,6 +90,11 @@ const COLS: usize = 64;
 const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
+
+const LINE1: i32 = ROWS as i32 - 1 - 14;
+const LINE2: i32 = ROWS as i32 - 1 - 7;
+const LINE3: i32 = ROWS as i32 - 1;
+const NBARS: i32 = ROWS as i32 / 8;
 
 type Hub75Type<'d> = Hub75<'d, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
@@ -128,14 +136,16 @@ async fn display_task(
         const STEP: u8 = (256 / COLS) as u8;
         for x in 0..COLS {
             let brightness = (x as u8) * STEP;
-            for y in 0..4 {
+            for y in 0..NBARS {
                 fb.set_pixel(Point::new(x as i32, y), Color::new(brightness, 0, 0));
-            }
-            for y in 4..8 {
-                fb.set_pixel(Point::new(x as i32, y), Color::new(0, brightness, 0));
-            }
-            for y in 8..12 {
-                fb.set_pixel(Point::new(x as i32, y), Color::new(0, 0, brightness));
+                fb.set_pixel(
+                    Point::new(x as i32, y + NBARS),
+                    Color::new(0, brightness, 0),
+                );
+                fb.set_pixel(
+                    Point::new(x as i32, y + 2 * NBARS),
+                    Color::new(0, 0, brightness),
+                );
             }
         }
 
@@ -148,7 +158,7 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 31),
+            Point::new(0, LINE3),
             fps_style,
             Alignment::Left,
         )
@@ -164,7 +174,7 @@ async fn display_task(
 
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 31 - 7),
+            Point::new(0, LINE2),
             fps_style,
             Alignment::Left,
         )
@@ -179,7 +189,7 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 31 - 14),
+            Point::new(0, LINE1),
             fps_style,
             Alignment::Left,
         )

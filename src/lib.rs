@@ -4,8 +4,6 @@
 use embedded_graphics::pixelcolor::Rgb888;
 use esp_hal::gpio::AnyPin;
 
-#[cfg(feature = "esp32")]
-pub mod fb_latched;
 pub mod framebuffer;
 #[cfg(feature = "esp32")]
 pub mod i2s_parallel;

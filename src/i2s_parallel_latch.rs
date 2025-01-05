@@ -11,7 +11,7 @@ use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::peripheral::Peripheral;
 
-use crate::fb_latched::DmaFrameBuffer;
+use crate::framebuffer::latched::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Error;
 

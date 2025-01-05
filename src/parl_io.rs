@@ -62,7 +62,10 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             let (ptr, len) = fb.read_buffer();
             core::slice::from_raw_parts(ptr, len)
         };
-        self.parl_io.write_dma_async(&buffer).await?;
+        // parl_io has a max size limit of 32736 bytes so we need to send the
+        for chunk in buffer.chunks(32736) {
+            self.parl_io.write_dma_async(&chunk).await?;
+        }
         Ok(())
     }
 }

@@ -5,6 +5,10 @@ use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::pixelcolor::RgbColor;
 use embedded_graphics::prelude::Point;
 use esp_hal::dma::ReadBuffer;
+
+pub mod latched;
+
+const BLANKING_DELAY: usize = 5;
 type Color = Rgb888;
 
 pub const fn compute_rows(rows: usize) -> usize {
@@ -18,36 +22,31 @@ pub const fn compute_frame_count(bits: u8) -> usize {
 bitfield! {
     #[derive(Clone, Copy, Default, PartialEq)]
     #[repr(transparent)]
-    pub struct Address(u8);
+    pub struct Entry(u16);
     impl Debug;
-    pub blank, set_blank: 7;
-    pub latch, set_latch: 6;
-    pub addr, set_addr: 4, 0;
+    dummy2, set_dummy2: 15;
+    blu2, set_blu2: 14;
+    grn2, set_grn2: 13;
+    red2, set_red2: 12;
+    blu1, set_blu1: 11;
+    grn1, set_grn1: 10;
+    red1, set_red1: 9;
+    output_enable, set_output_enable: 8;
+    dummy1, set_dummy1: 7;
+    dummy0, set_dummy0: 6;
+    latch, set_latch: 5;
+    addr, set_addr: 4, 0;
 }
 
-impl Address {
-    pub const fn new() -> Self {
-        Self(0)
+#[cfg(feature = "defmt")]
+impl defmt::Format for Entry {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "Entry({=u16:#x})", self.0)
     }
 }
 
-bitfield! {
-    #[derive(Clone, Copy, Default, PartialEq)]
-    #[repr(transparent)]
-    pub struct Entry(u8);
-    impl Debug;
-    pub blank, set_blank: 7;
-    pub latch, set_latch: 6;
-    pub blu2, set_blu2: 5;
-    pub grn2, set_grn2: 4;
-    pub red2, set_red2: 3;
-    pub blu1, set_blu1: 2;
-    pub grn1, set_grn1: 1;
-    pub red1, set_red1: 0;
-}
-
 impl Entry {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self(0)
     }
 
@@ -68,50 +67,44 @@ impl Entry {
 #[repr(C)]
 pub struct Row<const COLS: usize> {
     data: [Entry; COLS],
-    address: [Address; 4],
 }
 
-// bytes are output in the order 2, 3, 0, 1
-pub fn map_index(index: usize) -> usize {
-    let bits = match index & 0b11 {
-        0 => 2,
-        1 => 3,
-        2 => 0,
-        3 => 1,
-        _ => unreachable!(),
-    };
-    (index & !0b11) | bits
+const fn map_index(i: usize) -> usize {
+    #[cfg(feature = "esp32")]
+    {
+        i ^ 1
+    }
+    #[cfg(not(feature = "esp32"))]
+    {
+        i
+    }
 }
 
 impl<const COLS: usize> Row<COLS> {
     pub const fn new() -> Self {
         Self {
-            address: [Address::new(); 4],
             data: [Entry::new(); COLS],
         }
     }
 
-    pub fn format(&mut self, addr: u8) {
-        for i in 0..4 {
-            let blank = false; // inverted
-            let latch = match i {
-                3 => false,
-                _ => true,
-            };
-            let i = map_index(i);
-            self.address[i].set_blank(blank);
-            self.address[i].set_latch(latch);
-            self.address[i].set_addr(addr as u8);
-        }
+    pub fn format(&mut self, addr: u8, prev_addr: u8) {
         let mut entry = Entry::default();
-        entry.set_latch(false);
-        entry.set_blank(true); // inverted
+        entry.set_addr(prev_addr as u16);
+        entry.set_output_enable(false);
         for i in 0..COLS {
-            let i = map_index(i);
-            if i == COLS - 1 {
-                entry.set_blank(false); // inverted
+            // if we enable display too soon then we will have ghosting
+            if i >= BLANKING_DELAY {
+                entry.set_output_enable(true);
             }
-            self.data[i] = entry;
+            // last pixel, blank the display, open the latch, set the new row address
+            // the latch will be closed on the first pixel of the next row.
+            if i == COLS - 1 {
+                entry.set_output_enable(false);
+                entry.set_latch(true);
+                entry.set_addr(addr as u16);
+            }
+
+            self.data[map_index(i)] = entry;
         }
     }
 
@@ -123,12 +116,6 @@ impl<const COLS: usize> Row<COLS> {
     pub fn set_color1(&mut self, col: usize, color: Color, brightness: u8) {
         let entry = &mut self.data[map_index(col)];
         entry.set_color1(color, brightness);
-    }
-}
-
-impl<const COLS: usize> Default for Row<COLS> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -147,7 +134,12 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Frame<ROWS, COLS,
 
     pub fn format(&mut self) {
         for (addr, row) in self.rows.iter_mut().enumerate() {
-            row.format(addr as u8);
+            let prev_addr = if addr == 0 {
+                NROWS as u8 - 1
+            } else {
+                addr as u8 - 1
+            };
+            row.format(addr as u8, prev_addr);
         }
     }
 
@@ -190,9 +182,15 @@ impl<
     > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
     pub const fn new() -> Self {
+        assert!(BITS <= 8);
+
         Self {
             frames: [Frame::new(); FRAME_COUNT],
         }
+    }
+
+    pub const fn dma_buffer_size_bytes() -> usize {
+        core::mem::size_of::<[Frame<ROWS, COLS, NROWS>; FRAME_COUNT]>()
     }
 
     pub fn clear(&mut self) {
@@ -305,7 +303,15 @@ impl<
 {
     fn format(&self, f: defmt::Formatter) {
         let brightness_step = 1 << (8 - BITS);
-        defmt::write!(f, "DmaFrameBuffer<{}, {}, {}, {}, {}>", ROWS, COLS, NROWS, BITS, FRAME_COUNT);
+        defmt::write!(
+            f,
+            "DmaFrameBuffer<{}, {}, {}, {}, {}>",
+            ROWS,
+            COLS,
+            NROWS,
+            BITS,
+            FRAME_COUNT
+        );
         defmt::write!(f, " size: {}", core::mem::size_of_val(&self.frames));
         defmt::write!(
             f,
