@@ -11,8 +11,8 @@ pub const fn compute_rows(rows: usize) -> usize {
     rows / 2
 }
 
-pub const fn compute_frame_count(bits: usize) -> usize {
-    1usize << (bits - 1)
+pub const fn compute_frame_count(bits: u8) -> usize {
+    1usize << bits
 }
 
 bitfield! {
@@ -159,16 +159,6 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Frame<ROWS, COLS,
             row.set_color1(x, color, brightness);
         }
     }
-
-    // pub fn set_pixel(&mut self, y: usize, x: usize, r: bool, g: bool, b: bool) {
-
-    //     let (row, color1, color2) = if y < NROWS {
-    //         (y, Some((r, g, b)), None)
-    //     } else {
-    //         (y - NROWS, None, Some((r, g, b)))
-    //     };
-    //     self.rows[row].set_color(x, color1, color2);
-    // }
 }
 
 impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
