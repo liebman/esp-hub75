@@ -179,6 +179,8 @@ impl<
     > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
     pub const fn new() -> Self {
+        assert!(BITS <= 8);
+
         Self {
             frames: [Frame::new(); FRAME_COUNT],
         }
@@ -298,9 +300,8 @@ impl<
 {
     fn format(&self, f: defmt::Formatter) {
         let brightness_step = 1 << (8 - BITS);
-        defmt::write!(f, "DmaFrameBuffer<{}, {}, {}>", ROWS, COLS, BITS);
+        defmt::write!(f, "DmaFrameBuffer<{}, {}, {}, {}, {}>", ROWS, COLS, NROWS, BITS, FRAME_COUNT);
         defmt::write!(f, " size: {}", core::mem::size_of_val(&self.frames));
-        defmt::write!(f, " frame_count: {}", self.frames.len());
         defmt::write!(
             f,
             " frame_size: {}",
