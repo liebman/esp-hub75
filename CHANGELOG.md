@@ -11,11 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `parl_io` Hub75 driver
 - `i2s_parallel` Hub75 driver for `esp32` (#5)
+- `framebuffer::latched::DmaFrameBuffer` to support using a latch to [reduce pins/memory used](https://github.com/pixelmatix/SmartMatrix/blob/master/extras/hardware/ESP32/SmartLEDShield_ESP32_V0_sch.pdf)
 
 ### Changed
 
 - update `esp-hal` to 0.21.0
 - parl_io, lcd_cam: frequency is required to be passed in
+- refactor existing DmaFrameBuffer, changes signature!
 
 ### Fixed
 
