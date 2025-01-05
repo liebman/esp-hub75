@@ -305,8 +305,8 @@ async fn main(spawner: Spawner) {
     fb0.clear();
     fb1.clear();
 
-    // info!("fb0: {:?}", fb0);
-    // info!("fb1: {:?}", fb1);
+    info!("fb0: {:?}", fb0);
+    info!("fb1: {:?}", fb1);
 
     let hub75_peripherals = Hub75Peripherals {
         i2s: peripherals.I2S1.into(),

@@ -169,7 +169,7 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct DmaFrameBuffer<
     const ROWS: usize,
@@ -271,5 +271,47 @@ unsafe impl<
         let ptr = &self.frames as *const _ as *const u8;
         let len = core::mem::size_of_val(&self.frames);
         (ptr, len)
+    }
+}
+
+#[cfg(feature = "log")]
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > core::fmt::Debug for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let brightness_step = 1 << (8 - BITS);
+        f.debug_struct("DmaFrameBuffer")
+            .field("size", &core::mem::size_of_val(&self.frames))
+            .field("frame_count", &self.frames.len())
+            .field("frame_size", &core::mem::size_of_val(&self.frames[0]))
+            .field("brightness_step", &&brightness_step)
+            .finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > defmt::Format for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn format(&self, f: defmt::Formatter) {
+        let brightness_step = 1 << (8 - BITS);
+        defmt::write!(f, "DmaFrameBuffer<{}, {}, {}, {}, {}>", ROWS, COLS, NROWS, BITS, FRAME_COUNT);
+        defmt::write!(f, " size: {}", core::mem::size_of_val(&self.frames));
+        defmt::write!(
+            f,
+            " frame_size: {}",
+            core::mem::size_of_val(&self.frames[0])
+        );
+        defmt::write!(f, " brightness_step: {}", brightness_step);
     }
 }
