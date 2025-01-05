@@ -49,11 +49,12 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     pub async fn render_async<
         const ROWS: usize,
         const COLS: usize,
+        const NROWS: usize,
         const BITS: u8,
-        const SIZE: usize,
+        const FRAME_COUNT: usize,
     >(
         &mut self,
-        fb: &DmaFrameBuffer<ROWS, COLS, BITS, SIZE>,
+        fb: &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
     ) -> Result<(), Hub75Error> {
         // parl_io has a max size limit of 32736 bytes so we need to send the
         // framebuffer in chunks
@@ -136,9 +137,15 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         Ok(Self { parl_io })
     }
 
-    pub async fn render<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>(
+    pub fn render<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    >(
         &mut self,
-        fb: &DmaFrameBuffer<ROWS, COLS, BITS, SIZE>,
+        fb: &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
     ) -> Result<(), Hub75Error> {
         // parl_io has a max size limit of 32736 bytes so we need to send the
         // framebuffer in chunks

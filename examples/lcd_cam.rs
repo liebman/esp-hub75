@@ -61,9 +61,9 @@ use esp_hal::prelude::*;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::Executor;
 use esp_hal_embassy::InterruptExecutor;
-use esp_hub75::framebuffer::compute_buffer_size;
+use esp_hub75::framebuffer::compute_frame_count;
+use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::DmaFrameBuffer;
-use esp_hub75::framebuffer::Entry;
 use esp_hub75::lcd_cam::Hub75;
 use esp_hub75::Color;
 use esp_hub75::Hub75Pins;
@@ -88,10 +88,11 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const BITS: u8 = 4;
-const SIZE: usize = compute_buffer_size(ROWS, COLS, BITS);
+const NROWS: usize = compute_rows(ROWS);
+const FRAME_COUNT: usize = compute_frame_count(BITS);
 
 type Hub75Type = Hub75<'static, esp_hal::Async>;
-type FBType = DmaFrameBuffer<ROWS, COLS, BITS, SIZE>;
+type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals {
@@ -221,7 +222,7 @@ async fn hub75_task(
     let channel = peripherals
         .dma_channel
         .configure(false, DmaPriority::Priority0);
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, SIZE * size_of::<Entry>());
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
 
     let pins = Hub75Pins {
         red1: peripherals.red1,
@@ -285,7 +286,7 @@ extern "C" {
     static _stack_start_cpu0: u32;
 }
 
-#[main]
+#[esp_hal_embassy::main]
 async fn main(_spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
@@ -296,7 +297,7 @@ async fn main(_spawner: Spawner) {
     info!("ROWS: {}", ROWS);
     info!("COLS: {}", COLS);
     info!("BITS: {}", BITS);
-    info!("SIZE: {}", SIZE);
+    info!("FRAME_COUNT: {}", FRAME_COUNT);
     let mut config = esp_hal::Config::default();
     config.cpu_clock = CpuClock::max();
     let peripherals = esp_hal::init(config);

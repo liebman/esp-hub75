@@ -69,9 +69,15 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         })
     }
 
-    pub fn render<const ROWS: usize, const COLS: usize, const BITS: u8, const SIZE: usize>(
+    pub fn render<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    >(
         self,
-        fb: &mut DmaFrameBuffer<ROWS, COLS, BITS, SIZE>,
+        fb: &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
     ) -> Result<Hub75Transfer<'d, DM>, (Hub75Error, Self)> {
         let i2s = self.i2s;
         let tx_descriptors = self.tx_descriptors;
