@@ -16,7 +16,7 @@ pub const fn compute_rows(rows: usize) -> usize {
 }
 
 pub const fn compute_frame_count(bits: u8) -> usize {
-    1usize << bits
+    (1usize << bits) - 1
 }
 
 bitfield! {
