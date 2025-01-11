@@ -187,6 +187,11 @@ impl<
         }
     }
 
+    // This returns the size of the DMA buffer in bytes.  Its used to calculate the number of DMA descriptors needed.
+    pub const fn dma_buffer_size_bytes() -> usize {
+        core::mem::size_of::<[Frame<ROWS, COLS, NROWS>; FRAME_COUNT]>()
+    }
+
     pub fn clear(&mut self) {
         for frame in self.frames.iter_mut() {
             frame.format();
