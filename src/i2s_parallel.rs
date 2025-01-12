@@ -1,7 +1,5 @@
-use esp_hal::dma::Channel;
-use esp_hal::dma::DmaChannelConvert;
+use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
@@ -10,38 +8,29 @@ use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxSixteenBits;
 use esp_hal::peripheral::Peripheral;
+use log::info;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 
-pub struct Hub75<'d, DM: esp_hal::Mode> {
+pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     i2s: I2sParallel<'d, DM>,
     tx_descriptors: &'static mut [DmaDescriptor],
 }
 
-impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async<CH: DmaChannelConvert<<AnyI2s as DmaEligible>::Dma>>(
+impl<'d> Hub75<'d, esp_hal::Blocking> {
+    pub fn new<CH>(
         i2s: impl Peripheral<P = AnyI2s> + 'd,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, esp_hal::Blocking, CH>,
+        channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: HertzU32,
-    ) -> Result<Self, Hub75Error> {
-        let channel = channel.into_async();
-        Self::new(i2s, hub75_pins, channel, tx_descriptors, frequency)
-    }
-}
-
-impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
-    pub fn new<CH: DmaChannelConvert<<AnyI2s as DmaEligible>::Dma>>(
-        i2s: impl Peripheral<P = AnyI2s> + 'd,
-        hub75_pins: Hub75Pins,
-        channel: Channel<'d, DM, CH>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: HertzU32,
-    ) -> Result<Self, Hub75Error> {
+        frequency: impl Into<HertzU32>,
+    ) -> Result<Self, Hub75Error>
+    where
+        CH: DmaChannelFor<AnyI2s>,
+    {
         let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
@@ -69,6 +58,16 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         })
     }
 
+    pub fn into_async(self) -> Hub75<'d, esp_hal::Async> {
+        Hub75 {
+            i2s: self.i2s.into_async(),
+            tx_descriptors: self.tx_descriptors,
+        }
+    }
+}
+
+impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
+
     pub fn render<
         const ROWS: usize,
         const COLS: usize,
@@ -84,6 +83,7 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
         let tx_buffer = unsafe {
             use esp_hal::dma::ReadBuffer;
             let (ptr, len) = fb.read_buffer();
+            info!("tx_buffer: {:p} len: {}", ptr, len);
             // SAFETY: tx_buffer is only used until the tx_buf.split below!
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
@@ -102,11 +102,11 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
     }
 }
 
-pub struct Hub75Transfer<'d, DM: esp_hal::Mode> {
+pub struct Hub75Transfer<'d, DM: esp_hal::DriverMode> {
     pub xfer: I2sParallelTransfer<'d, DmaTxBuf, DM>,
 }
 
-impl<'d, DM: esp_hal::Mode> Hub75Transfer<'d, DM> {
+impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     /// Returns true when [Self::wait] will not block.
     pub fn is_done(&self) -> bool {
         self.xfer.is_done()

@@ -13,16 +13,16 @@
 //! - G1  => GPIO4
 //! - B1  => GPIO17
 //! - R2  => GPIO18
-//! - G2  => GPIO19
-//! - B2  => GPIO5
-//! - A   => GPIO12
-//! - B   => GPIO14
-//! - C   => GPIO26
-//! - D   => GPIO27
-//! - E   => GPIO13
-//! - OE  => GPIO32
-//! - CLK => GPIO25
-//! - LAT => GPIO33
+//! - G2  => GPIO5
+//! - B2  => GPIO19
+//! - A   => GPIO15
+//! - B   => GPIO13
+//! - C   => GPIO12
+//! - D   => GPIO14
+//! - E   => GPIO2
+//! - OE  => GPIO25
+//! - CLK => GPIO27
+//! - LAT => GPIO26
 //!
 //! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
 //! signals
@@ -53,14 +53,14 @@ use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
-use esp_hal::dma::Dma;
-use esp_hal::dma::DmaPriority;
-use esp_hal::dma::I2s0DmaChannelCreator;
+use esp_hal::clock::CpuClock;
+use esp_hal::dma::I2s0DmaChannel;
 use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::Pin;
 use esp_hal::i2s::parallel::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
-use esp_hal::prelude::*;
+use esp_hal::time::RateExtU32;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
@@ -93,13 +93,12 @@ const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
-type Hub75Type<'d> = Hub75<'d, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals {
     pub i2s: AnyI2s,
-    pub dma_channel: I2s0DmaChannelCreator,
+    pub dma_channel: I2s0DmaChannel,
     pub red1: AnyPin,
     pub grn1: AnyPin,
     pub blu1: AnyPin,
@@ -222,8 +221,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals
-        .dma_channel
-        .configure(false, DmaPriority::Priority0);
+        .dma_channel;
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
 
     let pins = Hub75Pins {
@@ -243,8 +241,8 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75Type::new_async(peripherals.i2s, pins, channel, tx_descriptors, 19.MHz())
-        .expect("failed to create Hub75!");
+    let mut hub75 = Hub75::new(peripherals.i2s, pins, channel, tx_descriptors, 19_u32.MHz())
+        .expect("failed to create Hub75!").into_async();
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -302,7 +300,6 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
-    let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
@@ -324,7 +321,7 @@ async fn main(spawner: Spawner) {
 
     let hub75_peripherals = Hub75Peripherals {
         i2s: peripherals.I2S0.into(),
-        dma_channel: dma.i2s0channel,
+        dma_channel: peripherals.DMA_I2S0,
         red1: peripherals.GPIO16.degrade(),
         grn1: peripherals.GPIO4.degrade(),
         blu1: peripherals.GPIO17.degrade(),

@@ -1,8 +1,9 @@
 /.cargo
+/.devcontainer
 /Cargo.lock
 /bootloader.bin
 /bootloader-c6.bin
-/esp-hub75.code-workspace
+/*.code-workspace
 /espflash.toml
 /partitions.csv
 /rust-toolchain.toml

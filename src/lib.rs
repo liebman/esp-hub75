@@ -43,6 +43,8 @@ pub enum Hub75Error {
     DmaBuf(esp_hal::dma::DmaBufError),
     #[cfg(feature = "esp32c6")]
     ParlIo(esp_hal::parl_io::Error),
+    #[cfg(feature = "esp32s3")]
+    I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
 }
 
 impl From<esp_hal::dma::DmaError> for Hub75Error {

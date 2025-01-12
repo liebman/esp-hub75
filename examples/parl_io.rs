@@ -48,13 +48,13 @@ use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
-use esp_hal::dma::Dma;
-use esp_hal::dma::DmaPriority;
+use esp_hal::clock::CpuClock;
 use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::Pin;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::PARL_IO;
-use esp_hal::prelude::*;
+use esp_hal::time::RateExtU32;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
@@ -79,7 +79,7 @@ macro_rules! mk_static {
 
 pub struct DisplayPeripherals {
     pub parl_io: PARL_IO,
-    pub dma_channel: esp_hal::dma::ChannelCreator<0>,
+    pub dma_channel: esp_hal::dma::DmaChannel0,
     pub red1: AnyPin,
     pub grn1: AnyPin,
     pub blu1: AnyPin,
@@ -213,8 +213,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals
-        .dma_channel
-        .configure(false, DmaPriority::Priority0);
+        .dma_channel;
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
 
     let pins = Hub75Pins {
@@ -286,7 +285,6 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
-    let dma = Dma::new(peripherals.DMA);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
@@ -306,7 +304,7 @@ async fn main(spawner: Spawner) {
 
     let display_peripherals = DisplayPeripherals {
         parl_io: peripherals.PARL_IO,
-        dma_channel: dma.channel0,
+        dma_channel: peripherals.DMA_CH0,
         red1: peripherals.GPIO19.degrade(),
         grn1: peripherals.GPIO20.degrade(),
         blu1: peripherals.GPIO21.degrade(),
