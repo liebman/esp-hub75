@@ -9,17 +9,16 @@ rust-version = "1.71"
 [dependencies]
 bitfield = { version = "0.17.0" }
 cfg-if = "1.0.0"
-critical-section = { version = "1.1.2" }
+critical-section = { version = "1.2.0" }
 defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "0.22.0" }
+esp-hal = { version = "0.22.0", features = ["unstable"] }
 esp-hal-procmacros = { version = "0.15.0", features = ["ram"] }
 fugit = { version = "0.3.7" }
 log = { version = "0.4.22", optional = true }
 static_cell = { version = "2.1", features = ["nightly"] }
-xtensa-lx-rt = { version = "0.17.1", optional = true }
 
 [build-dependencies]
 esp-build = "0.1.0"
@@ -68,12 +67,26 @@ defmt = [
 log = [
     "dep:log",
     "esp-backtrace/println",
+    "esp-hal/log",
     "esp-println/auto",
     "esp-println/log",
     "esp-println/colors",
 ]
-xtensa-lx-rt = ["dep:xtensa-lx-rt"]
 valid-pin = [] # only for parl_io debugging
 
 [patch.crates-io]
-esp-hal          = { path = "../esp-hal/esp-hal" }
+# esp-backtrace    = { path = "../esp-hal-next/esp-backtrace" }
+# esp-build        = { path = "../esp-hal-next/esp-build" }
+# esp-hal          = { path = "../esp-hal-next/esp-hal" }
+# esp-hal-embassy  = { path = "../esp-hal-next/esp-hal-embassy" }
+# esp-println      = { path = "../esp-hal-next/esp-println" }
+# esp-riscv-rt     = { path = "../esp-hal-next/esp-riscv-rt" }
+# xtensa-lx-rt     = { path = "../esp-hal-next/xtensa-lx-rt" }
+
+esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }
+esp-build        = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }
+esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }
+esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }
+esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }
+esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }
+xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", rev = "e13c09eb92df5b830c598c548ca7aac09b916499" }

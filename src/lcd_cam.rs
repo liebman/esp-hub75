@@ -1,9 +1,7 @@
-use esp_hal::dma::Channel;
-use esp_hal::dma::DmaChannelConvert;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaEligible;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
+use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
@@ -11,6 +9,7 @@ use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
+use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::LCD_CAM;
 
 use crate::framebuffer::DmaFrameBuffer;
@@ -18,7 +17,7 @@ use crate::HertzU32;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 
-pub struct Hub75<'d, DM: esp_hal::Mode> {
+pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     i8080: I8080<'d, DM>,
     tx_descriptors: &'static mut [DmaDescriptor],
 }
@@ -27,12 +26,12 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new<CH>(
         lcd_cam: LCD_CAM,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, esp_hal::Blocking, CH>,
+        channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Result<Self, Hub75Error>
     where
-        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
+        CH: TxChannelFor<LCD_CAM>,
     {
         let lcd_cam = LcdCam::new(lcd_cam);
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
@@ -43,28 +42,28 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async<CH>(
         lcd_cam: LCD_CAM,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, esp_hal::Blocking, CH>,
+        channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Result<Self, Hub75Error>
     where
-        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
+        CH: TxChannelFor<LCD_CAM>,
     {
         let lcd_cam = LcdCam::new(lcd_cam).into_async();
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 }
 
-impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
+impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     fn new_internal<CH>(
         lcd_cam: LcdCam<'d, DM>,
         hub75_pins: Hub75Pins,
-        channel: Channel<'d, esp_hal::Blocking, CH>,
+        channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: HertzU32,
     ) -> Result<Self, Hub75Error>
     where
-        CH: DmaChannelConvert<<LCD_CAM as DmaEligible>::Dma>,
+        CH: TxChannelFor<LCD_CAM>,
     {
         let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
@@ -88,11 +87,14 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
 
         let i8080 = I8080::new(
             lcd_cam.lcd,
-            channel.tx,
+            channel,
             pins,
-            frequency,
-            i8080::Config::default(),
+            i8080::Config {
+                frequency,
+                ..Default::default()
+            },
         )
+        .map_err(Hub75Error::I8080)?
         .with_ctrl_pins(NoPin, hub75_pins.clock);
         Ok(Self {
             i8080,
@@ -136,11 +138,11 @@ impl<'d, DM: esp_hal::Mode> Hub75<'d, DM> {
     }
 }
 
-pub struct Hub75Transfer<'d, DM: esp_hal::Mode> {
+pub struct Hub75Transfer<'d, DM: esp_hal::DriverMode> {
     pub xfer: I8080Transfer<'d, DmaTxBuf, DM>,
 }
 
-impl<'d, DM: esp_hal::Mode> Hub75Transfer<'d, DM> {
+impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     /// Returns true when [Self::wait] will not block.
     pub fn is_done(&self) -> bool {
         self.xfer.is_done()
@@ -174,6 +176,7 @@ impl<'d, DM: esp_hal::Mode> Hub75Transfer<'d, DM> {
 
 impl<'d> Hub75Transfer<'d, esp_hal::Async> {
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
-        Ok(self.xfer.wait_for_done().await)
+        self.xfer.wait_for_done().await;
+        Ok(())
     }
 }

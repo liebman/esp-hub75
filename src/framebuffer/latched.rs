@@ -163,6 +163,7 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
 
 #[derive(Copy, Clone)]
 #[repr(C)]
+#[repr(align(4))]
 pub struct DmaFrameBuffer<
     const ROWS: usize,
     const COLS: usize,

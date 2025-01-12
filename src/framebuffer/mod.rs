@@ -170,6 +170,7 @@ pub struct DmaFrameBuffer<
     const BITS: u8,
     const FRAME_COUNT: usize,
 > {
+    _align: u64,
     frames: [Frame<ROWS, COLS, NROWS>; FRAME_COUNT],
 }
 
@@ -185,6 +186,7 @@ impl<
         assert!(BITS <= 8);
 
         Self {
+            _align: 0,
             frames: [Frame::new(); FRAME_COUNT],
         }
     }
