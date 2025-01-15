@@ -86,14 +86,11 @@ impl<const COLS: usize> Row<COLS> {
     pub fn format(&mut self, addr: u8) {
         for i in 0..4 {
             let blank = false; // inverted
-            let latch = match i {
-                3 => false,
-                _ => true,
-            };
+            let latch = !matches!(i, 3);
             let i = map_index(i);
             self.address[i].set_blank(blank);
             self.address[i].set_latch(latch);
-            self.address[i].set_addr(addr as u8);
+            self.address[i].set_addr(addr);
         }
         let mut entry = Entry::default();
         entry.set_latch(false);
@@ -180,6 +177,19 @@ impl<
         const NROWS: usize,
         const BITS: u8,
         const FRAME_COUNT: usize,
+    > Default for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
     > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
     pub const fn new() -> Self {
@@ -188,7 +198,8 @@ impl<
         }
     }
 
-    // This returns the size of the DMA buffer in bytes.  Its used to calculate the number of DMA descriptors needed.
+    // This returns the size of the DMA buffer in bytes.  Its used to calculate the
+    // number of DMA descriptors needed.
     pub const fn dma_buffer_size_bytes() -> usize {
         core::mem::size_of::<[Frame<ROWS, COLS, NROWS>; FRAME_COUNT]>()
     }

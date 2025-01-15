@@ -80,6 +80,12 @@ const fn map_index(i: usize) -> usize {
     }
 }
 
+impl<const COLS: usize> Default for Row<COLS> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const COLS: usize> Row<COLS> {
     pub const fn new() -> Self {
         Self {
@@ -172,6 +178,19 @@ pub struct DmaFrameBuffer<
 > {
     _align: u64,
     frames: [Frame<ROWS, COLS, NROWS>; FRAME_COUNT],
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > Default for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<

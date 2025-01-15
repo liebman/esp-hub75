@@ -212,8 +212,7 @@ async fn hub75_task(
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
-    let channel = peripherals
-        .dma_channel;
+    let channel = peripherals.dma_channel;
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
 
     let pins = Hub75Pins {

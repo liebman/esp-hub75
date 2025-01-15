@@ -1,6 +1,6 @@
-use esp_hal::dma::TxChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::ReadBuffer;
+use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
@@ -88,9 +88,13 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
         let parl_io = ParlIoTxOnly::new(parl_io, channel, tx_descriptors, frequency)?;
 
-        let parl_io =
-            parl_io.into_async().tx
-                .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)?;
+        let parl_io = parl_io.into_async().tx.with_config(
+            pins,
+            clock_pin,
+            0,
+            SampleEdge::Normal,
+            BitPackOrder::Msb,
+        )?;
         Ok(Self { parl_io })
     }
 
@@ -182,7 +186,8 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         let parl_io = ParlIoTxOnly::new(parl_io, channel, tx_descriptors, frequency)?;
 
         let parl_io =
-            parl_io.tx
+            parl_io
+                .tx
                 .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)?;
         Ok(Self { parl_io })
     }
