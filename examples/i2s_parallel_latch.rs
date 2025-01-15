@@ -220,8 +220,7 @@ async fn hub75_task(
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
-    let channel = peripherals
-        .dma_channel;
+    let channel = peripherals.dma_channel;
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
 
     let pins = Hub75Pins {
@@ -237,7 +236,8 @@ async fn hub75_task(
     };
 
     let mut hub75 = Hub75::new(peripherals.i2s, pins, channel, tx_descriptors, 20.MHz())
-        .expect("failed to create Hub75!").into_async();
+        .expect("failed to create Hub75!")
+        .into_async();
 
     let mut count = 0u32;
     let mut start = Instant::now();

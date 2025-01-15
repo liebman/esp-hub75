@@ -30,7 +30,6 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     tx_descriptors: &'static mut [DmaDescriptor],
 }
 
-
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new<CH>(
         i2s: impl Peripheral<P = AnyI2s> + 'd,
