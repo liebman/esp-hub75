@@ -8,7 +8,6 @@ use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxSixteenBits;
 use esp_hal::peripheral::Peripheral;
-use log::info;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::HertzU32;
@@ -82,7 +81,6 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         let tx_buffer = unsafe {
             use esp_hal::dma::ReadBuffer;
             let (ptr, len) = fb.read_buffer();
-            info!("tx_buffer: {:p} len: {}", ptr, len);
             // SAFETY: tx_buffer is only used until the tx_buf.split below!
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
