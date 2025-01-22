@@ -6,6 +6,10 @@ authors = ["liebman <liebman@zod.com>"]
 license = "MIT OR Apache-2.0"
 rust-version = "1.71"
 
+[profile.dev]
+debug     = true # Symbols are nice and they don't increase the size on Flash
+opt-level = "s"
+
 [dependencies]
 bitfield = { version = "0.17.0" }
 cfg-if = "1.0.0"
