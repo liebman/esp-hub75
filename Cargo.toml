@@ -78,11 +78,11 @@ log = [
 ]
 valid-pin = [] # only for parl_io debugging
 
-[patch.crates-io]
-esp-backtrace    = { path = "../esp-hal-next/esp-backtrace" }
-esp-build        = { path = "../esp-hal-next/esp-build" }
-esp-hal          = { path = "../esp-hal-next/esp-hal" }
-esp-hal-embassy  = { path = "../esp-hal-next/esp-hal-embassy" }
-esp-println      = { path = "../esp-hal-next/esp-println" }
-esp-riscv-rt     = { path = "../esp-hal-next/esp-riscv-rt" }
-xtensa-lx-rt     = { path = "../esp-hal-next/xtensa-lx-rt" }
+# [patch.crates-io]
+# esp-backtrace    = { path = "../esp-hal-next/esp-backtrace" }
+# esp-build        = { path = "../esp-hal-next/esp-build" }
+# esp-hal          = { path = "../esp-hal-next/esp-hal" }
+# esp-hal-embassy  = { path = "../esp-hal-next/esp-hal-embassy" }
+# esp-println      = { path = "../esp-hal-next/esp-println" }
+# esp-riscv-rt     = { path = "../esp-hal-next/esp-riscv-rt" }
+# xtensa-lx-rt     = { path = "../esp-hal-next/xtensa-lx-rt" }
