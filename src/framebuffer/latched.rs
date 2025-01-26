@@ -12,7 +12,7 @@ bitfield! {
     #[repr(transparent)]
     pub struct Address(u8);
     impl Debug;
-    pub blank, set_blank: 7;
+    pub output_enable, set_output_enable: 7;
     pub latch, set_latch: 6;
     pub addr, set_addr: 4, 0;
 }
@@ -28,7 +28,7 @@ bitfield! {
     #[repr(transparent)]
     pub struct Entry(u8);
     impl Debug;
-    pub blank, set_blank: 7;
+    pub output_enable, set_output_enable: 7;
     pub latch, set_latch: 6;
     pub blu2, set_blu2: 5;
     pub grn2, set_grn2: 4;
@@ -85,20 +85,20 @@ impl<const COLS: usize> Row<COLS> {
 
     pub fn format(&mut self, addr: u8) {
         for i in 0..4 {
-            let blank = false; // inverted
+            let output_enable = false;
             let latch = !matches!(i, 3);
             let i = map_index(i);
-            self.address[i].set_blank(blank);
+            self.address[i].set_output_enable(output_enable);
             self.address[i].set_latch(latch);
             self.address[i].set_addr(addr);
         }
         let mut entry = Entry::default();
         entry.set_latch(false);
-        entry.set_blank(true); // inverted
+        entry.set_output_enable(true);
         for i in 0..COLS {
             let i = map_index(i);
             if i == COLS - 1 {
-                entry.set_blank(false); // inverted
+                entry.set_output_enable(false);
             }
             self.data[i] = entry;
         }
