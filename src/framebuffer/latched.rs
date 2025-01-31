@@ -12,8 +12,8 @@ bitfield! {
     #[repr(transparent)]
     pub struct Address(u8);
     impl Debug;
-    pub output_enable, set_output_enable: 7;
     pub latch, set_latch: 6;
+    pub pwm_enable, set_pwm_enable: 5;
     pub addr, set_addr: 4, 0;
 }
 
@@ -85,10 +85,10 @@ impl<const COLS: usize> Row<COLS> {
 
     pub fn format(&mut self, addr: u8) {
         for i in 0..4 {
-            let output_enable = false;
+            let pwm_enable = false; // TBD: this does not work
             let latch = !matches!(i, 3);
             let i = map_index(i);
-            self.address[i].set_output_enable(output_enable);
+            self.address[i].set_pwm_enable(pwm_enable);
             self.address[i].set_latch(latch);
             self.address[i].set_addr(addr);
         }
