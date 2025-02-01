@@ -371,8 +371,8 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    use esp_hal::cpu_control::Stack;
     use esp_hal::cpu_control::CpuControl;
+    use esp_hal::cpu_control::Stack;
     const DISPLAY_STACK_SIZE: usize = 8192;
     let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
     let mut _cpu_control = CpuControl::new(peripherals.CPU_CTRL);
