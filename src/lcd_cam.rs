@@ -9,9 +9,9 @@ use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
-use esp_hal::time::Rate;
 use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::LCD_CAM;
+use esp_hal::time::Rate;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::Hub75Error;
@@ -89,7 +89,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
             lcd_cam.lcd,
             channel,
             pins,
-            i8080::Config::default().with_frequency(frequency)
+            i8080::Config::default().with_frequency(frequency),
         )
         .map_err(Hub75Error::I8080)?
         .with_ctrl_pins(NoPin, hub75_pins.clock);
@@ -171,7 +171,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     }
 }
 
-impl<'d> Hub75Transfer<'d, esp_hal::Async> {
+impl Hub75Transfer<'_, esp_hal::Async> {
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await;
         Ok(())

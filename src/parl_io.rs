@@ -225,7 +225,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     }
 }
 
-impl<'d> Hub75Transfer<'d, esp_hal::Async> {
+impl Hub75Transfer<'_, esp_hal::Async> {
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await;
         Ok(())

@@ -232,9 +232,14 @@ async fn hub75_task(
         latch: peripherals.latch,
     };
 
-    let mut hub75 =
-        Hub75Type::new_async(peripherals.parl_io, pins, channel, tx_descriptors, Rate::from_mhz(15))
-            .expect("failed to create hub75");
+    let mut hub75 = Hub75Type::new_async(
+        peripherals.parl_io,
+        pins,
+        channel,
+        tx_descriptors,
+        Rate::from_mhz(15),
+    )
+    .expect("failed to create hub75");
 
     let mut count = 0u32;
     let mut start = Instant::now();
