@@ -8,6 +8,7 @@ All implementations use DMA where supported.
 - [x] - LCD peripheral  (async) for: `esp32s3`
   - [ ] - sync support for LCD peripheral
 - [x] - I2S peripheral in LCD mode: `esp32`
+- [ ] - sync support for the i2s peripheral
 - [x] - PARL_IO peripheral: `esp32c6`
   - [ ] - sync support for PARL_IO peripheral
 

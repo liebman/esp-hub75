@@ -14,9 +14,9 @@ use esp_hal::parl_io::TxPinConfigIncludingValidPin;
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::PARL_IO;
+use esp_hal::time::Rate;
 
 use crate::framebuffer::DmaFrameBuffer;
-use crate::HertzU32;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 
@@ -34,7 +34,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
         channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: HertzU32,
+        frequency: Rate,
     ) -> Result<Self, Hub75Error>
     where
         CH: TxChannelFor<PARL_IO>,
@@ -61,7 +61,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
         channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: HertzU32,
+        frequency: Rate,
     ) -> Result<Self, Hub75Error>
     where
         CH: TxChannelFor<PARL_IO>,
@@ -84,7 +84,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         parl_io: PARL_IO,
         hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
         channel: impl Peripheral<P = CH> + 'd,
-        frequency: HertzU32,
+        frequency: Rate,
     ) -> Result<
         (
             ParlIoTxOnly<'d, esp_hal::Blocking>,

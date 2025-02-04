@@ -54,7 +54,7 @@ use esp_hal::gpio::Pin;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::PARL_IO;
-use esp_hal::time::RateExtU32;
+use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
@@ -233,7 +233,7 @@ async fn hub75_task(
     };
 
     let mut hub75 =
-        Hub75Type::new_async(peripherals.parl_io, pins, channel, tx_descriptors, 15.MHz())
+        Hub75Type::new_async(peripherals.parl_io, pins, channel, tx_descriptors, Rate::from_mhz(15))
             .expect("failed to create hub75");
 
     let mut count = 0u32;
@@ -250,7 +250,16 @@ async fn hub75_task(
             fb = new_fb;
         }
 
-        hub75.render_async(fb).await.expect("transfer failed");
+        let mut xfer = hub75
+            .render(fb)
+            .map_err(|(e, _hub75)| e)
+            .expect("failed to start render!");
+        xfer.wait_for_done()
+            .await
+            .expect("render DMA transfer failed");
+        let (result, new_hub75) = xfer.wait();
+        hub75 = new_hub75;
+        result.expect("transfer failed");
 
         count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -279,9 +288,7 @@ async fn main(spawner: Spawner) {
     info!("COLS: {}", COLS);
     info!("BITS: {}", BITS);
     info!("FRAME_COUNT: {}", FRAME_COUNT);
-    let mut config = esp_hal::Config::default();
-    config.cpu_clock = CpuClock::max();
-    let peripherals = esp_hal::init(config);
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
 

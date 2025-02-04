@@ -55,7 +55,7 @@ use esp_hal::gpio::Pin;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::LCD_CAM;
-use esp_hal::time::RateExtU32;
+use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
@@ -237,7 +237,7 @@ async fn hub75_task(
     };
 
     let mut hub75 =
-        Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, 20.MHz())
+        Hub75Type::new_async(peripherals.lcd_cam, pins, channel, tx_descriptors, Rate::from_mhz(20))
             .expect("failed to create Hub75!");
 
     let mut count = 0u32;
@@ -293,9 +293,7 @@ async fn main(_spawner: Spawner) {
     info!("COLS: {}", COLS);
     info!("BITS: {}", BITS);
     info!("FRAME_COUNT: {}", FRAME_COUNT);
-    let mut config = esp_hal::Config::default();
-    config.cpu_clock = CpuClock::max();
-    let peripherals = esp_hal::init(config);
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
 

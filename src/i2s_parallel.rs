@@ -8,9 +8,9 @@ use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxSixteenBits;
 use esp_hal::peripheral::Peripheral;
+use esp_hal::time::Rate;
 
 use crate::framebuffer::DmaFrameBuffer;
-use crate::HertzU32;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 
@@ -25,7 +25,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         hub75_pins: Hub75Pins,
         channel: impl Peripheral<P = CH> + 'd,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: impl Into<HertzU32>,
+        frequency: Rate,
     ) -> Result<Self, Hub75Error>
     where
         CH: DmaChannelFor<AnyI2s>,
