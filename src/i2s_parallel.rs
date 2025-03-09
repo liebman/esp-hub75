@@ -3,7 +3,7 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
-use esp_hal::i2s::parallel::AnyI2s;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxSixteenBits;

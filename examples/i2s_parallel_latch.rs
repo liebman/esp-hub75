@@ -8,17 +8,17 @@
 //!
 //! Folowing pins are used:
 //!
-//!   SIG     LAT  PIN
-//! - R1      A  => GPIO4
-//! - G1      B  => GPIO21
-//! - B1      C  => GPIO22
-//! - R2      D  => GPIO2
-//! - G2      E  => GPIO25
-//! - B2         => GPIO0
-//! - OE_DMA     => GPIO32
-//! - OE_PWM     => GPIO33
-//! - CLK        => GPIO26
-//! - LAT        => GPIO27
+//!   SIG     LAT  PIN      NEWPIN
+//! - R1      A  => GPIO4   GPIO16
+//! - G1      B  => GPIO21  GPIO4
+//! - B1      C  => GPIO22  GPIO17
+//! - R2      D  => GPIO2   GPIO18
+//! - G2      E  => GPIO25  GPIO5
+//! - B2         => GPIO0   GPIO19
+//! - OE_DMA     => GPIO32  GPIO26
+//! - OE_PWM     => GPIO33  GPIO27
+//! - CLK        => GPIO26  GPIO25
+//! - LAT        => GPIO27  GPIO2
 //!
 //! NOTE1: these are not the default pins for the SmartLEDShield_ESP32_V0
 //!
@@ -54,8 +54,11 @@ use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::dma::I2s1DmaChannel;
 use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::Level;
+use esp_hal::gpio::Output;
+use esp_hal::gpio::OutputConfig;
 use esp_hal::gpio::Pin;
-use esp_hal::i2s::parallel::AnyI2s;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::time::Rate;
@@ -85,9 +88,9 @@ static REFRESH_RATE: AtomicU32 = AtomicU32::new(0);
 static RENDER_RATE: AtomicU32 = AtomicU32::new(0);
 static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-const ROWS: usize = 32;
+const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 1;
+const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
@@ -334,16 +337,18 @@ async fn main(_spawner: Spawner) {
     let hub75_peripherals = Hub75Peripherals {
         i2s: peripherals.I2S1.into(),
         dma_channel: peripherals.DMA_I2S1,
-        red1: peripherals.GPIO4.degrade(),
-        grn1: peripherals.GPIO21.degrade(),
-        blu1: peripherals.GPIO22.degrade(),
-        red2: peripherals.GPIO2.degrade(),
-        grn2: peripherals.GPIO25.degrade(),
-        blu2: peripherals.GPIO0.degrade(),
-        blank: peripherals.GPIO32.degrade(),
-        clock: peripherals.GPIO26.degrade(),
-        latch: peripherals.GPIO27.degrade(),
+        red1: peripherals.GPIO16.degrade(),
+        grn1: peripherals.GPIO4.degrade(),
+        blu1: peripherals.GPIO17.degrade(),
+        red2: peripherals.GPIO18.degrade(),
+        grn2: peripherals.GPIO5.degrade(),
+        blu2: peripherals.GPIO19.degrade(),
+        blank: peripherals.GPIO26.degrade(),
+        clock: peripherals.GPIO25.degrade(),
+        latch: peripherals.GPIO2.degrade(),
     };
+
+    let _pwm_pin = Output::new(peripherals.GPIO27, Level::High, OutputConfig::default());
 
     // let hp_executor = mk_static!(
     //     InterruptExecutor<2>,

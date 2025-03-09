@@ -18,7 +18,7 @@ defmt = { version = "0.3.8", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "0.23.1", features = ["unstable"] }
+esp-hal = { version = "1.0.0-beta.0", features = ["unstable"] }
 log = { version = "0.4.22", optional = true }
 static_cell = { version = "2.1", features = ["nightly"] }
 
@@ -32,12 +32,12 @@ embassy-executor = { version = "0.7.0" }
 embassy-futures = { version = "0.1.1" }
 embassy-sync = { version = "0.6.2" }
 embassy-time = { version = "0.4.0", features = [] }
-esp-backtrace = { version = "0.15.0", features = [
+esp-backtrace = { version = "0.15.1", features = [
     "panic-handler",
     "exception-handler",
 ] }
-esp-println = { version = "0.13.0" }
-esp-hal-embassy = { version = "0.6.0" }
+esp-println = { version = "0.13.1" }
+esp-hal-embassy = { version = "0.7.0" }
 heapless = { version = "0.8.0", features = ["ufmt"] }
 
 [features]
@@ -74,6 +74,7 @@ log = [
     "esp-println/log",
     "esp-println/colors",
 ]
+invert-blank = [] # only for some latched implementations
 valid-pin = [] # only for parl_io debugging
 
 [patch.crates-io]

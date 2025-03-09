@@ -57,7 +57,7 @@ use esp_hal::clock::CpuClock;
 use esp_hal::dma::I2s0DmaChannel;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Pin;
-use esp_hal::i2s::parallel::AnyI2s;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::time::Rate;
@@ -290,7 +290,7 @@ extern "C" {
 }
 
 #[esp_hal_embassy::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
     info!("Main starting!");
@@ -342,52 +342,52 @@ async fn main(spawner: Spawner) {
         latch: peripherals.GPIO26.degrade(),
     };
 
-    let hp_executor = mk_static!(
-        InterruptExecutor<2>,
-        InterruptExecutor::new(software_interrupt)
-    );
-    let high_pri_spawner = hp_executor.start(Priority::Priority3);
+    // let hp_executor = mk_static!(
+    //     InterruptExecutor<2>,
+    //     InterruptExecutor::new(software_interrupt)
+    // );
+    // let high_pri_spawner = hp_executor.start(Priority::Priority3);
 
-    // hub75 runs as high priority task
-    high_pri_spawner
-        .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
-        .ok();
-    spawner.spawn(display_task(&TX, &RX, fb0)).ok();
+    // // hub75 runs as high priority task
+    // high_pri_spawner
+    //     .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
+    //     .ok();
+    // _spawner.spawn(display_task(&TX, &RX, fb0)).ok();
 
-    // // run hub75 and display on second core
-    // let cpu1_fnctn = {
-    //     move || {
-    //         let hp_executor = mk_static!(
-    //             InterruptExecutor<2>,
-    //             InterruptExecutor::new(software_interrupt)
-    //         );
-    //         let high_pri_spawner = hp_executor.start(Priority::Priority3);
+    // run hub75 and display on second core
+    let cpu1_fnctn = {
+        move || {
+            let hp_executor = mk_static!(
+                InterruptExecutor<2>,
+                InterruptExecutor::new(software_interrupt)
+            );
+            let high_pri_spawner = hp_executor.start(Priority::Priority3);
 
-    //         // hub75 runs as high priority task
-    //         high_pri_spawner
-    //             .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
-    //             .ok();
+            // hub75 runs as high priority task
+            high_pri_spawner
+                .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
+                .ok();
 
-    //         let lp_executor = mk_static!(Executor, Executor::new());
-    //         // display task runs as low priority task
-    //         lp_executor.run(|spawner| {
-    //             spawner.spawn(display_task(&TX, &RX, fb0)).ok();
-    //         });
-    //     }
-    // };
+            let lp_executor = mk_static!(Executor, Executor::new());
+            // display task runs as low priority task
+            lp_executor.run(|spawner| {
+                spawner.spawn(display_task(&TX, &RX, fb0)).ok();
+            });
+        }
+    };
 
-    // use esp_hal::system::CpuControl;
-    // use esp_hal::system::Stack;
-    // use esp_hal_embassy::Executor;
-    // let cpu_control = CpuControl::new(peripherals.CPU_CTRL);
-    // const DISPLAY_STACK_SIZE: usize = 8192;
-    // let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
-    // let mut _cpu_control = cpu_control;
+    use esp_hal::system::CpuControl;
+    use esp_hal::system::Stack;
+    use esp_hal_embassy::Executor;
+    let cpu_control = CpuControl::new(peripherals.CPU_CTRL);
+    const DISPLAY_STACK_SIZE: usize = 8192;
+    let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
+    let mut _cpu_control = cpu_control;
 
-    // #[allow(static_mut_refs)]
-    // let _guard = _cpu_control
-    //     .start_app_core(app_core_stack, cpu1_fnctn)
-    //     .unwrap();
+    #[allow(static_mut_refs)]
+    let _guard = _cpu_control
+        .start_app_core(app_core_stack, cpu1_fnctn)
+        .unwrap();
 
     loop {
         if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= 99999 {

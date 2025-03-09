@@ -3,7 +3,7 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::AnyPin;
-use esp_hal::i2s::parallel::AnyI2s;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxEightBits;
@@ -50,7 +50,10 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
             hub75_pins.grn2,
             hub75_pins.blu2,
             hub75_pins.latch,
+            #[cfg(feature = "invert-blank")]
             blank.inverted(),
+            #[cfg(not(feature = "invert-blank"))]
+            blank,
         );
 
         let i2s = I2sParallel::new(i2s, channel, frequency, pins, hub75_pins.clock);
