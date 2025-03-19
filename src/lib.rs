@@ -11,6 +11,8 @@ pub mod i2s_parallel;
 pub mod i2s_parallel_latch;
 #[cfg(feature = "esp32s3")]
 pub mod lcd_cam;
+#[cfg(feature = "esp32s3")]
+pub mod lcd_cam_latch;
 #[cfg(feature = "esp32c6")]
 pub mod parl_io;
 
