@@ -126,7 +126,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         // TODO: can't recover from this because tx_descriptors is consumed!
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("failed to create DmaTxBuf!");
         let xfer = i8080
-            .send(Command::<u16>::None, 0, tx_buf)
+            .send(Command::<u8>::None, 0, tx_buf)
             .map_err(|(e, i8080, buf)| {
                 let (tx_descriptors, _) = buf.split();
                 (

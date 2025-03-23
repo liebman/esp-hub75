@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `parl_io` Hub75 driver
 - `i2s_parallel` Hub75 driver for `esp32` (#5)
 - `framebuffer::latched::DmaFrameBuffer` to support using a latch to [reduce pins/memory used](https://github.com/pixelmatix/SmartMatrix/blob/master/extras/hardware/ESP32/SmartLEDShield_ESP32_V0_sch.pdf)
-- `i2s_parallel_latched` Hub75 driver for `esp32` with external latch
+- `i2s_parallel_latch` Hub75 driver for `esp32` with external latch
+- `lcd_cam_latch` Hub75 driver for `esp32-s3` with external latch support
 
 ### Changed
 
