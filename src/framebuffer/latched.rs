@@ -64,6 +64,7 @@ pub struct Row<const COLS: usize> {
 }
 
 // bytes are output in the order 2, 3, 0, 1
+#[cfg(feature = "esp32")]
 pub fn map_index(index: usize) -> usize {
     let bits = match index & 0b11 {
         0 => 2,
@@ -87,6 +88,7 @@ impl<const COLS: usize> Row<COLS> {
         for i in 0..4 {
             let pwm_enable = false; // TBD: this does not work
             let latch = !matches!(i, 3);
+            #[cfg(feature = "esp32")]
             let i = map_index(i);
             self.address[i].set_pwm_enable(pwm_enable);
             self.address[i].set_latch(latch);
@@ -96,6 +98,7 @@ impl<const COLS: usize> Row<COLS> {
         entry.set_latch(false);
         entry.set_output_enable(true);
         for i in 0..COLS {
+            #[cfg(feature = "esp32")]
             let i = map_index(i);
             if i == COLS - 1 {
                 entry.set_output_enable(false);
@@ -105,12 +108,16 @@ impl<const COLS: usize> Row<COLS> {
     }
 
     pub fn set_color0(&mut self, col: usize, color: Color, brightness: u8) {
-        let entry = &mut self.data[map_index(col)];
+        #[cfg(feature = "esp32")]
+        let col = map_index(col);
+        let entry = &mut self.data[col];
         entry.set_color0(color, brightness);
     }
 
     pub fn set_color1(&mut self, col: usize, color: Color, brightness: u8) {
-        let entry = &mut self.data[map_index(col)];
+        #[cfg(feature = "esp32")]
+        let col = map_index(col);
+        let entry = &mut self.data[col];
         entry.set_color1(color, brightness);
     }
 }
