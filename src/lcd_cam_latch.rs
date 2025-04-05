@@ -10,23 +10,22 @@ use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
 use esp_hal::lcd_cam::lcd::i8080::TxEightBits;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
-use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
 
 use crate::framebuffer::latched::DmaFrameBuffer;
 use crate::Hub75Error;
 
-pub struct Hub75Pins {
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct Hub75Pins<'d> {
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
@@ -35,48 +34,39 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new<CH>(
-        lcd_cam: LCD_CAM,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new(
+        lcd_cam: LCD_CAM<'d>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<LCD_CAM>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let lcd_cam = LcdCam::new(lcd_cam);
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async<CH>(
-        lcd_cam: LCD_CAM,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new_async(
+        lcd_cam: LCD_CAM<'d>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<LCD_CAM>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let lcd_cam = LcdCam::new(lcd_cam).into_async();
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    fn new_internal<CH>(
+    fn new_internal(
         lcd_cam: LcdCam<'d, DM>,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<LCD_CAM>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let pins = TxEightBits::new(
             hub75_pins.red1,
             hub75_pins.grn1,

@@ -9,7 +9,6 @@ use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
 use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
-use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
 
@@ -23,48 +22,39 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new<CH>(
-        lcd_cam: LCD_CAM,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new(
+        lcd_cam: LCD_CAM<'d>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<LCD_CAM>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let lcd_cam = LcdCam::new(lcd_cam);
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async<CH>(
-        lcd_cam: LCD_CAM,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new_async(
+        lcd_cam: LCD_CAM<'d>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<LCD_CAM>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let lcd_cam = LcdCam::new(lcd_cam).into_async();
         Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
     }
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    fn new_internal<CH>(
+    fn new_internal(
         lcd_cam: LcdCam<'d, DM>,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<LCD_CAM>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,

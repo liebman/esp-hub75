@@ -12,7 +12,6 @@ use esp_hal::parl_io::SampleEdge;
 #[cfg(feature = "valid-pin")]
 use esp_hal::parl_io::TxPinConfigIncludingValidPin;
 use esp_hal::parl_io::TxSixteenBits;
-use esp_hal::peripheral::Peripheral;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
 
@@ -29,16 +28,13 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async<CH>(
-        parl_io: PARL_IO,
-        hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new_async(
+        parl_io: PARL_IO<'d>,
+        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
+        channel: impl TxChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<PARL_IO>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let (parl_io, pins, clock_pin) =
             Self::new_internal(parl_io, hub75_pins, channel, frequency)?;
         let parl_io = parl_io.into_async().tx.with_config(
@@ -56,16 +52,13 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new<CH>(
-        parl_io: PARL_IO,
-        hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new(
+        parl_io: PARL_IO<'d>,
+        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
+        channel: impl TxChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: TxChannelFor<PARL_IO>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let (parl_io, pins, clock_pin) =
             Self::new_internal(parl_io, hub75_pins, channel, frequency)?;
         let parl_io =
@@ -80,10 +73,10 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    fn new_internal<CH>(
-        parl_io: PARL_IO,
-        hub75_pins: Hub75Pins, // TODO: how can we make this non-static?
-        channel: impl Peripheral<P = CH> + 'd,
+    fn new_internal(
+        parl_io: PARL_IO<'d>,
+        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
+        channel: impl TxChannelFor<PARL_IO<'d>>,
         frequency: Rate,
     ) -> Result<
         (
@@ -92,10 +85,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
             &'static mut ClkOutPin<'static>,
         ),
         esp_hal::parl_io::Error,
-    >
-    where
-        CH: TxChannelFor<PARL_IO>,
-    {
+    > {
         let (_, blank) = hub75_pins.blank.split();
 
         // TODO: how can we make this non-static?

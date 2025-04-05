@@ -90,22 +90,27 @@ const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
+const LINE1: i32 = ROWS as i32 - 1 - 14;
+const LINE2: i32 = ROWS as i32 - 1 - 7;
+const LINE3: i32 = ROWS as i32 - 1;
+const NBARS: i32 = ROWS as i32 / 8;
+
 type Hub75Type = Hub75<'static, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
-pub struct Hub75Peripherals {
-    pub lcd_cam: LCD_CAM,
-    pub dma_channel: esp_hal::dma::DmaChannel0,
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct Hub75Peripherals<'d> {
+    pub lcd_cam: LCD_CAM<'d>,
+    pub dma_channel: esp_hal::dma::DmaChannel0<'d>,
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 #[task]
@@ -130,14 +135,16 @@ async fn display_task(
         const STEP: u8 = (256 / COLS) as u8;
         for x in 0..COLS {
             let brightness = (x as u8) * STEP;
-            for y in 0..8 {
+            for y in 0..NBARS {
                 fb.set_pixel(Point::new(x as i32, y), Color::new(brightness, 0, 0));
-            }
-            for y in 8..16 {
-                fb.set_pixel(Point::new(x as i32, y), Color::new(0, brightness, 0));
-            }
-            for y in 16..24 {
-                fb.set_pixel(Point::new(x as i32, y), Color::new(0, 0, brightness));
+                fb.set_pixel(
+                    Point::new(x as i32, y + NBARS),
+                    Color::new(0, brightness, 0),
+                );
+                fb.set_pixel(
+                    Point::new(x as i32, y + 2 * NBARS),
+                    Color::new(0, 0, brightness),
+                );
             }
         }
 
@@ -150,7 +157,7 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 63),
+            Point::new(0, LINE3),
             fps_style,
             Alignment::Left,
         )
@@ -166,7 +173,7 @@ async fn display_task(
 
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 63 - 8),
+            Point::new(0, LINE2),
             fps_style,
             Alignment::Left,
         )
@@ -181,7 +188,7 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 63 - 16),
+            Point::new(0, LINE1),
             fps_style,
             Alignment::Left,
         )
@@ -207,7 +214,7 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: Hub75Peripherals,
+    peripherals: Hub75Peripherals<'static>,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,

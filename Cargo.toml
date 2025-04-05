@@ -10,6 +10,10 @@ rust-version = "1.71"
 debug     = true # Symbols are nice and they don't increase the size on Flash
 opt-level = "s"
 
+[profile.release]
+debug     = true # Symbols are nice and they don't increase the size on Flash
+opt-level = "s"
+
 [dependencies]
 bitfield = { version = "0.17.0" }
 cfg-if = "1.0.0"

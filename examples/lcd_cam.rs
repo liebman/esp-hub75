@@ -92,23 +92,23 @@ type Hub75Type = Hub75<'static, esp_hal::Async>;
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
-pub struct Hub75Peripherals {
-    pub lcd_cam: LCD_CAM,
-    pub dma_channel: esp_hal::dma::DmaChannel0,
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub addr0: AnyPin,
-    pub addr1: AnyPin,
-    pub addr2: AnyPin,
-    pub addr3: AnyPin,
-    pub addr4: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct Hub75Peripherals<'d> {
+    pub lcd_cam: LCD_CAM<'d>,
+    pub dma_channel: esp_hal::dma::DmaChannel0<'d>,
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub addr0: AnyPin<'d>,
+    pub addr1: AnyPin<'d>,
+    pub addr2: AnyPin<'d>,
+    pub addr3: AnyPin<'d>,
+    pub addr4: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 #[task]
@@ -210,7 +210,7 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: Hub75Peripherals,
+    peripherals: Hub75Peripherals<'static>,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,
@@ -338,18 +338,6 @@ async fn main(_spawner: Spawner) {
         clock: peripherals.GPIO12.degrade(),
         latch: peripherals.GPIO10.degrade(),
     };
-
-    // let hp_executor = mk_static!(
-    //     InterruptExecutor<2>,
-    //     InterruptExecutor::new(software_interrupt)
-    // );
-    // let high_pri_spawner = hp_executor.start(Priority::Priority3);
-
-    // // hub75 runs as high priority task
-    // high_pri_spawner
-    //     .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
-    //     .ok();
-    // _spawner.spawn(display_task(&TX, &RX, fb0)).ok();
 
     // run hub75 and display on second core
     let cpu1_fnctn = {
