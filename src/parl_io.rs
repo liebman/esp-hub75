@@ -1,14 +1,15 @@
+use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
-use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ParlIoTx;
-use esp_hal::parl_io::ParlIoTxOnly;
+use esp_hal::parl_io::ParlIo;
 use esp_hal::parl_io::ParlIoTxTransfer;
 use esp_hal::parl_io::SampleEdge;
+use esp_hal::parl_io::TxConfig;
 #[cfg(feature = "valid-pin")]
 use esp_hal::parl_io::TxPinConfigIncludingValidPin;
 use esp_hal::parl_io::TxSixteenBits;
@@ -19,9 +20,6 @@ use crate::framebuffer::DmaFrameBuffer;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 
-type Hub75TxSixteenBits<'d> = TxSixteenBits<'d>;
-
-use static_cell::StaticCell;
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     parl_io: ParlIoTx<'d, DM>,
     tx_descriptors: &'static mut [DmaDescriptor],
@@ -30,20 +28,14 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
-        channel: impl TxChannelFor<PARL_IO<'d>>,
+        hub75_pins: Hub75Pins<'d>, // TODO: how can we make this non-static?
+        channel: impl DmaChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
     ) -> Result<Self, Hub75Error> {
-        let (parl_io, pins, clock_pin) =
+        let (parl_io, pins, clk_pin, config) =
             Self::new_internal(parl_io, hub75_pins, channel, frequency)?;
-        let parl_io = parl_io.into_async().tx.with_config(
-            pins,
-            clock_pin,
-            0,
-            SampleEdge::Normal,
-            BitPackOrder::Msb,
-        )?;
+        let parl_io = parl_io.into_async().tx.with_config(pins, clk_pin, config)?;
         Ok(Self {
             parl_io,
             tx_descriptors,
@@ -54,17 +46,14 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
-        channel: impl TxChannelFor<PARL_IO<'d>>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl DmaChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
     ) -> Result<Self, Hub75Error> {
-        let (parl_io, pins, clock_pin) =
+        let (parl_io, pins, clk_pin, config) =
             Self::new_internal(parl_io, hub75_pins, channel, frequency)?;
-        let parl_io =
-            parl_io
-                .tx
-                .with_config(pins, clock_pin, 0, SampleEdge::Normal, BitPackOrder::Msb)?;
+        let parl_io = parl_io.tx.with_config(pins, clk_pin, config)?;
         Ok(Self {
             parl_io,
             tx_descriptors,
@@ -75,14 +64,15 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     fn new_internal(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins<'static>, // TODO: how can we make this non-static?
-        channel: impl TxChannelFor<PARL_IO<'d>>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl DmaChannelFor<PARL_IO<'d>>,
         frequency: Rate,
     ) -> Result<
         (
-            ParlIoTxOnly<'d, esp_hal::Blocking>,
-            &'static mut TxSixteenBits<'static>,
-            &'static mut ClkOutPin<'static>,
+            ParlIo<'d, esp_hal::Blocking>,
+            TxSixteenBits<'d>,
+            ClkOutPin<'d>,
+            TxConfig,
         ),
         esp_hal::parl_io::Error,
     > {
@@ -91,8 +81,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         // TODO: how can we make this non-static?
         cfg_if::cfg_if! {
             if #[cfg(feature = "valid-pin")] {
-                static PINS: StaticCell<TxPinConfigIncludingValidPin<Hub75TxSixteenBits<'static>>> = StaticCell::new();
-                let pins = PINS.init(TxPinConfigIncludingValidPin::new(TxSixteenBits::new(
+                let pins = TxSixteenBits::new(
                     hub75_pins.addr0,
                     hub75_pins.addr1,
                     hub75_pins.addr2,
@@ -109,10 +98,9 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
                     hub75_pins.grn2,
                     hub75_pins.blu2,
                     hub75_pins.valid,
-                )));
+                );
             } else {
-                static PINS: StaticCell<Hub75TxSixteenBits<'static>> = StaticCell::new();
-                let pins = PINS.init(TxSixteenBits::new(
+                let pins = TxSixteenBits::new(
                     hub75_pins.addr0,
                     hub75_pins.addr1,
                     hub75_pins.addr2,
@@ -129,15 +117,19 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
                     hub75_pins.grn2,
                     hub75_pins.blu2,
                     NoPin,
-                ));
+                );
             }
         }
 
         // TODO: how can we make this non-static?
-        static CLOCK_PIN: StaticCell<ClkOutPin> = StaticCell::new();
-        let clock_pin = CLOCK_PIN.init(ClkOutPin::new(hub75_pins.clock));
-        let parl_io = ParlIoTxOnly::new(parl_io, channel, frequency)?;
-        Ok((parl_io, pins, clock_pin))
+        let clock_pin = ClkOutPin::new(hub75_pins.clock);
+        let parl_io = ParlIo::new(parl_io, channel)?;
+        let config = TxConfig::default()
+            .with_frequency(frequency)
+            .with_idle_value(0)
+            .with_sample_edge(SampleEdge::Normal)
+            .with_bit_order(BitPackOrder::Msb);
+        Ok((parl_io, pins, clock_pin, config))
     }
 
     pub fn render<

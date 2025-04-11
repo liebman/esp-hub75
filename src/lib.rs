@@ -44,6 +44,8 @@ pub enum Hub75Error {
     DmaBuf(esp_hal::dma::DmaBufError),
     #[cfg(feature = "esp32c6")]
     ParlIo(esp_hal::parl_io::Error),
+    #[cfg(feature = "esp32c6")]
+    ConfigError(esp_hal::parl_io::ConfigError),
     #[cfg(feature = "esp32s3")]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
 }
@@ -64,5 +66,12 @@ impl From<esp_hal::dma::DmaBufError> for Hub75Error {
 impl From<esp_hal::parl_io::Error> for Hub75Error {
     fn from(e: esp_hal::parl_io::Error) -> Self {
         Hub75Error::ParlIo(e)
+    }
+}
+
+#[cfg(feature = "esp32c6")]
+impl From<esp_hal::parl_io::ConfigError> for Hub75Error {
+    fn from(e: esp_hal::parl_io::ConfigError) -> Self {
+        Hub75Error::ConfigError(e)
     }
 }
