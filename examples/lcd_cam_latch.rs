@@ -64,8 +64,8 @@ use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::latched::DmaFrameBuffer;
 use esp_hub75::lcd_cam_latch::Hub75;
-use esp_hub75::lcd_cam_latch::Hub75Pins;
 use esp_hub75::Color;
+use esp_hub75::Hub75Pins8;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -223,7 +223,7 @@ async fn hub75_task(
     let channel = peripherals.dma_channel;
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
 
-    let pins = Hub75Pins {
+    let pins = Hub75Pins8 {
         red1: peripherals.red1,
         grn1: peripherals.grn1,
         blu1: peripherals.blu1,

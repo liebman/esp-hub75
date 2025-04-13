@@ -11,7 +11,7 @@ use esp_hal::time::Rate;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::Hub75Error;
-use crate::Hub75Pins;
+use crate::Hub75Pins16;
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     i2s: I2sParallel<'d, DM>,
@@ -21,7 +21,7 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new(
         i2s: AnyI2s<'d>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins16<'d>,
         channel: impl DmaChannelFor<AnyI2s<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,

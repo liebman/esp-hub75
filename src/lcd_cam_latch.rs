@@ -2,7 +2,6 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::dma::TxChannelFor;
-use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
@@ -15,18 +14,7 @@ use esp_hal::time::Rate;
 
 use crate::framebuffer::latched::DmaFrameBuffer;
 use crate::Hub75Error;
-
-pub struct Hub75Pins<'d> {
-    pub red1: AnyPin<'d>,
-    pub grn1: AnyPin<'d>,
-    pub blu1: AnyPin<'d>,
-    pub red2: AnyPin<'d>,
-    pub grn2: AnyPin<'d>,
-    pub blu2: AnyPin<'d>,
-    pub blank: AnyPin<'d>,
-    pub clock: AnyPin<'d>,
-    pub latch: AnyPin<'d>,
-}
+use crate::Hub75Pins8;
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     i8080: I8080<'d, DM>,
@@ -36,7 +24,7 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new(
         lcd_cam: LCD_CAM<'d>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins8<'d>,
         channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -49,7 +37,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         lcd_cam: LCD_CAM<'d>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins8<'d>,
         channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -62,7 +50,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     fn new_internal(
         lcd_cam: LcdCam<'d, DM>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins8<'d>,
         channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,

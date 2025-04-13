@@ -5,8 +5,8 @@ use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
-use esp_hal::parl_io::ParlIoTx;
 use esp_hal::parl_io::ParlIo;
+use esp_hal::parl_io::ParlIoTx;
 use esp_hal::parl_io::ParlIoTxTransfer;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
@@ -18,7 +18,7 @@ use esp_hal::time::Rate;
 
 use crate::framebuffer::DmaFrameBuffer;
 use crate::Hub75Error;
-use crate::Hub75Pins;
+use crate::Hub75Pins16;
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     parl_io: ParlIoTx<'d, DM>,
@@ -28,7 +28,7 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 impl<'d> Hub75<'d, esp_hal::Async> {
     pub fn new_async(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins<'d>, // TODO: how can we make this non-static?
+        hub75_pins: Hub75Pins16<'d>,
         channel: impl DmaChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -46,7 +46,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins16<'d>,
         channel: impl DmaChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -64,7 +64,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     fn new_internal(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins16<'d>,
         channel: impl DmaChannelFor<PARL_IO<'d>>,
         frequency: Rate,
     ) -> Result<

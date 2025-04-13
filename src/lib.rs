@@ -18,7 +18,7 @@ pub mod parl_io;
 
 pub type Color = Rgb888;
 
-pub struct Hub75Pins<'d> {
+pub struct Hub75Pins16<'d> {
     pub red1: AnyPin<'d>,
     pub grn1: AnyPin<'d>,
     pub blu1: AnyPin<'d>,
@@ -35,6 +35,18 @@ pub struct Hub75Pins<'d> {
     pub latch: AnyPin<'d>,
     #[cfg(all(feature = "esp32c6", feature = "valid-pin"))]
     pub valid: AnyPin<'d>,
+}
+
+pub struct Hub75Pins8<'d> {
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 #[derive(Debug)]

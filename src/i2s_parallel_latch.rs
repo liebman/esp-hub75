@@ -2,7 +2,6 @@ use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
-use esp_hal::gpio::AnyPin;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxEightBits;
@@ -11,18 +10,7 @@ use esp_hal::time::Rate;
 
 use crate::framebuffer::latched::DmaFrameBuffer;
 use crate::Hub75Error;
-
-pub struct Hub75Pins<'d> {
-    pub red1: AnyPin<'d>,
-    pub grn1: AnyPin<'d>,
-    pub blu1: AnyPin<'d>,
-    pub red2: AnyPin<'d>,
-    pub grn2: AnyPin<'d>,
-    pub blu2: AnyPin<'d>,
-    pub blank: AnyPin<'d>,
-    pub clock: AnyPin<'d>,
-    pub latch: AnyPin<'d>,
-}
+use crate::Hub75Pins8;
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     i2s: I2sParallel<'d, DM>,
@@ -32,7 +20,7 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 impl<'d> Hub75<'d, esp_hal::Blocking> {
     pub fn new(
         i2s: AnyI2s<'d>,
-        hub75_pins: Hub75Pins<'d>,
+        hub75_pins: Hub75Pins8<'d>,
         channel: impl DmaChannelFor<AnyI2s<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
