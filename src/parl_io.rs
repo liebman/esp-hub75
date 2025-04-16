@@ -16,7 +16,7 @@ use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
 
-use crate::framebuffer::DmaFrameBuffer;
+use crate::framebuffer::plain::DmaFrameBuffer;
 use crate::Hub75Error;
 use crate::Hub75Pins16;
 
