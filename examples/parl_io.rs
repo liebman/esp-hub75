@@ -79,7 +79,7 @@ macro_rules! mk_static {
 
 pub struct DisplayPeripherals<'d> {
     pub parl_io: PARL_IO<'d>,
-    pub dma_channel: esp_hal::dma::DmaChannel0<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_CH0<'d>,
     pub red1: AnyPin<'d>,
     pub grn1: AnyPin<'d>,
     pub blu1: AnyPin<'d>,

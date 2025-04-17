@@ -52,7 +52,6 @@ use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::dma::I2s1DmaChannel;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Level;
 use esp_hal::gpio::Output;
@@ -104,7 +103,7 @@ type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals<'d> {
     pub i2s: AnyI2s<'d>,
-    pub dma_channel: I2s1DmaChannel<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_I2S1<'d>,
     pub red1: AnyPin<'d>,
     pub grn1: AnyPin<'d>,
     pub blu1: AnyPin<'d>,

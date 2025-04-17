@@ -101,7 +101,7 @@ type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals<'d> {
     pub lcd_cam: LCD_CAM<'d>,
-    pub dma_channel: esp_hal::dma::DmaChannel0<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_CH0<'d>,
     pub red1: AnyPin<'d>,
     pub grn1: AnyPin<'d>,
     pub blu1: AnyPin<'d>,
