@@ -3,26 +3,25 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::AnyPin;
-use esp_hal::i2s::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxEightBits;
-use esp_hal::peripheral::Peripheral;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::time::Rate;
 
 use crate::framebuffer::latched::DmaFrameBuffer;
 use crate::Hub75Error;
 
-pub struct Hub75Pins {
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct Hub75Pins<'d> {
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
@@ -31,16 +30,13 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new<CH>(
-        i2s: impl Peripheral<P = AnyI2s> + 'd,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new(
+        i2s: AnyI2s<'d>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl DmaChannelFor<AnyI2s<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: DmaChannelFor<AnyI2s>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let (_, blank) = hub75_pins.blank.split();
         let pins = TxEightBits::new(
             hub75_pins.red1,

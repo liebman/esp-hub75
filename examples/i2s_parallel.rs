@@ -54,7 +54,6 @@ use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::dma::I2s0DmaChannel;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Pin;
 use esp_hal::i2s::AnyI2s;
@@ -96,23 +95,23 @@ const FRAME_COUNT: usize = compute_frame_count(BITS);
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
-pub struct Hub75Peripherals {
-    pub i2s: AnyI2s,
-    pub dma_channel: I2s0DmaChannel,
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub addr0: AnyPin,
-    pub addr1: AnyPin,
-    pub addr2: AnyPin,
-    pub addr3: AnyPin,
-    pub addr4: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct Hub75Peripherals<'d> {
+    pub i2s: AnyI2s<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_I2S0<'d>,
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub addr0: AnyPin<'d>,
+    pub addr1: AnyPin<'d>,
+    pub addr2: AnyPin<'d>,
+    pub addr3: AnyPin<'d>,
+    pub addr4: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 #[task]
@@ -214,7 +213,7 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: Hub75Peripherals,
+    peripherals: Hub75Peripherals<'static>,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,

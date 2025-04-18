@@ -3,11 +3,10 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
-use esp_hal::i2s::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxSixteenBits;
-use esp_hal::peripheral::Peripheral;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::time::Rate;
 
 use crate::framebuffer::DmaFrameBuffer;
@@ -20,16 +19,13 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new<CH>(
-        i2s: impl Peripheral<P = AnyI2s> + 'd,
-        hub75_pins: Hub75Pins,
-        channel: impl Peripheral<P = CH> + 'd,
+    pub fn new(
+        i2s: AnyI2s<'d>,
+        hub75_pins: Hub75Pins<'d>,
+        channel: impl DmaChannelFor<AnyI2s<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
-    ) -> Result<Self, Hub75Error>
-    where
-        CH: DmaChannelFor<AnyI2s>,
-    {
+    ) -> Result<Self, Hub75Error> {
         let (_, blank) = hub75_pins.blank.split();
         let pins = TxSixteenBits::new(
             hub75_pins.addr0,
