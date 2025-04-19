@@ -1,5 +1,9 @@
 [package]
 name = "esp-hub75"
+description = "A Rust driver for HUB75 LED matrix displays on ESP32 microcontrollers"
+repository = "https://github.com/liebman/esp-hub75"
+keywords = ["esp32", "led-matrix", "hub75", "embedded", "driver", "display"]
+categories = ["embedded", "hardware-support", "no-std"]
 edition = "2021"
 version = "0.1.0"
 authors = ["liebman <liebman@zod.com>"]
