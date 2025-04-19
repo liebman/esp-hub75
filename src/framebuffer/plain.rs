@@ -1,7 +1,85 @@
+//! DMA-based framebuffer implementation for HUB75 LED panels.
+//!
+//! This module provides a high-performance framebuffer implementation that uses
+//! DMA (Direct Memory Access) to efficiently transfer pixel data to HUB75 LED
+//! panels. It supports RGB color and brightness control through multiple frames
+//! using Binary Code Modulation (BCM).
+//!
+//! # Features
+//! - DMA-based data transfer for optimal performance
+//! - Support for RGB color with brightness control
+//! - Multiple frame buffers for Binary Code Modulation (BCM)
+//! - Integration with embedded-graphics for easy drawing
+//!
+//! # Brightness Control
+//! Brightness is controlled through Binary Code Modulation (BCM):
+//! - The number of brightness levels is determined by the `BITS` parameter
+//! - Each additional bit doubles the number of brightness levels
+//! - More bits provide better brightness resolution but require more memory
+//! - Memory usage grows exponentially with the number of bits: `(2^BITS)-1`
+//!   frames
+//! - Example: 8 bits = 256 levels, 4 bits = 16 levels
+//!
+//! # Memory Usage
+//! The framebuffer's memory usage is determined by:
+//! - Panel size (ROWS × COLS)
+//! - Number of brightness bits (BITS)
+//! - Memory grows exponentially with bits: `(2^BITS)-1` frames
+//! - 16-bit entries provide direct signal mapping but use more memory
+//!
+//! # Example
+//! ```rust
+//! use embedded_graphics::pixelcolor::RgbColor;
+//! use embedded_graphics::prelude::*;
+//! use embedded_graphics::primitives::Circle;
+//! use embedded_graphics::primitives::Rectangle;
+//! use esp_hub75::compute_frame_count;
+//! use esp_hub75::compute_rows;
+//! use esp_hub75::Color;
+//! use esp_hub75::DmaFrameBuffer;
+//!
+//! // Create a framebuffer for a 64x32 panel with 3-bit color depth
+//! const ROWS: usize = 32;
+//! const COLS: usize = 64;
+//! const BITS: u8 = 3; // Color depth (8 brightness levels, 7 frames)
+//! const NROWS: usize = compute_rows(ROWS); // Number of rows per scan
+//! const FRAME_COUNT: usize = compute_frame_count(BITS); // Number of frames for BCM
+//!
+//! let mut framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
+//!
+//! // Clear the framebuffer
+//! framebuffer.clear();
+//!
+//! // Draw a red rectangle
+//! Rectangle::new(Point::new(10, 10), Size::new(20, 20))
+//!     .into_styled(PrimitiveStyle::with_fill(Color::RED))
+//!     .draw(&mut framebuffer)
+//!     .unwrap();
+//!
+//! // Draw a blue circle
+//! Circle::new(Point::new(40, 20), 10)
+//!     .into_styled(PrimitiveStyle::with_fill(Color::BLUE))
+//!     .draw(&mut framebuffer)
+//!     .unwrap();
+//! ```
+//!
+//! # Implementation Details
+//! The framebuffer is organized to directly match the HUB75 connector signals:
+//! - Each 16-bit word maps directly to the HUB75 control signals
+//! - Color data (R, G, B) for two sub-pixels is stored in dedicated bits
+//! - Control signals (output enable, latch, address) are mapped to specific
+//!   bits
+//! - Multiple frames are used to achieve Binary Code Modulation (BCM)
+//! - DMA transfers the data directly to the panel without any transformation
+//!
+//! # Safety
+//! This implementation uses unsafe code for DMA operations. The framebuffer
+//! must be properly aligned in memory and the DMA configuration must match the
+//! buffer layout.
+
 use core::convert::Infallible;
 
 use bitfield::bitfield;
-use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::pixelcolor::RgbColor;
 use embedded_graphics::prelude::Point;
 use esp_hal::dma::ReadBuffer;
@@ -10,10 +88,32 @@ use super::Color;
 use super::FrameBuffer;
 use super::WordSize;
 
+const BLANKING_DELAY: usize = 5;
+
 bitfield! {
+    /// A 16-bit word representing the HUB75 control signals for a single pixel.
+    ///
+    /// This structure directly maps to the HUB75 connector signals:
+    /// - RGB color data for two sub-pixels (color0 and color1)
+    /// - Panel control signals (output enable, latch, address)
+    /// - Dummy bits for timing alignment
+    ///
+    /// The bit layout matches the HUB75 connector signals:
+    /// - Bit 15: Dummy bit 2
+    /// - Bit 14: Blue channel for color1
+    /// - Bit 13: Green channel for color1
+    /// - Bit 12: Red channel for color1
+    /// - Bit 11: Blue channel for color0
+    /// - Bit 10: Green channel for color0
+    /// - Bit 9: Red channel for color0
+    /// - Bit 8: Output enable
+    /// - Bit 7: Dummy bit 1
+    /// - Bit 6: Dummy bit 0
+    /// - Bit 5: Latch signal
+    /// - Bits 4-0: Row address
     #[derive(Clone, Copy, Default, PartialEq)]
     #[repr(transparent)]
-    pub struct Entry(u16);
+    struct Entry(u16);
     impl Debug;
     dummy2, set_dummy2: 15;
     blu2, set_blu2: 14;
@@ -54,9 +154,17 @@ impl Entry {
     }
 }
 
+/// Represents a single row of pixels in the framebuffer.
+///
+/// Each row contains a fixed number of columns (`COLS`) and manages the timing
+/// and control signals for the HUB75 panel. The row handles:
+/// - Output enable timing to prevent ghosting
+/// - Latch signal generation for row updates
+/// - Row address management
+/// - Color data for both sub-pixels
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(C)]
-pub struct Row<const COLS: usize> {
+struct Row<const COLS: usize> {
     data: [Entry; COLS],
 }
 
@@ -90,7 +198,7 @@ impl<const COLS: usize> Row<COLS> {
         entry.set_output_enable(false);
         for i in 0..COLS {
             // if we enable display too soon then we will have ghosting
-            if i >= super::BLANKING_DELAY {
+            if i >= BLANKING_DELAY {
                 entry.set_output_enable(true);
             }
             // last pixel, blank the display, open the latch, set the new row address
@@ -118,7 +226,7 @@ impl<const COLS: usize> Row<COLS> {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
-pub struct Frame<const ROWS: usize, const COLS: usize, const NROWS: usize> {
+struct Frame<const ROWS: usize, const COLS: usize, const NROWS: usize> {
     rows: [Row<COLS>; NROWS],
 }
 
@@ -158,6 +266,30 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
     }
 }
 
+/// DMA-compatible framebuffer for HUB75 LED panels.
+///
+/// This is a framebuffer implementation that:
+/// - Manages multiple frames for Binary Code Modulation (BCM)
+/// - Provides DMA-compatible memory layout
+/// - Implements the embedded-graphics DrawTarget trait
+///
+/// # Type Parameters
+/// - `ROWS`: Total number of rows in the panel
+/// - `COLS`: Number of columns in the panel
+/// - `NROWS`: Number of rows per scan (typically half of ROWS)
+/// - `BITS`: Color depth (1-8 bits)
+/// - `FRAME_COUNT`: Number of frames used for Binary Code Modulation
+///
+/// # Helper Functions
+/// Use these functions to compute the correct values:
+/// - `esp_hub75::compute_frame_count(BITS)`: Computes the required number of
+///   frames
+/// - `esp_hub75::compute_rows(ROWS)`: Computes the number of rows per scan
+///
+/// # Memory Layout
+/// The buffer is aligned to ensure efficient DMA transfers and contains:
+/// - A 64-bit alignment field
+/// - An array of frames, each containing the full panel data
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct DmaFrameBuffer<
@@ -218,7 +350,7 @@ impl<
         self.set_pixel_internal(p.x as usize, p.y as usize, color);
     }
 
-    fn set_pixel_internal(&mut self, x: usize, y: usize, color: Rgb888) {
+    fn set_pixel_internal(&mut self, x: usize, y: usize, color: Color) {
         if x >= COLS || y >= ROWS {
             return;
         }

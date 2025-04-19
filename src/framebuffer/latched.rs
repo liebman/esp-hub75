@@ -1,3 +1,100 @@
+//! DMA-based framebuffer implementation for HUB75 LED panels with controller
+//! board latch support.
+//!
+//! This module provides a memory-efficient framebuffer implementation that uses
+//! DMA (Direct Memory Access) to transfer pixel data to HUB75 LED panels. It
+//! supports RGB color and brightness control through multiple frames using
+//! Binary Code Modulation (BCM) for precise brightness control.
+//!
+//! # Key Differences from Plain Implementation
+//! - Uses controller board's hardware latch to hold row address, reducing
+//!   memory usage
+//! - 8-bit entries instead of 16-bit, halving memory requirements
+//! - Separate address and data words for better control
+//! - Only usable for controller boards with hardware latch support
+//!
+//! # Features
+//! - DMA-based data transfer for optimal performance
+//! - Support for RGB color with brightness control
+//! - Multiple frame buffers for Binary Code Modulation (BCM)
+//! - Integration with embedded-graphics for easy drawing
+//! - Memory-efficient 8-bit format
+//!
+//! # Brightness Control
+//! Brightness is controlled through Binary Code Modulation (BCM):
+//! - The number of brightness levels is determined by the `BITS` parameter
+//! - Each additional bit doubles the number of brightness levels
+//! - More bits provide better brightness resolution but require more memory
+//! - Memory usage grows exponentially with the number of bits: `(2^BITS)-1`
+//!   frames
+//! - Example: 8 bits = 256 levels, 4 bits = 16 levels
+//!
+//! # Memory Usage
+//! The framebuffer's memory usage is determined by:
+//! - Panel size (ROWS × COLS)
+//! - Number of brightness bits (BITS)
+//! - Memory grows exponentially with bits: `(2^BITS)-1` frames
+//! - 8-bit entries reduce memory usage compared to 16-bit implementations
+//!
+//! # Example
+//! ```rust
+//! use embedded_graphics::pixelcolor::RgbColor;
+//! use embedded_graphics::prelude::*;
+//! use embedded_graphics::primitives::Circle;
+//! use embedded_graphics::primitives::Rectangle;
+//! use esp_hub75::compute_frame_count;
+//! use esp_hub75::compute_rows;
+//! use esp_hub75::Color;
+//! use esp_hub75::DmaFrameBuffer;
+//!
+//! // Create a framebuffer for a 64x32 panel with 3-bit color depth
+//! const ROWS: usize = 32;
+//! const COLS: usize = 64;
+//! const BITS: u8 = 3; // Color depth (8 brightness levels, 7 frames)
+//! const NROWS: usize = compute_rows(ROWS); // Number of rows per scan
+//! const FRAME_COUNT: usize = compute_frame_count(BITS); // Number of frames for BCM
+//!
+//! let mut framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
+//!
+//! // Clear the framebuffer
+//! framebuffer.clear();
+//!
+//! // Draw a red rectangle
+//! Rectangle::new(Point::new(10, 10), Size::new(20, 20))
+//!     .into_styled(PrimitiveStyle::with_fill(Color::RED))
+//!     .draw(&mut framebuffer)
+//!     .unwrap();
+//!
+//! // Draw a blue circle
+//! Circle::new(Point::new(40, 20), 10)
+//!     .into_styled(PrimitiveStyle::with_fill(Color::BLUE))
+//!     .draw(&mut framebuffer)
+//!     .unwrap();
+//! ```
+//!
+//! # Implementation Details
+//! The framebuffer is organized to efficiently use memory while maintaining
+//! HUB75 compatibility:
+//! - Each row contains both data and address words
+//! - 8-bit entries store RGB data for two sub-pixels
+//! - Separate address words control row selection and timing
+//! - Multiple frames are used to achieve Binary Code Modulation (BCM)
+//! - DMA transfers the data directly to the controller board without
+//!   transformation
+//!
+//! # Memory Layout
+//! Each row consists of:
+//! - 4 address words (8 bits each) for row selection and timing
+//! - COLS data words (8 bits each) for pixel data
+//!
+//! The address words are arranged to match the controller board's hardware
+//! latch timing requirements.
+//!
+//! # Safety
+//! This implementation uses unsafe code for DMA operations. The framebuffer
+//! must be properly aligned in memory and the DMA configuration must match the
+//! buffer layout.
+
 use core::convert::Infallible;
 
 use bitfield::bitfield;
@@ -8,6 +105,17 @@ use esp_hal::dma::ReadBuffer;
 type Color = Rgb888;
 
 bitfield! {
+    /// 8-bit word representing the address and control signals for a row.
+    ///
+    /// This structure controls the row selection and timing signals:
+    /// - Row address (5 bits)
+    /// - PWM enable signal
+    /// - Latch signal for row selection
+    ///
+    /// The bit layout is as follows:
+    /// - Bit 6: Latch signal
+    /// - Bit 5: PWM enable
+    /// - Bits 4-0: Row address
     #[derive(Clone, Copy, Default, PartialEq)]
     #[repr(transparent)]
     pub struct Address(u8);
@@ -24,9 +132,25 @@ impl Address {
 }
 
 bitfield! {
+    /// 8-bit word representing the pixel data and control signals.
+    ///
+    /// This structure contains the RGB data for two sub-pixels and control signals:
+    /// - RGB data for two sub-pixels (color0 and color1)
+    /// - Output enable signal
+    /// - Latch signal
+    ///
+    /// The bit layout is as follows:
+    /// - Bit 7: Output enable
+    /// - Bit 6: Latch signal
+    /// - Bit 5: Blue channel for color1
+    /// - Bit 4: Green channel for color1
+    /// - Bit 3: Red channel for color1
+    /// - Bit 2: Blue channel for color0
+    /// - Bit 1: Green channel for color0
+    /// - Bit 0: Red channel for color0
     #[derive(Clone, Copy, Default, PartialEq)]
     #[repr(transparent)]
-    pub struct Entry(u8);
+    struct Entry(u8);
     impl Debug;
     pub output_enable, set_output_enable: 7;
     pub latch, set_latch: 6;
@@ -56,16 +180,25 @@ impl Entry {
     }
 }
 
+/// Represents a single row of pixels with controller board latch support.
+///
+/// Each row contains both pixel data and address information:
+/// - 4 address words for row selection and timing
+/// - COLS data words for pixel data
+///
+/// The address words are arranged to match the controller board's hardware
+/// latch timing requirements, with a specific mapping for ESP32 (2, 3, 0, 1) to
+/// optimize DMA transfers.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(C)]
-pub struct Row<const COLS: usize> {
+struct Row<const COLS: usize> {
     data: [Entry; COLS],
     address: [Address; 4],
 }
 
 // bytes are output in the order 2, 3, 0, 1
 #[cfg(feature = "esp32")]
-pub fn map_index(index: usize) -> usize {
+fn map_index(index: usize) -> usize {
     let bits = match index & 0b11 {
         0 => 2,
         1 => 3,
@@ -130,7 +263,7 @@ impl<const COLS: usize> Default for Row<COLS> {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
-pub struct Frame<const ROWS: usize, const COLS: usize, const NROWS: usize> {
+struct Frame<const ROWS: usize, const COLS: usize, const NROWS: usize> {
     rows: [Row<COLS>; NROWS],
 }
 
@@ -165,6 +298,34 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
     }
 }
 
+/// DMA-compatible framebuffer for HUB75 LED panels with controller board latch
+/// support.
+///
+/// This implementation is optimized for memory usage and controller board latch
+/// support:
+/// - Uses 8-bit entries instead of 16-bit
+/// - Separates address and data words
+/// - Supports controller board's hardware latch for row selection
+/// - Implements the embedded-graphics DrawTarget trait
+///
+/// # Type Parameters
+/// - `ROWS`: Total number of rows in the panel
+/// - `COLS`: Number of columns in the panel
+/// - `NROWS`: Number of rows per scan (typically half of ROWS)
+/// - `BITS`: Color depth (1-8 bits)
+/// - `FRAME_COUNT`: Number of frames used for Binary Code Modulation
+///
+/// # Helper Functions
+/// Use these functions to compute the correct values:
+/// - `esp_hub75::compute_frame_count(BITS)`: Computes the required number of
+///   frames
+/// - `esp_hub75::compute_rows(ROWS)`: Computes the number of rows per scan
+///
+/// # Memory Layout
+/// The buffer is aligned to ensure efficient DMA transfers and contains:
+/// - An array of frames, each containing the full panel data
+/// - Each frame contains NROWS rows
+/// - Each row contains both data and address words
 #[derive(Copy, Clone)]
 #[repr(C)]
 #[repr(align(4))]

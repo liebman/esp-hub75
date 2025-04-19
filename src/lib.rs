@@ -5,13 +5,11 @@ use embedded_graphics::pixelcolor::Rgb888;
 use esp_hal::gpio::AnyPin;
 
 pub mod framebuffer;
-#[cfg(feature = "esp32")]
-pub mod i2s_parallel;
-#[cfg(feature = "esp32s3")]
-pub mod lcd_cam;
-#[cfg(feature = "esp32c6")]
-pub mod parl_io;
-
+#[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
+#[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
+#[cfg_attr(feature = "esp32c6", path = "parl_io.rs")]
+pub mod hub75;
+pub use hub75::Hub75;
 pub type Color = Rgb888;
 
 pub struct Hub75Pins16<'d> {

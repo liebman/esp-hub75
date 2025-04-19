@@ -60,8 +60,8 @@ use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::plain::DmaFrameBuffer;
-use esp_hub75::parl_io::Hub75;
 use esp_hub75::Color;
+use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 use heapless::String;
 #[cfg(feature = "log")]

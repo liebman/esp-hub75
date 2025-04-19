@@ -8,17 +8,17 @@
 //!
 //! Folowing pins are used:
 //!
-//!   SIG     LAT  PIN      NEWPIN
-//! - R1      A  => GPIO4   GPIO16
-//! - G1      B  => GPIO21  GPIO4
-//! - B1      C  => GPIO22  GPIO17
-//! - R2      D  => GPIO2   GPIO18
-//! - G2      E  => GPIO25  GPIO5
-//! - B2         => GPIO0   GPIO19
-//! - OE_DMA     => GPIO32  GPIO26
-//! - OE_PWM     => GPIO33  GPIO27
-//! - CLK        => GPIO26  GPIO25
-//! - LAT        => GPIO27  GPIO2
+//!   SIG     LAT   PIN
+//! - R1      A  => GPIO16
+//! - G1      B  => GPIO4
+//! - B1      C  => GPIO17
+//! - R2      D  => GPIO18
+//! - G2      E  => GPIO5
+//! - B2         => GPIO19
+//! - OE_DMA     => GPIO26
+//! - OE_PWM     => GPIO27
+//! - CLK        => GPIO25
+//! - LAT        => GPIO2
 //!
 //! NOTE1: these are not the default pins for the SmartLEDShield_ESP32_V0
 //!
@@ -66,8 +66,8 @@ use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::latched::DmaFrameBuffer;
-use esp_hub75::i2s_parallel::Hub75;
 use esp_hub75::Color;
+use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins8;
 use heapless::String;
 #[cfg(feature = "log")]
