@@ -116,7 +116,7 @@ bitfield! {
     /// - Bit 6: Latch signal
     /// - Bit 5: PWM enable
     /// - Bits 4-0: Row address
-    #[derive(Clone, Copy, Default, PartialEq)]
+    #[derive(Clone, Copy, Default, PartialEq, Eq)]
     #[repr(transparent)]
     pub struct Address(u8);
     impl Debug;
