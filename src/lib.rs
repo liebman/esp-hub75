@@ -7,12 +7,8 @@ use esp_hal::gpio::AnyPin;
 pub mod framebuffer;
 #[cfg(feature = "esp32")]
 pub mod i2s_parallel;
-#[cfg(feature = "esp32")]
-pub mod i2s_parallel_latch;
 #[cfg(feature = "esp32s3")]
 pub mod lcd_cam;
-#[cfg(feature = "esp32s3")]
-pub mod lcd_cam_latch;
 #[cfg(feature = "esp32c6")]
 pub mod parl_io;
 
@@ -47,6 +43,10 @@ pub struct Hub75Pins8<'d> {
     pub blank: AnyPin<'d>,
     pub clock: AnyPin<'d>,
     pub latch: AnyPin<'d>,
+}
+
+pub trait Hub75Pins<'d, T> {
+    fn convert_pins(self) -> (T, AnyPin<'d>);
 }
 
 #[derive(Debug)]

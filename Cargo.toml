@@ -78,13 +78,13 @@ invert-blank = [] # only for some latched implementations
 valid-pin = [] # only for parl_io debugging
 
 [patch.crates-io]
-esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git" }
-esp-build        = { git = "https://github.com/esp-rs/esp-hal.git" }
-esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git" }
-esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git" }
-esp-println      = { git = "https://github.com/esp-rs/esp-hal.git" }
-esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git" }
-xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git" }
+esp-backtrace    = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+esp-build        = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+esp-hal          = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+esp-hal-embassy  = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+esp-println      = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+esp-riscv-rt     = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+xtensa-lx-rt     = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
 
 # esp-backtrace = { path = "../esp-hal/esp-backtrace" }
 # esp-build = { path = "../esp-hal/esp-build" }

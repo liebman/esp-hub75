@@ -5,20 +5,28 @@ use esp_hal::dma::DmaTxBuf;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
+use esp_hal::parl_io::ConfigurePins;
 use esp_hal::parl_io::ParlIo;
 use esp_hal::parl_io::ParlIoTx;
 use esp_hal::parl_io::ParlIoTxTransfer;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
+use esp_hal::parl_io::TxEightBits;
 #[cfg(feature = "valid-pin")]
 use esp_hal::parl_io::TxPinConfigIncludingValidPin;
+use esp_hal::parl_io::TxPins;
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
 
-use crate::framebuffer::plain::DmaFrameBuffer;
+use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
 use crate::Hub75Pins16;
+use crate::Hub75Pins8;
+
+pub trait Hub75Pins<'d, T: TxPins + ConfigurePins + 'd> {
+    fn convert_pins(self) -> (T, ClkOutPin<'d>);
+}
 
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     parl_io: ParlIoTx<'d, DM>,
@@ -26,9 +34,9 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Async> {
-    pub fn new_async(
+    pub fn new_async<T: TxPins + ConfigurePins + 'd>(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins16<'d>,
+        hub75_pins: impl Hub75Pins<'d, T>,
         channel: impl DmaChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -44,9 +52,9 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    pub fn new(
+    pub fn new<T: TxPins + ConfigurePins + 'd>(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins16<'d>,
+        hub75_pins: impl Hub75Pins<'d, T>,
         channel: impl DmaChannelFor<PARL_IO<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -62,67 +70,14 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    fn new_internal(
+    fn new_internal<T: TxPins + ConfigurePins + 'd>(
         parl_io: PARL_IO<'d>,
-        hub75_pins: Hub75Pins16<'d>,
+        hub75_pins: impl Hub75Pins<'d, T>,
         channel: impl DmaChannelFor<PARL_IO<'d>>,
         frequency: Rate,
-    ) -> Result<
-        (
-            ParlIo<'d, esp_hal::Blocking>,
-            TxSixteenBits<'d>,
-            ClkOutPin<'d>,
-            TxConfig,
-        ),
-        esp_hal::parl_io::Error,
-    > {
-        let (_, blank) = hub75_pins.blank.split();
-
-        // TODO: how can we make this non-static?
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "valid-pin")] {
-                let pins = TxSixteenBits::new(
-                    hub75_pins.addr0,
-                    hub75_pins.addr1,
-                    hub75_pins.addr2,
-                    hub75_pins.addr3,
-                    hub75_pins.addr4,
-                    hub75_pins.latch,
-                    NoPin,
-                    NoPin,
-                    blank.inverted(),
-                    hub75_pins.red1,
-                    hub75_pins.grn1,
-                    hub75_pins.blu1,
-                    hub75_pins.red2,
-                    hub75_pins.grn2,
-                    hub75_pins.blu2,
-                    hub75_pins.valid,
-                );
-            } else {
-                let pins = TxSixteenBits::new(
-                    hub75_pins.addr0,
-                    hub75_pins.addr1,
-                    hub75_pins.addr2,
-                    hub75_pins.addr3,
-                    hub75_pins.addr4,
-                    hub75_pins.latch,
-                    NoPin,
-                    NoPin,
-                    blank.inverted(),
-                    hub75_pins.red1,
-                    hub75_pins.grn1,
-                    hub75_pins.blu1,
-                    hub75_pins.red2,
-                    hub75_pins.grn2,
-                    hub75_pins.blu2,
-                    NoPin,
-                );
-            }
-        }
-
-        // TODO: how can we make this non-static?
-        let clock_pin = ClkOutPin::new(hub75_pins.clock);
+    ) -> Result<(ParlIo<'d, esp_hal::Blocking>, T, ClkOutPin<'d>, TxConfig), esp_hal::parl_io::Error>
+    {
+        let (pins, clock_pin) = hub75_pins.convert_pins();
         let parl_io = ParlIo::new(parl_io, channel)?;
         let config = TxConfig::default()
             .with_frequency(frequency)
@@ -140,12 +95,11 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         const FRAME_COUNT: usize,
     >(
         self,
-        fb: &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
+        fb: &impl FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
     ) -> Result<Hub75Transfer<'d, DM>, (Hub75Error, Self)> {
         let parl_io = self.parl_io;
         let tx_descriptors = self.tx_descriptors;
         let tx_buffer = unsafe {
-            use esp_hal::dma::ReadBuffer;
             let (ptr, len) = fb.read_buffer();
             // SAFETY: tx_buffer is only used until the tx_buf.split below!
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
@@ -211,5 +165,55 @@ impl Hub75Transfer<'_, esp_hal::Async> {
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await;
         Ok(())
+    }
+}
+
+impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+    fn convert_pins(self) -> (TxSixteenBits<'d>, ClkOutPin<'d>) {
+        let (_, blank) = self.blank.split();
+        let pins = TxSixteenBits::new(
+            self.addr0,
+            self.addr1,
+            self.addr2,
+            self.addr3,
+            self.addr4,
+            self.latch,
+            NoPin,
+            NoPin,
+            blank.inverted(),
+            self.red1,
+            self.grn1,
+            self.blu1,
+            self.red2,
+            self.grn2,
+            self.blu2,
+            #[cfg(feature = "valid-pin")]
+            self.valid,
+            #[cfg(not(feature = "valid-pin"))]
+            NoPin,
+        );
+        let clock_pin = ClkOutPin::new(self.clock);
+        (pins, clock_pin)
+    }
+}
+
+impl<'d> Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
+    fn convert_pins(self) -> (TxEightBits<'d>, ClkOutPin<'d>) {
+        let (_, blank) = self.blank.split();
+        let pins = TxEightBits::new(
+            self.red1,
+            self.grn1,
+            self.blu1,
+            self.red2,
+            self.grn2,
+            self.blu2,
+            self.latch,
+            #[cfg(feature = "invert-blank")]
+            blank.inverted(),
+            #[cfg(not(feature = "invert-blank"))]
+            blank,
+        );
+        let clock_pin = ClkOutPin::new(self.clock);
+        (pins, clock_pin)
     }
 }

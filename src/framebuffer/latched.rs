@@ -339,3 +339,84 @@ impl<
         defmt::write!(f, " brightness_step: {}", brightness_step);
     }
 }
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > super::FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+    for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn get_word_size(&self) -> super::WordSize {
+        super::WordSize::Eight
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > embedded_graphics::draw_target::DrawTarget
+    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    type Color = Color;
+
+    type Error = Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+    {
+        for pixel in pixels {
+            self.set_pixel_internal(pixel.0.x as usize, pixel.0.y as usize, pixel.1);
+        }
+        Ok(())
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > embedded_graphics::prelude::OriginDimensions
+    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        embedded_graphics::prelude::Size::new(COLS as u32, ROWS as u32)
+    }
+}
+
+unsafe impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > ReadBuffer for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    unsafe fn read_buffer(&self) -> (*const u8, usize) {
+        let ptr = &self.frames as *const _ as *const u8;
+        let len = core::mem::size_of_val(&self.frames);
+        (ptr, len)
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > super::FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn get_word_size(&self) -> super::WordSize {
+        super::WordSize::Eight
+    }
+}

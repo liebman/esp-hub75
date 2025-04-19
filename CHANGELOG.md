@@ -14,12 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `framebuffer::latched::DmaFrameBuffer` to support using a latch to [reduce pins/memory used](https://github.com/pixelmatix/SmartMatrix/blob/master/extras/hardware/ESP32/SmartLEDShield_ESP32_V0_sch.pdf)
 - `i2s_parallel_latch` Hub75 driver for `esp32` with external latch
 - `lcd_cam_latch` Hub75 driver for `esp32-s3` with external latch support
+- Refactored framebuffer traits and interfaces
+- Added `Hub75Pins` trait for unified pin configuration
+- Added support for 8-bit and 16-bit data width in LCD_CAM driver
 
 ### Changed
 
 - update `esp-hal` to 0.21.0
 - parl_io, lcd_cam: frequency is required to be passed in
 - refactor existing DmaFrameBuffer, changes signature!
+- Merged latch implementations into main drivers
+- Unified pin configuration through traits
+- Improved type safety with generic pin configurations
 
 ### Fixed
 
@@ -28,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - removed GPIO implementation
+- removed separate latch implementations (merged into main drivers)
 
 ## [0.1.0] - 2024-08-16
 

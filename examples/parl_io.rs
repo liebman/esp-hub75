@@ -98,7 +98,10 @@ pub struct DisplayPeripherals<'d> {
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 5;
+const BITS: u8 = 3; // Note that the PARL_IO peripheral only supports 3 bits per pixel at the
+                    // moment.  This is due to size limitations of the
+                    // peripheral.  It can only write 32768 bytes at a time. This will be fixed in
+                    // the future
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
