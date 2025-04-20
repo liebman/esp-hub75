@@ -31,15 +31,12 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: esp
-            # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: esp
-            # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: stable
-            # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
 
     steps:
       - uses: actions/checkout@v4
@@ -75,14 +72,14 @@ jobs:
         run: |
           case ${{ matrix.target }} in
             esp32)
-              cargo build --target ${{ matrix.rust_target }} --example i2s_parallel --features "${{ matrix.target }},${{ matrix.features }}"
-              cargo build --target ${{ matrix.rust_target }} --example i2s_parallel_latch --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example i2s_parallel --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example i2s_parallel_latch --features "${{ matrix.target }},${{ matrix.features }}"
               ;;
             esp32s3)
-              cargo build --target ${{ matrix.rust_target }} --example lcd_cam --features "${{ matrix.target }},${{ matrix.features }}"
-              cargo build --target ${{ matrix.rust_target }} --example lcd_cam_latch --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example lcd_cam --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example lcd_cam_latch --features "${{ matrix.target }},${{ matrix.features }}"
               ;;
             esp32c6)
-              cargo build --target ${{ matrix.rust_target }} --example parl_io --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example parl_io --features "${{ matrix.target }},${{ matrix.features }}"
               ;;
           esac 
