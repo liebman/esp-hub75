@@ -23,6 +23,9 @@ jobs:
   build:
     name: Build Examples
     runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
     strategy:
       matrix:
         target: [esp32, esp32s3, esp32c6]
@@ -31,55 +34,42 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: esp
+            examples: [i2s_parallel, i2s_parallel_latch]
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: esp
+            examples: [lcd_cam, lcd_cam_latch]
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: stable
+            examples: [parl_io]
 
     steps:
       - uses: actions/checkout@v4
 
+      # Install the Rust toolchain for Xtensa devices:
+      - name: Install Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: false
+          version: 1.85.0.0
+
       # Install the Rust stable toolchain for RISC-V devices:
       - name: Install RISC-V toolchain
-        if: matrix.toolchain == 'stable'
         uses: dtolnay/rust-toolchain@v1
         with:
           target: riscv32imc-unknown-none-elf,riscv32imac-unknown-none-elf
           toolchain: stable
           components: rust-src
 
-      # Install the Rust toolchain for Xtensa devices:
-      - name: Install Xtensa toolchain
-        if: matrix.toolchain == 'esp'
-        uses: esp-rs/xtensa-toolchain@v1.5
+      - uses: Swatinem/rust-cache@v2
         with:
-          ldproxy: false
-          version: 1.85.0.0
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
+          prefix-key: "ci-${{ matrix.target }}"
+          cache-all-crates: true
+  
       - name: Build examples
         run: |
-          case ${{ matrix.target }} in
-            esp32)
-              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example i2s_parallel --features "${{ matrix.target }},${{ matrix.features }}"
-              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example i2s_parallel_latch --features "${{ matrix.target }},${{ matrix.features }}"
-              ;;
-            esp32s3)
-              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example lcd_cam --features "${{ matrix.target }},${{ matrix.features }}"
-              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example lcd_cam_latch --features "${{ matrix.target }},${{ matrix.features }}"
-              ;;
-            esp32c6)
-              cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example parl_io --features "${{ matrix.target }},${{ matrix.features }}"
-              ;;
-          esac 
+          rustup toolchain list
+          for example in ${{ matrix.examples }}; do
+            cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example $example --features "${{ matrix.target }},${{ matrix.features }}"
+          done
