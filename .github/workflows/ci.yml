@@ -26,7 +26,7 @@ jobs:
     strategy:
       matrix:
         target: [esp32, esp32s3, esp32c6]
-        features: [default, log, defmt]
+        features: [log, defmt]
         include:
           - target: esp32
             rust_target: xtensa-esp32-espidf
