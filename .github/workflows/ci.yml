@@ -26,6 +26,7 @@ jobs:
     env:
       RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
     strategy:
+      fail-fast: false
       matrix:
         target: [esp32, esp32s3, esp32c6]
         features: [log, defmt]
@@ -34,23 +35,27 @@ jobs:
             rust_target: xtensa-esp32-none-elf
             toolchain: esp
             example: i2s_parallel
+            cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: +esp
             example: i2s_parallel_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
             example: lcd_cam
+            cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
             example: lcd_cam_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
             example: parl_io
-
+            cargo_unstable: ""
     steps:
       - uses: actions/checkout@v4
 
@@ -76,5 +81,5 @@ jobs:
   
       - name: Build examples
         run: |
-          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }}" -Zbuild-std=core,alloc
+          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }}" ${{ matrix.cargo_unstable }}
 
