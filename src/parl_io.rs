@@ -62,8 +62,6 @@ use esp_hal::parl_io::ParlIoTxTransfer;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxEightBits;
-#[cfg(feature = "valid-pin")]
-use esp_hal::parl_io::TxPinConfigIncludingValidPin;
 use esp_hal::parl_io::TxPins;
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
@@ -295,9 +293,6 @@ impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
             self.red2,
             self.grn2,
             self.blu2,
-            #[cfg(feature = "valid-pin")]
-            self.valid,
-            #[cfg(not(feature = "valid-pin"))]
             NoPin,
         );
         let clock_pin = ClkOutPin::new(self.clock);

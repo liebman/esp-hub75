@@ -79,7 +79,6 @@ log = [
     "esp-println/colors",
 ]
 invert-blank = [] # only for some latched implementations
-valid-pin = [] # only for parl_io debugging
 
 [patch.crates-io]
 esp-backtrace    = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }

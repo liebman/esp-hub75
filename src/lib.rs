@@ -65,7 +65,7 @@
 //!         latch: peripherals.GPIO10.degrade(),
 //!     };
 //!
-//!     let mut hub75 = Hub75Type::new_async(
+//!     let mut hub75 = Hub75Type::new(
 //!         peripherals.LCD_CAM,
 //!         pins,
 //!         peripherals.DMA_CH0,
@@ -103,6 +103,7 @@
 //! - `esp32s3`: Enable support for ESP32-S3
 //! - `esp32c6`: Enable support for ESP32-C6
 //! - `defmt`: Enable defmt logging support
+//! - `log`: Enable log logging support
 //!
 //! ## Safety
 //!
@@ -158,9 +159,6 @@ pub struct Hub75Pins16<'d> {
     pub clock: AnyPin<'d>,
     /// Latch signal to update display data
     pub latch: AnyPin<'d>,
-    #[cfg(all(feature = "esp32c6", feature = "valid-pin"))]
-    /// Valid signal for ESP32-C6 (optional)
-    pub valid: AnyPin<'d>,
 }
 
 /// Pin configuration HUB75 LED matrix displays with an external latch.
