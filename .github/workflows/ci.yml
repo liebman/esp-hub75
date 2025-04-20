@@ -15,8 +15,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
 
 env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
   DEFMT_LOG: trace
 
 jobs:
@@ -24,8 +24,7 @@ jobs:
     name: Build Examples
     runs-on: ubuntu-latest
     env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
-      RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
+      RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x -Zbuild-std=core,alloc"
     strategy:
       matrix:
         target: [esp32, esp32s3, esp32c6]
