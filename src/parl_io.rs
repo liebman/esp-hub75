@@ -8,39 +8,82 @@
 //! - DMA-based transfers for efficient data movement
 //!
 //! # Example
-//! ```no_run
-//! use esp_hal::dma::DmaChannelFor;
-//! use esp_hal::dma::DmaDescriptor;
-//! use esp_hal::peripherals::PARL_IO;
+//! ```rust,no_run
+//! use embedded_graphics::geometry::Point;
+//! use embedded_graphics::mono_font::ascii::FONT_5X7;
+//! use embedded_graphics::mono_font::MonoTextStyleBuilder;
+//! use embedded_graphics::text::Alignment;
+//! use embedded_graphics::text::Text;
+//! use embedded_graphics::Drawable;
+//! use esp_hal::clock::CpuClock;
 //! use esp_hal::time::Rate;
-//! use esp_hub75::plain::DmaFrameBuffer;
+//! use esp_hub75::framebuffer::compute_frame_count;
+//! use esp_hub75::framebuffer::compute_rows;
+//! use esp_hub75::framebuffer::plain::DmaFrameBuffer;
 //! use esp_hub75::Color;
 //! use esp_hub75::Hub75;
 //! use esp_hub75::Hub75Pins16;
 //!
-//! // Create and initialize frame buffer
-//! let mut fb = DmaFrameBuffer::<32, 64, 16, 4, 4>::new();
-//! fb.clear();
-//! fb.set_pixel(0, 0, Color::new(255, 0, 0));
+//! const ROWS: usize = 64;
+//! const COLS: usize = 64;
+//! const BITS: u8 = 4;
+//! const NROWS: usize = compute_rows(ROWS);
+//! const FRAME_COUNT: usize = compute_frame_count(BITS);
 //!
-//! // Initialize HUB75
-//! let mut hub75 = Hub75::new_async(
-//!     parl_io,
-//!     Hub75Pins16::new(/* pins */),
-//!     channel,
-//!     &mut DESCRIPTORS,
-//!     Rate::MHz(10),
-//! )?;
+//! type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 //!
-//! // Main display loop
-//! loop {
-//!     // Render the frame
-//!     let xfer = hub75.render(&fb)?;
+//! #[main]
+//! fn main() -> ! {
+//!     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 //!
-//!     // Wait for the transfer to complete and get back the Hub75 instance
-//!     let (result, new_hub75) = xfer.wait();
-//!     hub75 = new_hub75;
-//!     result.expect("transfer failed");
+//!     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
+//!
+//!     let pins = Hub75Pins16 {
+//!         red1: peripherals.GPIO19.degrade(),
+//!         grn1: peripherals.GPIO20.degrade(),
+//!         blu1: peripherals.GPIO21.degrade(),
+//!         red2: peripherals.GPIO22.degrade(),
+//!         grn2: peripherals.GPIO23.degrade(),
+//!         blu2: peripherals.GPIO15.degrade(),
+//!         addr0: peripherals.GPIO10.degrade(),
+//!         addr1: peripherals.GPIO8.degrade(),
+//!         addr2: peripherals.GPIO1.degrade(),
+//!         addr3: peripherals.GPIO0.degrade(),
+//!         addr4: peripherals.GPIO11.degrade(),
+//!         blank: peripherals.GPIO5.degrade(),
+//!         clock: peripherals.GPIO7.degrade(),
+//!         latch: peripherals.GPIO6.degrade(),
+//!     };
+//!
+//!     let mut hub75 = Hub75::new_async(
+//!         peripherals.PARL_IO,
+//!         pins,
+//!         peripherals.DMA_CH0,
+//!         tx_descriptors,
+//!         Rate::from_mhz(20),
+//!     )
+//!     .expect("failed to create Hub75!");
+//!
+//!     let mut fb = FBType::new();
+//!     fb.clear();
+//!     let text_style = MonoTextStyleBuilder::new()
+//!         .font(&FONT_5X7)
+//!         .text_color(Color::YELLOW)
+//!         .background_color(Color::BLACK)
+//!         .build();
+//!     let point = Point::new(32, 31);
+//!     Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
+//!         .draw(&mut fb)
+//!         .expect("failed to draw text");
+//!     loop {
+//!         let xfer = hub75
+//!             .render(&fb)
+//!             .map_err(|(e, _hub75)| e)
+//!             .expect("failed to start render!");
+//!         let (result, new_hub75) = xfer.wait();
+//!         hub75 = new_hub75;
+//!         result.expect("transfer failed");
+//!     }
 //! }
 //! ```
 //!
@@ -215,7 +258,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
 /// This struct is returned by `Hub75::render` and can be used to wait for the
 /// transfer to complete.
 pub struct Hub75Transfer<'d, DM: esp_hal::DriverMode> {
-    pub xfer: ParlIoTxTransfer<'d, DmaTxBuf, DM>,
+    xfer: ParlIoTxTransfer<'d, DmaTxBuf, DM>,
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {

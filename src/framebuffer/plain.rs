@@ -28,7 +28,7 @@
 //! - 16-bit entries provide direct signal mapping but use more memory
 //!
 //! # Example
-//! ```rust
+//! ```rust,no_run
 //! use embedded_graphics::pixelcolor::RgbColor;
 //! use embedded_graphics::prelude::*;
 //! use embedded_graphics::primitives::Circle;
@@ -324,6 +324,17 @@ impl<
         const FRAME_COUNT: usize,
     > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
+    /// Create a new framebuffer.
+    /// # Example
+    /// ```rust,no_run
+    /// const ROWS: usize = 32;
+    /// const COLS: usize = 64;
+    /// const BITS: u8 = 3; // Color depth (8 brightness levels, 7 frames)
+    /// const NROWS: usize = compute_rows(ROWS); // Number of rows per scan
+    /// const FRAME_COUNT: usize = compute_frame_count(BITS); // Number of frames for BCM
+    ///
+    /// let framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
+    /// ```
     pub const fn new() -> Self {
         assert!(BITS <= 8);
 
@@ -333,16 +344,44 @@ impl<
         }
     }
 
+    /// This returns the size of the DMA buffer in bytes.  Its used to calculate the
+    /// number of DMA descriptors needed.
+    /// # Example
+    /// ```rust,no_run
+    /// const ROWS: usize = 32;
+    /// const COLS: usize = 64;
+    /// const BITS: u8 = 3; // Color depth (8 brightness levels, 7 frames)
+    /// const NROWS: usize = compute_rows(ROWS); // Number of rows per scan
+    /// const FRAME_COUNT: usize = compute_frame_count(BITS);
+    ///
+    /// type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
+    /// let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
+    /// ```
     pub const fn dma_buffer_size_bytes() -> usize {
         core::mem::size_of::<[Frame<ROWS, COLS, NROWS>; FRAME_COUNT]>()
     }
 
+    /// Clear and format the framebuffer.
+    /// Note:This must be called before the first use of the framebuffer!
+    /// # Example
+    /// ```rust,no_run
+    /// let mut framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
+    /// framebuffer.clear();
+    /// ```
     pub fn clear(&mut self) {
         for frame in self.frames.iter_mut() {
             frame.format();
         }
     }
 
+
+    /// Set a pixel in the framebuffer.
+    /// # Example
+    /// ```rust,no_run
+    /// let mut framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
+    /// framebuffer.clear();
+    /// framebuffer.set_pixel(Point::new(10, 10), Color::RED);
+    /// ```
     pub fn set_pixel(&mut self, p: Point, color: Color) {
         if p.x < 0 || p.y < 0 {
             return;

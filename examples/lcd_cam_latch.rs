@@ -20,10 +20,8 @@
 //! signals
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::fmt;
-use core::mem::size_of;
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::Ordering;
 
@@ -221,7 +219,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
 
     let pins = Hub75Pins8 {
         red1: peripherals.red1,

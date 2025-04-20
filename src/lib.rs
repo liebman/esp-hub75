@@ -39,7 +39,6 @@
 //! const NROWS: usize = compute_rows(ROWS);
 //! const FRAME_COUNT: usize = compute_frame_count(BITS);
 //!
-//! type Hub75Type = Hub75<'static, esp_hal::Async>;
 //! type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 //!
 //! #[main]
@@ -65,7 +64,7 @@
 //!         latch: peripherals.GPIO10.degrade(),
 //!     };
 //!
-//!     let mut hub75 = Hub75Type::new(
+//!     let mut hub75 = Hub75::new(
 //!         peripherals.LCD_CAM,
 //!         pins,
 //!         peripherals.DMA_CH0,
@@ -112,6 +111,7 @@
 //! a safe public API.
 
 #![no_std]
+#![warn(missing_docs)]
 
 use embedded_graphics::pixelcolor::Rgb888;
 use esp_hal::gpio::AnyPin;
@@ -120,8 +120,9 @@ pub mod framebuffer;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(feature = "esp32c6", path = "parl_io.rs")]
-pub mod hub75;
+mod hub75;
 pub use hub75::Hub75;
+pub use hub75::Hub75Transfer;
 
 /// The color type used by the HUB75 driver.
 pub type Color = Rgb888;

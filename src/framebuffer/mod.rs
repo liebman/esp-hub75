@@ -17,7 +17,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,no_run
 //! use embedded_graphics::pixelcolor::Rgb888;
 //! use esp_hal::dma::ReadBuffer;
 //!
