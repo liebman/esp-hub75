@@ -1,100 +1,8 @@
-//! Parallel I/O (PARL_IO) driver for HUB75 LED matrix displays
-//!
-//! This module provides a high-level interface for driving HUB75 LED matrix
-//! displays using the ESP32's Parallel I/O peripheral.
-//!
-//! # Features
-//! - Async and blocking operation modes
-//! - DMA-based transfers for efficient data movement
-//!
-//! # Example
-//! ```rust,no_run
-//! use embedded_graphics::geometry::Point;
-//! use embedded_graphics::mono_font::ascii::FONT_5X7;
-//! use embedded_graphics::mono_font::MonoTextStyleBuilder;
-//! use embedded_graphics::text::Alignment;
-//! use embedded_graphics::text::Text;
-//! use embedded_graphics::Drawable;
-//! use esp_hal::clock::CpuClock;
-//! use esp_hal::time::Rate;
-//! use esp_hub75::framebuffer::compute_frame_count;
-//! use esp_hub75::framebuffer::compute_rows;
-//! use esp_hub75::framebuffer::plain::DmaFrameBuffer;
-//! use esp_hub75::Color;
-//! use esp_hub75::Hub75;
-//! use esp_hub75::Hub75Pins16;
-//!
-//! const ROWS: usize = 64;
-//! const COLS: usize = 64;
-//! const BITS: u8 = 4;
-//! const NROWS: usize = compute_rows(ROWS);
-//! const FRAME_COUNT: usize = compute_frame_count(BITS);
-//!
-//! type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
-//!
-//! #[main]
-//! fn main() -> ! {
-//!     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
-//!
-//!     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
-//!
-//!     let pins = Hub75Pins16 {
-//!         red1: peripherals.GPIO19.degrade(),
-//!         grn1: peripherals.GPIO20.degrade(),
-//!         blu1: peripherals.GPIO21.degrade(),
-//!         red2: peripherals.GPIO22.degrade(),
-//!         grn2: peripherals.GPIO23.degrade(),
-//!         blu2: peripherals.GPIO15.degrade(),
-//!         addr0: peripherals.GPIO10.degrade(),
-//!         addr1: peripherals.GPIO8.degrade(),
-//!         addr2: peripherals.GPIO1.degrade(),
-//!         addr3: peripherals.GPIO0.degrade(),
-//!         addr4: peripherals.GPIO11.degrade(),
-//!         blank: peripherals.GPIO5.degrade(),
-//!         clock: peripherals.GPIO7.degrade(),
-//!         latch: peripherals.GPIO6.degrade(),
-//!     };
-//!
-//!     let mut hub75 = Hub75::new_async(
-//!         peripherals.PARL_IO,
-//!         pins,
-//!         peripherals.DMA_CH0,
-//!         tx_descriptors,
-//!         Rate::from_mhz(20),
-//!     )
-//!     .expect("failed to create Hub75!");
-//!
-//!     let mut fb = FBType::new();
-//!     fb.clear();
-//!     let text_style = MonoTextStyleBuilder::new()
-//!         .font(&FONT_5X7)
-//!         .text_color(Color::YELLOW)
-//!         .background_color(Color::BLACK)
-//!         .build();
-//!     let point = Point::new(32, 31);
-//!     Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
-//!         .draw(&mut fb)
-//!         .expect("failed to draw text");
-//!     loop {
-//!         let xfer = hub75
-//!             .render(&fb)
-//!             .map_err(|(e, _hub75)| e)
-//!             .expect("failed to start render!");
-//!         let (result, new_hub75) = xfer.wait();
-//!         hub75 = new_hub75;
-//!         result.expect("transfer failed");
-//!     }
-//! }
-//! ```
-//!
-//! # Safety
-//! - The DMA descriptors must be properly aligned and sized
-//! - The frame buffer must remain valid for the duration of the transfer
-
 use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
+use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
@@ -114,14 +22,7 @@ use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
 use crate::Hub75Pins16;
 use crate::Hub75Pins8;
-
-/// Trait for converting HUB75 pin configurations into PARL_IO compatible pins
-pub trait Hub75Pins<'d, T: TxPins + ConfigurePins + 'd> {
-    /// Convert the HUB75 pins into PARL_IO compatible pins and clock
-    /// configuration
-    fn convert_pins(self) -> (T, ClkOutPin<'d>);
-}
-
+use crate::Hub75Pins;
 /// HUB75 LED matrix display driver
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     parl_io: ParlIoTx<'d, DM>,
@@ -201,6 +102,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
             .with_idle_value(0)
             .with_sample_edge(SampleEdge::Normal)
             .with_bit_order(BitPackOrder::Msb);
+        let clock_pin = ClkOutPin::new(clock_pin);
         Ok((parl_io, pins, clock_pin, config))
     }
 
@@ -318,7 +220,7 @@ impl Hub75Transfer<'_, esp_hal::Async> {
 }
 
 impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
-    fn convert_pins(self) -> (TxSixteenBits<'d>, ClkOutPin<'d>) {
+    fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let (_, blank) = self.blank.split();
         let pins = TxSixteenBits::new(
             self.addr0,
@@ -338,13 +240,12 @@ impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
             self.blu2,
             NoPin,
         );
-        let clock_pin = ClkOutPin::new(self.clock);
-        (pins, clock_pin)
+        (pins, self.clock)
     }
 }
 
 impl<'d> Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
-    fn convert_pins(self) -> (TxEightBits<'d>, ClkOutPin<'d>) {
+    fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         let (_, blank) = self.blank.split();
         let pins = TxEightBits::new(
             self.red1,
@@ -359,7 +260,6 @@ impl<'d> Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
             #[cfg(not(feature = "invert-blank"))]
             blank,
         );
-        let clock_pin = ClkOutPin::new(self.clock);
-        (pins, clock_pin)
+        (pins, self.clock)
     }
 }
