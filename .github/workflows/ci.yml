@@ -29,11 +29,11 @@ jobs:
         features: [log, defmt]
         include:
           - target: esp32
-            rust_target: xtensa-esp32-espidf
+            rust_target: xtensa-esp32-none-elf
             toolchain: esp
             # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
           - target: esp32s3
-            rust_target: xtensa-esp32s3-espidf
+            rust_target: xtensa-esp32s3-none-elf
             toolchain: esp
             # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
           - target: esp32c6
