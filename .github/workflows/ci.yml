@@ -24,7 +24,7 @@ jobs:
     name: Build Examples
     runs-on: ubuntu-latest
     env:
-      RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x -Zbuild-std=core,alloc"
+      RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
     strategy:
       matrix:
         target: [esp32, esp32s3, esp32c6]
@@ -76,5 +76,5 @@ jobs:
   
       - name: Build examples
         run: |
-          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }}"
+          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }} -Zbuild-std=core,alloc"
 
