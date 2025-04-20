@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Cancel any currently running workflows from the same PR, branch, or
+# tag when a new workflow is triggered.
+#
+# https://stackoverflow.com/a/66336834
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  DEFMT_LOG: trace
+
+jobs:
+  build:
+    name: Build Examples
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [esp32, esp32s3, esp32c6]
+        features: [default, log, defmt]
+        include:
+          - target: esp32
+            rust_target: xtensa-esp32-espidf
+            toolchain: esp
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-espidf
+            toolchain: esp
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: stable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install the Rust stable toolchain for RISC-V devices:
+      - name: Install RISC-V toolchain
+        if: matrix.toolchain == 'stable'
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          target: riscv32imc-unknown-none-elf,riscv32imac-unknown-none-elf
+          toolchain: stable
+          components: rust-src
+
+      # Install the Rust toolchain for Xtensa devices:
+      - name: Install Xtensa toolchain
+        if: matrix.toolchain == 'esp'
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: false
+          version: 1.85.0.0
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build examples
+        run: |
+          for example in examples/*.rs; do
+            cargo build --target ${{ matrix.rust_target }} --example $(basename $example .rs) --features "${{ matrix.target }},${{ matrix.features }}"
+          done 
