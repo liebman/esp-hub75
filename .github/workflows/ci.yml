@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
   DEFMT_LOG: trace
 
 jobs:
@@ -31,12 +31,15 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-espidf
             toolchain: esp
+            # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
           - target: esp32s3
             rust_target: xtensa-esp32s3-espidf
             toolchain: esp
+            # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: stable
+            # rustflags: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
 
     steps:
       - uses: actions/checkout@v4
