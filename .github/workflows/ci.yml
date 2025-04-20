@@ -76,5 +76,5 @@ jobs:
   
       - name: Build examples
         run: |
-          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }} -Zbuild-std=core,alloc"
+          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }}" -Zbuild-std=core,alloc
 
