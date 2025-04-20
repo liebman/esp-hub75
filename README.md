@@ -9,6 +9,7 @@ A no-std Rust library for driving HUB75 LED matrix displays from ESP32 series mi
   - ESP32-C6: PARL_IO DMA interface
   - ESP32: I2S Parallel DMA interface
 - Zero-copy frame buffering with DMA transfers
+- Support for embedded-graphics for drawing text and shapes
 
 ## Hardware Requirements
 
@@ -21,37 +22,31 @@ A no-std Rust library for driving HUB75 LED matrix displays from ESP32 series mi
 ## Examples
 
 ### ESP32-S3 (LCD_CAM Interface)
+
 [`examples/lcd_cam.rs`](examples/lcd_cam.rs)
+
 ```rust
-// Displays a RGB gradient and performance statistics
-// Compatible with 64x64 pixel matrices
+// Displays "Hello, World!" text on a 64x64 pixel matrix
+// Uses embedded-graphics for text rendering
 ```
 
 ### ESP32-C6 (PARL_IO Interface)
+
 [`examples/parl_io.rs`](examples/parl_io.rs)
+
 ```rust
 // Displays a RGB gradient and performance statistics
 // Compatible with 64x64 pixel matrices
 ```
 
 ### ESP32 (I2S Parallel Interface)
+
 [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs)
+
 ```rust
 // Displays a RGB gradient and performance statistics
 // Compatible with 64x64 pixel matrices
 ```
-
-## Getting Started
-
-1. Add the dependency to your `Cargo.toml`:
-```toml
-[dependencies]
-esp-hub75 = "0.1.0"
-```
-
-2. Select the appropriate example based on your ESP32 variant
-3. Connect your HUB75 display with a level shifter
-4. Build and flash the example
 
 ## Notes
 

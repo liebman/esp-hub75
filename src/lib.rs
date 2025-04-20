@@ -1,16 +1,13 @@
 //! # ESP-HUB75
 //!
-//! A high-performance driver for HUB75 LED matrix displays on ESP32
-//! microcontrollers. This crate provides an efficient, async-friendly interface
-//! for controlling RGB LED matrices using various ESP32 peripherals (I2S,
-//! LCD-CAM, PARL_IO) depending on the target chip.
+//! A high-performance driver for HUB75 RGB LED matrix displays on ESP32
+//! microcontrollers.
 //!
 //! ## Features
 //!
-//! - Support for multiple ESP32 variants (ESP32, ESP32-S3, ESP32-C6)
+//! - Support for multiple ESP32 variants
 //! - High-performance DMA-based data transfer
-//! - Async-friendly API using embassy runtime
-//! - Efficient frame buffering and display management
+//! - supports both async and blocking operation
 //!
 //! ## Supported Hardware
 //!
@@ -21,38 +18,82 @@
 //! ## Usage (example for ESP32-S3, others are similar)
 //!
 //! ```rust,no_run
-//! use esp_hal::dma::DmaDescriptor;
-//! use esp_hal::dma::TxChannelFor;
-//! use esp_hal::peripherals::LCD_CAM;
+//! use embedded_graphics::geometry::Point;
+//! use embedded_graphics::mono_font::ascii::FONT_5X7;
+//! use embedded_graphics::mono_font::MonoTextStyleBuilder;
+//! use embedded_graphics::text::Alignment;
+//! use embedded_graphics::text::Text;
+//! use embedded_graphics::Drawable;
+//! use esp_hal::clock::CpuClock;
 //! use esp_hal::time::Rate;
-//! use esp_hub75::plain::DmaFrameBuffer;
+//! use esp_hub75::framebuffer::compute_frame_count;
+//! use esp_hub75::framebuffer::compute_rows;
+//! use esp_hub75::framebuffer::plain::DmaFrameBuffer;
 //! use esp_hub75::Color;
 //! use esp_hub75::Hub75;
 //! use esp_hub75::Hub75Pins16;
 //!
-//! // Create and initialize frame buffer
-//! let mut fb = DmaFrameBuffer::<32, 64, 16, 4, 4>::new();
-//! fb.clear();
-//! fb.set_pixel(0, 0, Color::new(255, 0, 0));
+//! const ROWS: usize = 64;
+//! const COLS: usize = 64;
+//! const BITS: u8 = 4;
+//! const NROWS: usize = compute_rows(ROWS);
+//! const FRAME_COUNT: usize = compute_frame_count(BITS);
 //!
-//! // Initialize HUB75
-//! let mut hub75 = Hub75::new_async(
-//!     peripherals.LCD_CAM,
-//!     Hub75Pins16::new(/* pins */),
-//!     channel,
-//!     &mut DESCRIPTORS,
-//!     Rate::MHz(10),
-//! )?;
+//! type Hub75Type = Hub75<'static, esp_hal::Async>;
+//! type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 //!
-//! // Main display loop
-//! loop {
-//!     // Render the frame
-//!     let xfer = hub75.render(&fb)?;
+//! #[main]
+//! fn main() -> ! {
+//!     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 //!
-//!     // Wait for the transfer to complete and get back the Hub75 instance
-//!     let (result, new_hub75) = xfer.wait();
-//!     hub75 = new_hub75;
-//!     result.expect("transfer failed");
+//!     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
+//!
+//!     let pins = Hub75Pins16 {
+//!         red1: peripherals.GPIO38.degrade(),
+//!         grn1: peripherals.GPIO42.degrade(),
+//!         blu1: peripherals.GPIO48.degrade(),
+//!         red2: peripherals.GPIO47.degrade(),
+//!         grn2: peripherals.GPIO2.degrade(),
+//!         blu2: peripherals.GPIO21.degrade(),
+//!         addr0: peripherals.GPIO14.degrade(),
+//!         addr1: peripherals.GPIO46.degrade(),
+//!         addr2: peripherals.GPIO13.degrade(),
+//!         addr3: peripherals.GPIO9.degrade(),
+//!         addr4: peripherals.GPIO3.degrade(),
+//!         blank: peripherals.GPIO11.degrade(),
+//!         clock: peripherals.GPIO12.degrade(),
+//!         latch: peripherals.GPIO10.degrade(),
+//!     };
+//!
+//!     let mut hub75 = Hub75Type::new_async(
+//!         peripherals.LCD_CAM,
+//!         pins,
+//!         peripherals.DMA_CH0,
+//!         tx_descriptors,
+//!         Rate::from_mhz(20),
+//!     )
+//!     .expect("failed to create Hub75!");
+//!
+//!     let mut fb = FBType::new();
+//!     fb.clear();
+//!     let text_style = MonoTextStyleBuilder::new()
+//!         .font(&FONT_5X7)
+//!         .text_color(Color::YELLOW)
+//!         .background_color(Color::BLACK)
+//!         .build();
+//!     let point = Point::new(32, 31);
+//!     Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
+//!         .draw(&mut fb)
+//!         .expect("failed to draw text");
+//!     loop {
+//!         let xfer = hub75
+//!             .render(&fb)
+//!             .map_err(|(e, _hub75)| e)
+//!             .expect("failed to start render!");
+//!         let (result, new_hub75) = xfer.wait();
+//!         hub75 = new_hub75;
+//!         result.expect("transfer failed");
+//!     }
 //! }
 //! ```
 //!
@@ -70,7 +111,6 @@
 //! a safe public API.
 
 #![no_std]
-#![feature(type_alias_impl_trait)]
 
 use embedded_graphics::pixelcolor::Rgb888;
 use esp_hal::gpio::AnyPin;
@@ -87,9 +127,8 @@ pub type Color = Rgb888;
 
 /// Pin configuration HUB75 LED matrix displays using direct signals.
 ///
-/// This structure defines the pin mapping for HUB75 displays that use 16-bit
-/// data width. It includes all necessary control signals and data lines for
-/// driving the display.
+/// This structure defines the pin mapping for plain HUB75 displays. It includes
+/// all necessary control signals and data lines for driving the display.
 pub struct Hub75Pins16<'d> {
     /// Red data line for the upper half of the display
     pub red1: AnyPin<'d>,
@@ -126,12 +165,12 @@ pub struct Hub75Pins16<'d> {
 
 /// Pin configuration HUB75 LED matrix displays with an external latch.
 ///
-/// This structure defines the pin mapping for HUB75 displays that use 8-bit
-/// data width with an external latch controller board. The external latch
-/// handles row address selection, allowing for a more memory-efficient
-/// implementation with 8-bit entries instead of 16-bit.
+/// This structure defines the pin mapping for HUB75 displays with an external
+/// latch on the controller board. The external latch holds row address
+/// selection, allowing for a more memory-efficient implementation with 8-bit
+/// entries instead of 16-bit.
 ///
-/// This configuration is typically used with controller boards that have
+/// This configuration is used with controller boards that have
 /// hardware latch support, which reduces memory requirements by handling row
 /// addressing externally.
 pub struct Hub75Pins8<'d> {

@@ -6,8 +6,6 @@
 //! # Features
 //! - Async and blocking operation modes
 //! - DMA-based transfers for efficient data movement
-//! - Support for 8-bit and 16-bit configurations
-//! - Configurable clock frequency
 //!
 //! # Example
 //! ```no_run
@@ -152,6 +150,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
             // SAFETY: tx_buffer is only used until the tx_buf.split below!
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
+        // TODO: can't recover from this because tx_descriptors is consumed!
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("DmaTxBuf::new failed");
         let xfer = i2s.send(tx_buf).map_err(|(e, i2s, buf)| {
             let (tx_descriptors, _) = buf.split();
@@ -214,8 +213,9 @@ impl Hub75Transfer<'_, esp_hal::Async> {
     /// A `Result` indicating whether the transfer completed successfully
     ///
     /// # Note
-    /// This method does not return the `Hub75` instance. Use `wait()` if you
-    /// need to reuse the instance.
+    /// This method does not return the `Hub75` instance. Use `wait()` after
+    /// `wait_for_done` returns to get the `Hub75` instance, it won't block at
+    /// that point.
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await
     }

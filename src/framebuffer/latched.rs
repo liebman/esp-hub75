@@ -451,6 +451,21 @@ unsafe impl<
     }
 }
 
+unsafe impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > ReadBuffer for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    unsafe fn read_buffer(&self) -> (*const u8, usize) {
+        let ptr = &self.frames as *const _ as *const u8;
+        let len = core::mem::size_of_val(&self.frames);
+        (ptr, len)
+    }
+}
+
 #[cfg(feature = "log")]
 impl<
         const ROWS: usize,
@@ -550,21 +565,6 @@ impl<
 {
     fn size(&self) -> embedded_graphics::prelude::Size {
         embedded_graphics::prelude::Size::new(COLS as u32, ROWS as u32)
-    }
-}
-
-unsafe impl<
-        const ROWS: usize,
-        const COLS: usize,
-        const NROWS: usize,
-        const BITS: u8,
-        const FRAME_COUNT: usize,
-    > ReadBuffer for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
-{
-    unsafe fn read_buffer(&self) -> (*const u8, usize) {
-        let ptr = &self.frames as *const _ as *const u8;
-        let len = core::mem::size_of_val(&self.frames);
-        (ptr, len)
     }
 }
 

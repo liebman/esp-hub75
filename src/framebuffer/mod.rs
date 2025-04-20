@@ -9,8 +9,6 @@
 //!
 //! 2. **Latched Implementation** (`latched` module)
 //!    - Requires external latch hardware for address lines
-//!    - More complex but allows for better timing control
-//!    - Useful for displays that need precise address timing
 //!
 //! Both implementations:
 //! - Have configurable row and column dimensions
@@ -53,10 +51,7 @@ pub enum WordSize {
     Sixteen,
 }
 
-/// Computes the number of rows to be processed in parallel
-///
-/// For HUB75 displays, rows are typically processed in pairs, so this function
-/// divides the total number of rows by 2.
+/// Computes the NROWS value from ROWS for DmaFrameBuffer
 ///
 /// # Arguments
 ///
@@ -64,7 +59,7 @@ pub enum WordSize {
 ///
 /// # Returns
 ///
-/// Number of rows to process in parallel
+/// Number of rows needed internally for DmaFrameBuffer
 pub const fn compute_rows(rows: usize) -> usize {
     rows / 2
 }

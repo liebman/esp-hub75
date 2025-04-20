@@ -6,8 +6,6 @@
 //! # Features
 //! - Async and blocking operation modes
 //! - DMA-based transfers for efficient data movement
-//! - Support for 8-bit and 16-bit configurations
-//! - Configurable clock frequency and bit order
 //!
 //! # Example
 //! ```no_run
@@ -267,6 +265,11 @@ impl Hub75Transfer<'_, esp_hal::Async> {
     ///
     /// # Returns
     /// A `Result` indicating whether the transfer completed successfully
+    ///
+    /// # Note
+    /// This method does not return the `Hub75` instance. Use `wait()` after
+    /// `wait_for_done` returns to get the `Hub75` instance, it won't block at
+    /// that point.
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await;
         Ok(())
