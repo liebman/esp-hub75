@@ -34,15 +34,23 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: esp
-            examples: [i2s_parallel, i2s_parallel_latch]
+            example: i2s_parallel
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: i2s_parallel_latch
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
-            toolchain: esp
-            examples: [lcd_cam, lcd_cam_latch]
+            toolchain: +esp
+            example: lcd_cam
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: lcd_cam_latch
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
-            toolchain: stable
-            examples: [parl_io]
+            toolchain: ""
+            example: parl_io
 
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +77,5 @@ jobs:
   
       - name: Build examples
         run: |
-          rustup toolchain list
-          for example in ${{ matrix.examples }}; do
-            cargo +${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example $example --features "${{ matrix.target }},${{ matrix.features }}"
-          done
+          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }}"
+
