@@ -70,6 +70,16 @@ jobs:
 
       - name: Build examples
         run: |
-          for example in examples/*.rs; do
-            cargo build --target ${{ matrix.rust_target }} --example $(basename $example .rs) --features "${{ matrix.target }},${{ matrix.features }}"
-          done 
+          case ${{ matrix.target }} in
+            esp32)
+              cargo build --target ${{ matrix.rust_target }} --example i2s_parallel --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo build --target ${{ matrix.rust_target }} --example i2s_parallel_latch --features "${{ matrix.target }},${{ matrix.features }}"
+              ;;
+            esp32s3)
+              cargo build --target ${{ matrix.rust_target }} --example lcd_cam --features "${{ matrix.target }},${{ matrix.features }}"
+              cargo build --target ${{ matrix.rust_target }} --example lcd_cam_latch --features "${{ matrix.target }},${{ matrix.features }}"
+              ;;
+            esp32c6)
+              cargo build --target ${{ matrix.rust_target }} --example parl_io --features "${{ matrix.target }},${{ matrix.features }}"
+              ;;
+          esac 
