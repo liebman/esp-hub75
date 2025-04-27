@@ -88,7 +88,7 @@ use super::Color;
 use super::FrameBuffer;
 use super::WordSize;
 
-const BLANKING_DELAY: usize = 5;
+const BLANKING_DELAY: usize = 1;
 
 bitfield! {
     /// A 16-bit word representing the HUB75 control signals for a single pixel.
@@ -198,15 +198,19 @@ impl<const COLS: usize> Row<COLS> {
         entry.set_output_enable(false);
         for i in 0..COLS {
             // if we enable display too soon then we will have ghosting
-            if i >= BLANKING_DELAY {
-                entry.set_output_enable(true);
-            }
-            // last pixel, blank the display, open the latch, set the new row address
+            // second to last pixel, blank the display
+            // last pixel, open the latch, set the new row address
             // the latch will be closed on the first pixel of the next row.
-            if i == COLS - 1 {
-                entry.set_output_enable(false);
-                entry.set_latch(true);
-                entry.set_addr(addr as u16);
+            match i {
+                i if i == COLS - BLANKING_DELAY - 1 => {
+                    entry.set_output_enable(false);
+                }
+                i if i == COLS - 1 => {
+                    entry.set_latch(true);
+                    entry.set_addr(addr as u16);
+                }
+                i if i == 1 => entry.set_output_enable(true),
+                _ => {}
             }
 
             self.data[map_index(i)] = entry;
@@ -344,8 +348,8 @@ impl<
         }
     }
 
-    /// This returns the size of the DMA buffer in bytes.  Its used to calculate the
-    /// number of DMA descriptors needed.
+    /// This returns the size of the DMA buffer in bytes.  Its used to calculate
+    /// the number of DMA descriptors needed.
     /// # Example
     /// ```rust,no_run
     /// const ROWS: usize = 32;
@@ -373,7 +377,6 @@ impl<
             frame.format();
         }
     }
-
 
     /// Set a pixel in the framebuffer.
     /// # Example

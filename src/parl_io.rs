@@ -221,7 +221,7 @@ impl Hub75Transfer<'_, esp_hal::Async> {
 
 impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
-        let (_, blank) = self.blank.split();
+        let (_, blank) = unsafe { self.blank.split() };
         let pins = TxSixteenBits::new(
             self.addr0,
             self.addr1,
@@ -231,7 +231,7 @@ impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
             self.latch,
             NoPin,
             NoPin,
-            blank.inverted(),
+            blank.with_output_inverter(true),
             self.red1,
             self.grn1,
             self.blu1,
@@ -246,7 +246,7 @@ impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
 
 impl<'d> Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
-        let (_, blank) = self.blank.split();
+        let (_, blank) = unsafe { self.blank.split() };
         let pins = TxEightBits::new(
             self.red1,
             self.grn1,
@@ -256,7 +256,7 @@ impl<'d> Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
             self.blu2,
             self.latch,
             #[cfg(feature = "invert-blank")]
-            blank.inverted(),
+            blank.with_output_inverter(true),
             #[cfg(not(feature = "invert-blank"))]
             blank,
         );
