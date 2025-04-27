@@ -81,13 +81,13 @@ log = [
 invert-blank = [] # only for some latched implementations
 
 [patch.crates-io]
-esp-backtrace    = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
-esp-build        = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
-esp-hal          = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
-esp-hal-embassy  = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
-esp-println      = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
-esp-riscv-rt     = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
-xtensa-lx-rt     = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-make-txpins-pub" }
+esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-build        = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 
 # esp-backtrace = { path = "../esp-hal/esp-backtrace" }
 # esp-build = { path = "../esp-hal/esp-build" }
