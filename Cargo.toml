@@ -68,14 +68,13 @@ esp32c6 = [
     "esp-hal-embassy/esp32c6",
     "esp-println/esp32c6",
 ]
-debug = ["esp-hal/debug"]
 defmt = ["dep:defmt", "esp-backtrace/defmt", "esp-hal/defmt"]
 log = [
     "dep:log",
     "esp-backtrace/println",
-    "esp-hal/log",
+    "esp-hal/log-04",
     "esp-println/auto",
-    "esp-println/log",
+    "esp-println/log-04",
     "esp-println/colors",
 ]
 invert-blank = [] # only for some latched implementations
