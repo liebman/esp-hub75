@@ -1,0 +1,72 @@
+title: ESP-HUB75 Development Guidelines
+
+project:
+  name: "ESP Hub75"
+  type: "embedded_systems"
+  primary_language: "rust"
+  runtime: "embassy"
+
+expertise:
+  - rust
+  - async_programming
+  - embedded_systems
+  - concurrent_systems
+  - hardware_interfacing
+  - real_time_systems
+
+general_principles:
+  - Write clear, concise, and idiomatic Rust code
+  - Prioritize modularity, clean code organization, and efficient resource management
+  - Use expressive variable names that convey intent (e.g., is_ready, has_data)
+  - Adhere to Rust's naming conventions:
+      - snake_case for variables and functions
+      - PascalCase for types and structs
+  - Avoid code duplication; use functions and modules to encapsulate reusable logic
+  - Write code with safety, concurrency, and performance in mind
+
+code_organization:
+  - Structure the application into modules: separate concerns like networking, database, and business logic
+  - Use environment variables for configuration management
+  - Ensure code is well-documented with inline comments and Rustdoc
+  - Follow the single responsibility principle for functions and modules
+
+error_handling:
+  - Embrace Rust's Result and Option types for error handling
+  - Use ? operator to propagate errors in async functions
+  - Implement custom error types for more descriptive errors
+  - Handle errors and edge cases early, returning errors where appropriate
+
+async_programming:
+  - Use embassy as the async runtime for handling asynchronous tasks and I/O
+  - Implement async functions using async fn syntax
+  - Favor structured concurrency: prefer scoped tasks and clean cancellation paths
+  - Use .await responsibly, ensuring safe points for context switching
+  - Implement timeouts, retries, and backoff strategies for robust async operations
+  - Use embassy_time::Timer and embassy_time::Duration for efficient time-based operations
+  - Minimize async overhead; use sync code where async is not needed
+
+performance_optimization:
+  - Optimize data structures and algorithms for async use
+  - Reduce contention and lock duration
+  - Profile and measure performance before optimization
+  - Document performance-critical sections
+  - Use appropriate concurrency patterns
+  - Consider power consumption in timing decisions
+
+testing:
+  - Write unit tests with embedded-test tests
+  - Test individual components in isolation
+  - Use descriptive test names that explain the test case
+  - Follow the Arrange-Act-Assert pattern
+  - Implement integration tests to validate async behavior and concurrency
+  - Test component interactions and system behavior
+  - Include edge cases and error scenarios
+  - Use mocks and fakes for external dependencies in tests
+  - Keep test dependencies minimal and focused
+  - Ensure tests are deterministic and repeatable
+
+dependencies:
+  - Use embassy for async runtime and task management
+  - Use serde for serialization/deserialization
+  - Keep dependencies up to date and minimal
+  - Document external dependencies and their purposes

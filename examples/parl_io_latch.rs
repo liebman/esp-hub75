@@ -1,30 +1,22 @@
-//! Embassy "async" example driving a 64x64 HUB75 display using
-//! the I2S peripheral of an `esp32`.
-//!
-//! NOTE: This example would normally run on a second core, but the `esp32`
-//!       has a bug: https://github.com/esp-rs/esp-hal/issues/2369
-//!       and when thats resolved I'll move this back to the second core.
+//! Embassy "async" example of an ESP32-C6 driving a 64x64 HUB75 display using
+//! the PARL_IO peripheral with a SmartLEDShield-style latch circuit.
 //!
 //! This example draws a simple gradient on the display and shows the refresh
 //! rate and render rate plus a simple counter.
 //!
 //! Folowing pins are used:
-//! - R1  => GPIO16
-//! - G1  => GPIO4
-//! - B1  => GPIO17
-//! - R2  => GPIO18
-//! - G2  => GPIO5
-//! - B2  => GPIO19
-//! - A   => GPIO15
-//! - B   => GPIO13
-//! - C   => GPIO12
-//! - D   => GPIO14
-//! - E   => GPIO2
-//! - OE  => GPIO25
-//! - CLK => GPIO27
-//! - LAT => GPIO26
+//! - R1     => GPIO10
+//! - G1     => GPIO8
+//! - B1     => GPIO1
+//! - R2     => GPIO0
+//! - G2     => GPIO11
+//! - B2     => GPIO7
+//! - OE_DMA => GPIO21
+//! - OE_PWM => GPIO20
+//! - CLK    => GPIO19
+//! - LAT    => GPIO18
 //!
-//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
+//! Note that you most likely need level converters 3.3v to 5v for all HUB75
 //! signals
 #![no_std]
 #![no_main]
@@ -54,19 +46,22 @@ use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::AnyPin;
+use esp_hal::gpio::Level;
+use esp_hal::gpio::Output;
+use esp_hal::gpio::OutputConfig;
 use esp_hal::gpio::Pin;
-use esp_hal::i2s::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
+use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::framebuffer::plain::DmaFrameBuffer;
+use esp_hub75::framebuffer::latched::DmaFrameBuffer;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
-use esp_hub75::Hub75Pins16;
+use esp_hub75::Hub75Pins8;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -91,23 +86,23 @@ const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
+const LINE1: i32 = ROWS as i32 - 1 - 14;
+const LINE2: i32 = ROWS as i32 - 1 - 7;
+const LINE3: i32 = ROWS as i32 - 1;
+const NBARS: i32 = ROWS as i32 / 8;
+
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals<'d> {
-    pub i2s: AnyI2s<'d>,
-    pub dma_channel: esp_hal::peripherals::DMA_I2S0<'d>,
+    pub parl_io: PARL_IO<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_CH0<'d>,
     pub red1: AnyPin<'d>,
     pub grn1: AnyPin<'d>,
     pub blu1: AnyPin<'d>,
     pub red2: AnyPin<'d>,
     pub grn2: AnyPin<'d>,
     pub blu2: AnyPin<'d>,
-    pub addr0: AnyPin<'d>,
-    pub addr1: AnyPin<'d>,
-    pub addr2: AnyPin<'d>,
-    pub addr3: AnyPin<'d>,
-    pub addr4: AnyPin<'d>,
     pub blank: AnyPin<'d>,
     pub clock: AnyPin<'d>,
     pub latch: AnyPin<'d>,
@@ -135,14 +130,16 @@ async fn display_task(
         const STEP: u8 = (256 / COLS) as u8;
         for x in 0..COLS {
             let brightness = (x as u8) * STEP;
-            for y in 0..8 {
+            for y in 0..NBARS {
                 fb.set_pixel(Point::new(x as i32, y), Color::new(brightness, 0, 0));
-            }
-            for y in 8..16 {
-                fb.set_pixel(Point::new(x as i32, y), Color::new(0, brightness, 0));
-            }
-            for y in 16..24 {
-                fb.set_pixel(Point::new(x as i32, y), Color::new(0, 0, brightness));
+                fb.set_pixel(
+                    Point::new(x as i32, y + NBARS),
+                    Color::new(0, brightness, 0),
+                );
+                fb.set_pixel(
+                    Point::new(x as i32, y + 2 * NBARS),
+                    Color::new(0, 0, brightness),
+                );
             }
         }
 
@@ -155,7 +152,7 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 63),
+            Point::new(0, LINE3),
             fps_style,
             Alignment::Left,
         )
@@ -171,7 +168,7 @@ async fn display_task(
 
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 63 - 8),
+            Point::new(0, LINE2),
             fps_style,
             Alignment::Left,
         )
@@ -186,7 +183,7 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 63 - 16),
+            Point::new(0, LINE1),
             fps_style,
             Alignment::Left,
         )
@@ -221,37 +218,38 @@ async fn hub75_task(
     let channel = peripherals.dma_channel;
     let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
 
-    let pins = Hub75Pins16 {
+    let pins = Hub75Pins8 {
         red1: peripherals.red1,
         grn1: peripherals.grn1,
         blu1: peripherals.blu1,
         red2: peripherals.red2,
         grn2: peripherals.grn2,
         blu2: peripherals.blu2,
-        addr0: peripherals.addr0,
-        addr1: peripherals.addr1,
-        addr2: peripherals.addr2,
-        addr3: peripherals.addr3,
-        addr4: peripherals.addr4,
         blank: peripherals.blank,
         clock: peripherals.clock,
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75::new(
-        peripherals.i2s,
+    let mut hub75 = Hub75::new_async(
+        peripherals.parl_io,
         pins,
         channel,
         tx_descriptors,
-        Rate::from_mhz(19),
+        Rate::from_mhz(20),
     )
-    .expect("failed to create Hub75!")
-    .into_async();
+    .expect("failed to create Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
 
     let mut fb = fb;
+
+    // wait for the first fb update
+    let new_fb = rx.wait().await;
+    info!("hub75_task: got first fb!");
+    tx.signal(fb);
+    info!("hub75_task: sent back first old fb!");
+    fb = new_fb;
 
     loop {
         // if there is a new buffer available, get it and send the old one
@@ -288,7 +286,7 @@ extern "C" {
 }
 
 #[esp_hal_embassy::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
     info!("Main starting!");
@@ -298,7 +296,8 @@ async fn main(_spawner: Spawner) {
     info!("ROWS: {}", ROWS);
     info!("COLS: {}", COLS);
     info!("BITS: {}", BITS);
-    info!("FRAME_COUNT: {}", FRAME_COUNT);
+    info!("FRAMES: {}", FRAME_COUNT);
+    info!("FB size: {}", core::mem::size_of::<FBType>());
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
@@ -322,70 +321,34 @@ async fn main(_spawner: Spawner) {
     info!("fb1: {:?}", fb1);
 
     let hub75_peripherals = Hub75Peripherals {
-        i2s: peripherals.I2S0.into(),
-        dma_channel: peripherals.DMA_I2S0,
-        red1: peripherals.GPIO16.degrade(),
-        grn1: peripherals.GPIO4.degrade(),
-        blu1: peripherals.GPIO17.degrade(),
-        red2: peripherals.GPIO18.degrade(),
-        grn2: peripherals.GPIO5.degrade(),
-        blu2: peripherals.GPIO19.degrade(),
-        addr0: peripherals.GPIO15.degrade(),
-        addr1: peripherals.GPIO13.degrade(),
-        addr2: peripherals.GPIO12.degrade(),
-        addr3: peripherals.GPIO14.degrade(),
-        addr4: peripherals.GPIO2.degrade(),
-        blank: peripherals.GPIO25.degrade(),
-        clock: peripherals.GPIO27.degrade(),
-        latch: peripherals.GPIO26.degrade(),
+        parl_io: peripherals.PARL_IO,
+        dma_channel: peripherals.DMA_CH0,
+        red1: peripherals.GPIO10.degrade(),
+        grn1: peripherals.GPIO8.degrade(),
+        blu1: peripherals.GPIO1.degrade(),
+        red2: peripherals.GPIO0.degrade(),
+        grn2: peripherals.GPIO11.degrade(),
+        blu2: peripherals.GPIO7.degrade(),
+        blank: peripherals.GPIO21.degrade(),
+        clock: peripherals.GPIO19.degrade(),
+        latch: peripherals.GPIO18.degrade(),
     };
 
-    // let hp_executor = mk_static!(
-    //     InterruptExecutor<2>,
-    //     InterruptExecutor::new(software_interrupt)
-    // );
-    // let high_pri_spawner = hp_executor.start(Priority::Priority3);
+    // Configure OE_PWM pin (GPIO20) as high output
+    let _oe_pwm = Output::new(peripherals.GPIO20, Level::High, OutputConfig::default());
 
-    // // hub75 runs as high priority task
-    // high_pri_spawner
-    //     .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
-    //     .ok();
-    // _spawner.spawn(display_task(&TX, &RX, fb0)).ok();
+    // Run hub75 as high priority task (interrupt executor)
+    let hp_executor = mk_static!(
+        InterruptExecutor<2>,
+        InterruptExecutor::new(software_interrupt)
+    );
+    let high_pri_spawner = hp_executor.start(Priority::Priority3);
+    high_pri_spawner
+        .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
+        .ok();
 
-    // run hub75 and display on second core
-    let cpu1_fnctn = {
-        move || {
-            let hp_executor = mk_static!(
-                InterruptExecutor<2>,
-                InterruptExecutor::new(software_interrupt)
-            );
-            let high_pri_spawner = hp_executor.start(Priority::Priority3);
-
-            // hub75 runs as high priority task
-            high_pri_spawner
-                .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
-                .ok();
-
-            let lp_executor = mk_static!(Executor, Executor::new());
-            // display task runs as low priority task
-            lp_executor.run(|spawner| {
-                spawner.spawn(display_task(&TX, &RX, fb0)).ok();
-            });
-        }
-    };
-
-    use esp_hal::system::CpuControl;
-    use esp_hal::system::Stack;
-    use esp_hal_embassy::Executor;
-    let cpu_control = CpuControl::new(peripherals.CPU_CTRL);
-    const DISPLAY_STACK_SIZE: usize = 8192;
-    let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
-    let mut _cpu_control = cpu_control;
-
-    #[allow(static_mut_refs)]
-    let _guard = _cpu_control
-        .start_app_core(app_core_stack, cpu1_fnctn)
-        .unwrap();
+    // display task runs as low priority task
+    spawner.spawn(display_task(&TX, &RX, fb0)).ok();
 
     loop {
         if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= 99999 {
