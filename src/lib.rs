@@ -31,8 +31,7 @@
 //!
 //! ## Safety
 //!
-//! This crate requires `#![no_std]` and is designed for embedded use. It uses
-//! unsafe code internally to interface with hardware peripherals, but provides
+//! This crate uses unsafe code internally to interface with hardware peripherals, but provides
 //! a safe public API.
 
 #![no_std]
