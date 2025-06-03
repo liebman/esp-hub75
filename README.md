@@ -17,36 +17,24 @@ A no-std Rust library for driving HUB75 LED matrix displays from ESP32 series mi
 - HUB75 LED matrix display
 - Level shifter/converter (recommended for reliable operation)
   - Recommended: 74HCT245 or similar 3.3V to 5V level shifter
-  - Connect between ESP32 GPIOs and HUB75 input pins
+  - Connect between GPIOs and HUB75 input pins
 
 ## Examples
 
 ### ESP32-S3 (LCD_CAM Interface)
 
-[`examples/lcd_cam.rs`](examples/lcd_cam.rs)
-
-```rust
-// Displays "Hello, World!" text on a 64x64 pixel matrix
-// Uses embedded-graphics for text rendering
-```
+- [`examples/hello_lcd_cam](examples/hello_lcd_cam.rs) - Displays "Hello, World!" on the display.
+- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Displays a RGB gradient and performance statistics.
 
 ### ESP32-C6 (PARL_IO Interface)
 
-[`examples/parl_io.rs`](examples/parl_io.rs)
-
-```rust
-// Displays a RGB gradient and performance statistics
-// Compatible with 64x64 pixel matrices
-```
+[`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!" on the display.
+[`examples/parl_io.rs`](examples/parl_io.rs) - Displays a RGB gradient and performance statistics.
 
 ### ESP32 (I2S Parallel Interface)
 
-[`examples/i2s_parallel.rs`](examples/i2s_parallel.rs)
-
-```rust
-// Displays a RGB gradient and performance statistics
-// Compatible with 64x64 pixel matrices
-```
+[`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" on the display.
+[`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Displays a RGB gradient and performance statistics.
 
 ## Notes
 

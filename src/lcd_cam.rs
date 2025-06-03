@@ -110,7 +110,12 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         })
     }
 
-    /// Renders a frame buffer to the display
+    /// Renders a frame buffer to the display.
+    ///
+    /// Calling render consumes the `Hub75` instance and returns a `Hub75Transfer`
+    /// instance that can be used to wait for the transfer to complete.  After the
+    /// transfer is complete, the `Hub75` will be returned from the `wait()` method on
+    /// the `Hub75Transfer` instance.
     ///
     /// # Arguments
     /// * `fb` - The frame buffer to render
@@ -120,10 +125,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     /// complete
     ///
     /// # Errors
-    /// Returns an error if the transfer cannot be started
-    ///
-    /// # Note
-    /// The frame buffer must remain valid for the duration of the transfer
+    /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer cannot be started
     pub fn render<
         const ROWS: usize,
         const COLS: usize,
