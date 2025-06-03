@@ -1,49 +1,56 @@
-# esp-hub75
+# ESP-HUB75
 
-Drive HUB75 displays from ESP32 series SOCs.
+A no-std Rust library for driving HUB75 LED matrix displays from ESP32 series microcontrollers. This library provides efficient implementations using DMA (Direct Memory Access) for optimal performance across all supported ESP32 variants.
 
-All implementations use DMA where supported.
+## Features
 
-- [ ] - documentation!
-- [x] - LCD peripheral  (async) for: `esp32s3`
-  - [ ] - sync support for LCD peripheral
-- [x] - I2S peripheral in LCD mode: `esp32`
-- [ ] - sync support for the i2s peripheral
-- [x] - PARL_IO peripheral: `esp32c6`
-  - [ ] - sync support for PARL_IO peripheral
+- DMA-based implementations for supported ESP32 variants:
+  - ESP32-S3: LCD_CAM DMA interface
+  - ESP32-C6: PARL_IO DMA interface
+  - ESP32: I2S Parallel DMA interface
+- Zero-copy frame buffering with DMA transfers
+- Support for embedded-graphics for drawing text and shapes
 
-## Notes
+## Hardware Requirements
 
-- To drive HUB75 displays reliably you need a level converter between the GPIOs and the HUB75!
+- ESP32 series microcontroller (ESP32, ESP32-S3, or ESP32-C6)
+- HUB75 LED matrix display
+- Level shifter/converter (recommended for reliable operation)
+  - Recommended: 74HCT245 or similar 3.3V to 5V level shifter
+  - Connect between GPIOs and HUB75 input pins
 
 ## Examples
 
-### [esp32s3: lcd_cam](examples/lcd_cam.rs)
+### ESP32-S3 (LCD_CAM Interface)
 
-Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
-Expects a 64x64 matrix.
+- [`examples/hello_lcd_cam](examples/hello_lcd_cam.rs) - Displays "Hello, World!" on the display.
+- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Displays a RGB gradient and performance statistics.
 
-### [esp32c6: parl_io](examples/parl_io.rs)
+### ESP32-C6 (PARL_IO Interface)
 
-Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
-Expects a 64x64 matrix.
+[`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!" on the display.
+[`examples/parl_io.rs`](examples/parl_io.rs) - Displays a RGB gradient and performance statistics.
 
-### [esp32: i2s](examples/i2s_parallel.rs)
+### ESP32 (I2S Parallel Interface)
 
-Will display  a red/green/blue gradient on the top 24 lines and some rendering and refresh stats at the bottom.
-Expects a 64x64 matrix.
+[`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" on the display.
+[`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Displays a RGB gradient and performance statistics.
+
+## Notes
+
+**Note**: While not strictly required, using a 3.3V to 5V level shifter between your ESP32 and the HUB75 display is recommended for reliable operation. The ESP32 operates at 3.3V while HUB75 displays typically require 5V signals. A level shifter helps ensure proper signal levels and reliable display operation.
 
 ## License
 
-Licensed under either of
+This project is dual-licensed under:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
-at your option.
+## Contributing
 
-## Contribution
+Contributions are welcome! Please feel free to submit a Pull Request. By contributing to this project, you agree that your contributions will be licensed under both the Apache 2.0 and MIT licenses, as specified above.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
-dual licensed as above, without any additional terms or conditions.
+## Support
+
+For support, please open an issue in the GitHub repository. We'll do our best to help you get your HUB75 display working with your ESP32.

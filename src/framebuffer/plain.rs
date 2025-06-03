@@ -1,24 +1,15 @@
-//! DMA-based framebuffer implementation for HUB75 LED panels with controller
-//! board latch support.
+//! DMA-based framebuffer implementation for HUB75 LED panels.
 //!
-//! This module provides a memory-efficient framebuffer implementation that uses
-//! DMA (Direct Memory Access) to transfer pixel data to HUB75 LED panels. It
-//! supports RGB color and brightness control through multiple frames using
-//! Binary Code Modulation (BCM) for precise brightness control.
-//!
-//! # Key Differences from Plain Implementation
-//! - Uses controller board's hardware latch to hold row address, reducing
-//!   memory usage
-//! - 8-bit entries instead of 16-bit, halving memory requirements
-//! - Separate address and data words for better control
-//! - Only usable for controller boards with hardware latch support
+//! This module provides a high-performance framebuffer implementation that uses
+//! DMA (Direct Memory Access) to efficiently transfer pixel data to HUB75 LED
+//! panels. It supports RGB color and brightness control through multiple frames
+//! using Binary Code Modulation (BCM).
 //!
 //! # Features
 //! - DMA-based data transfer for optimal performance
 //! - Support for RGB color with brightness control
 //! - Multiple frame buffers for Binary Code Modulation (BCM)
 //! - Integration with embedded-graphics for easy drawing
-//! - Memory-efficient 8-bit format
 //!
 //! # Brightness Control
 //! Brightness is controlled through Binary Code Modulation (BCM):
@@ -34,7 +25,7 @@
 //! - Panel size (ROWS × COLS)
 //! - Number of brightness bits (BITS)
 //! - Memory grows exponentially with bits: `(2^BITS)-1` frames
-//! - 8-bit entries reduce memory usage compared to 16-bit implementations
+//! - 16-bit entries provide direct signal mapping but use more memory
 //!
 //! # Example
 //! ```rust,no_run
@@ -73,22 +64,13 @@
 //! ```
 //!
 //! # Implementation Details
-//! The framebuffer is organized to efficiently use memory while maintaining
-//! HUB75 compatibility:
-//! - Each row contains both data and address words
-//! - 8-bit entries store RGB data for two sub-pixels
-//! - Separate address words control row selection and timing
+//! The framebuffer is organized to directly match the HUB75 connector signals:
+//! - Each 16-bit word maps directly to the HUB75 control signals
+//! - Color data (R, G, B) for two sub-pixels is stored in dedicated bits
+//! - Control signals (output enable, latch, address) are mapped to specific
+//!   bits
 //! - Multiple frames are used to achieve Binary Code Modulation (BCM)
-//! - DMA transfers the data directly to the controller board without
-//!   transformation
-//!
-//! # Memory Layout
-//! Each row consists of:
-//! - 4 address words (8 bits each) for row selection and timing
-//! - COLS data words (8 bits each) for pixel data
-//!
-//! The address words are arranged to match the controller board's hardware
-//! latch timing requirements.
+//! - DMA transfers the data directly to the panel without any transformation
 //!
 //! # Safety
 //! This implementation uses unsafe code for DMA operations. The framebuffer
@@ -98,72 +80,64 @@
 use core::convert::Infallible;
 
 use bitfield::bitfield;
-use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::pixelcolor::RgbColor;
 use embedded_graphics::prelude::Point;
 use esp_hal::dma::ReadBuffer;
-type Color = Rgb888;
+
+use super::Color;
+use super::FrameBuffer;
+use super::WordSize;
+
+const BLANKING_DELAY: usize = 1;
 
 bitfield! {
-    /// 8-bit word representing the address and control signals for a row.
+    /// A 16-bit word representing the HUB75 control signals for a single pixel.
     ///
-    /// This structure controls the row selection and timing signals:
-    /// - Row address (5 bits)
-    /// - PWM enable signal
-    /// - Latch signal for row selection
+    /// This structure directly maps to the HUB75 connector signals:
+    /// - RGB color data for two sub-pixels (color0 and color1)
+    /// - Panel control signals (output enable, latch, address)
+    /// - Dummy bits for timing alignment
     ///
-    /// The bit layout is as follows:
-    /// - Bit 6: Latch signal
-    /// - Bit 5: PWM enable
+    /// The bit layout matches the HUB75 connector signals:
+    /// - Bit 15: Dummy bit 2
+    /// - Bit 14: Blue channel for color1
+    /// - Bit 13: Green channel for color1
+    /// - Bit 12: Red channel for color1
+    /// - Bit 11: Blue channel for color0
+    /// - Bit 10: Green channel for color0
+    /// - Bit 9: Red channel for color0
+    /// - Bit 8: Output enable
+    /// - Bit 7: Dummy bit 1
+    /// - Bit 6: Dummy bit 0
+    /// - Bit 5: Latch signal
     /// - Bits 4-0: Row address
-    #[derive(Clone, Copy, Default, PartialEq, Eq)]
+    #[derive(Clone, Copy, Default, PartialEq)]
     #[repr(transparent)]
-    struct Address(u8);
+    struct Entry(u16);
     impl Debug;
-    pub latch, set_latch: 6;
-    pub pwm_enable, set_pwm_enable: 5;
-    pub addr, set_addr: 4, 0;
+    dummy2, set_dummy2: 15;
+    blu2, set_blu2: 14;
+    grn2, set_grn2: 13;
+    red2, set_red2: 12;
+    blu1, set_blu1: 11;
+    grn1, set_grn1: 10;
+    red1, set_red1: 9;
+    output_enable, set_output_enable: 8;
+    dummy1, set_dummy1: 7;
+    dummy0, set_dummy0: 6;
+    latch, set_latch: 5;
+    addr, set_addr: 4, 0;
 }
 
-impl Address {
-    pub const fn new() -> Self {
-        Self(0)
+#[cfg(feature = "defmt")]
+impl defmt::Format for Entry {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "Entry({=u16:#x})", self.0)
     }
 }
 
-bitfield! {
-    /// 8-bit word representing the pixel data and control signals.
-    ///
-    /// This structure contains the RGB data for two sub-pixels and control signals:
-    /// - RGB data for two sub-pixels (color0 and color1)
-    /// - Output enable signal
-    /// - Latch signal
-    ///
-    /// The bit layout is as follows:
-    /// - Bit 7: Output enable
-    /// - Bit 6: Latch signal
-    /// - Bit 5: Blue channel for color1
-    /// - Bit 4: Green channel for color1
-    /// - Bit 3: Red channel for color1
-    /// - Bit 2: Blue channel for color0
-    /// - Bit 1: Green channel for color0
-    /// - Bit 0: Red channel for color0
-    #[derive(Clone, Copy, Default, PartialEq)]
-    #[repr(transparent)]
-    struct Entry(u8);
-    impl Debug;
-    pub output_enable, set_output_enable: 7;
-    pub latch, set_latch: 6;
-    pub blu2, set_blu2: 5;
-    pub grn2, set_grn2: 4;
-    pub red2, set_red2: 3;
-    pub blu1, set_blu1: 2;
-    pub grn1, set_grn1: 1;
-    pub red1, set_red1: 0;
-}
-
 impl Entry {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self(0)
     }
 
@@ -180,84 +154,77 @@ impl Entry {
     }
 }
 
-/// Represents a single row of pixels with controller board latch support.
+/// Represents a single row of pixels in the framebuffer.
 ///
-/// Each row contains both pixel data and address information:
-/// - 4 address words for row selection and timing
-/// - COLS data words for pixel data
-///
-/// The address words are arranged to match the controller board's hardware
-/// latch timing requirements, with a specific mapping for ESP32 (2, 3, 0, 1) to
-/// optimize DMA transfers.
+/// Each row contains a fixed number of columns (`COLS`) and manages the timing
+/// and control signals for the HUB75 panel. The row handles:
+/// - Output enable timing to prevent ghosting
+/// - Latch signal generation for row updates
+/// - Row address management
+/// - Color data for both sub-pixels
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(C)]
 struct Row<const COLS: usize> {
     data: [Entry; COLS],
-    address: [Address; 4],
 }
 
-// bytes are output in the order 2, 3, 0, 1
-#[cfg(feature = "esp32")]
-fn map_index(index: usize) -> usize {
-    let bits = match index & 0b11 {
-        0 => 2,
-        1 => 3,
-        2 => 0,
-        3 => 1,
-        _ => unreachable!(),
-    };
-    (index & !0b11) | bits
-}
-
-impl<const COLS: usize> Row<COLS> {
-    pub const fn new() -> Self {
-        Self {
-            address: [Address::new(); 4],
-            data: [Entry::new(); COLS],
-        }
+const fn map_index(i: usize) -> usize {
+    #[cfg(feature = "esp32")]
+    {
+        i ^ 1
     }
-
-    pub fn format(&mut self, addr: u8) {
-        for i in 0..4 {
-            let pwm_enable = false; // TBD: this does not work
-            let latch = !matches!(i, 3);
-            #[cfg(feature = "esp32")]
-            let i = map_index(i);
-            self.address[i].set_pwm_enable(pwm_enable);
-            self.address[i].set_latch(latch);
-            self.address[i].set_addr(addr);
-        }
-        let mut entry = Entry::default();
-        entry.set_latch(false);
-        entry.set_output_enable(true);
-        for i in 0..COLS {
-            #[cfg(feature = "esp32")]
-            let i = map_index(i);
-            if i == COLS - 1 {
-                entry.set_output_enable(false);
-            }
-            self.data[i] = entry;
-        }
-    }
-
-    pub fn set_color0(&mut self, col: usize, color: Color, brightness: u8) {
-        #[cfg(feature = "esp32")]
-        let col = map_index(col);
-        let entry = &mut self.data[col];
-        entry.set_color0(color, brightness);
-    }
-
-    pub fn set_color1(&mut self, col: usize, color: Color, brightness: u8) {
-        #[cfg(feature = "esp32")]
-        let col = map_index(col);
-        let entry = &mut self.data[col];
-        entry.set_color1(color, brightness);
+    #[cfg(not(feature = "esp32"))]
+    {
+        i
     }
 }
 
 impl<const COLS: usize> Default for Row<COLS> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<const COLS: usize> Row<COLS> {
+    pub const fn new() -> Self {
+        Self {
+            data: [Entry::new(); COLS],
+        }
+    }
+
+    pub fn format(&mut self, addr: u8, prev_addr: u8) {
+        let mut entry = Entry::default();
+        entry.set_addr(prev_addr as u16);
+        entry.set_output_enable(false);
+        for i in 0..COLS {
+            // if we enable display too soon then we will have ghosting
+            // second to last pixel, blank the display
+            // last pixel, open the latch, set the new row address
+            // the latch will be closed on the first pixel of the next row.
+            match i {
+                i if i == COLS - BLANKING_DELAY - 1 => {
+                    entry.set_output_enable(false);
+                }
+                i if i == COLS - 1 => {
+                    entry.set_latch(true);
+                    entry.set_addr(addr as u16);
+                }
+                i if i == 1 => entry.set_output_enable(true),
+                _ => {}
+            }
+
+            self.data[map_index(i)] = entry;
+        }
+    }
+
+    pub fn set_color0(&mut self, col: usize, color: Color, brightness: u8) {
+        let entry = &mut self.data[map_index(col)];
+        entry.set_color0(color, brightness);
+    }
+
+    pub fn set_color1(&mut self, col: usize, color: Color, brightness: u8) {
+        let entry = &mut self.data[map_index(col)];
+        entry.set_color1(color, brightness);
     }
 }
 
@@ -276,7 +243,12 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Frame<ROWS, COLS,
 
     pub fn format(&mut self) {
         for (addr, row) in self.rows.iter_mut().enumerate() {
-            row.format(addr as u8);
+            let prev_addr = if addr == 0 {
+                NROWS as u8 - 1
+            } else {
+                addr as u8 - 1
+            };
+            row.format(addr as u8, prev_addr);
         }
     }
 
@@ -298,14 +270,11 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
     }
 }
 
-/// DMA-compatible framebuffer for HUB75 LED panels with controller board latch
-/// support.
+/// DMA-compatible framebuffer for HUB75 LED panels.
 ///
-/// This implementation is optimized for memory usage and controller board latch
-/// support:
-/// - Uses 8-bit entries instead of 16-bit
-/// - Separates address and data words
-/// - Supports controller board's hardware latch for row selection
+/// This is a framebuffer implementation that:
+/// - Manages multiple frames for Binary Code Modulation (BCM)
+/// - Provides DMA-compatible memory layout
 /// - Implements the embedded-graphics DrawTarget trait
 ///
 /// # Type Parameters
@@ -323,12 +292,10 @@ impl<const ROWS: usize, const COLS: usize, const NROWS: usize> Default
 ///
 /// # Memory Layout
 /// The buffer is aligned to ensure efficient DMA transfers and contains:
+/// - A 64-bit alignment field
 /// - An array of frames, each containing the full panel data
-/// - Each frame contains NROWS rows
-/// - Each row contains both data and address words
 #[derive(Copy, Clone)]
 #[repr(C)]
-#[repr(align(4))]
 pub struct DmaFrameBuffer<
     const ROWS: usize,
     const COLS: usize,
@@ -336,6 +303,7 @@ pub struct DmaFrameBuffer<
     const BITS: u8,
     const FRAME_COUNT: usize,
 > {
+    _align: u64,
     frames: [Frame<ROWS, COLS, NROWS>; FRAME_COUNT],
 }
 
@@ -360,7 +328,7 @@ impl<
         const FRAME_COUNT: usize,
     > DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
-    /// Create a new framebuffer with the given number of frames.
+    /// Create a new framebuffer.
     /// # Example
     /// ```rust,no_run
     /// const ROWS: usize = 32;
@@ -369,16 +337,19 @@ impl<
     /// const NROWS: usize = compute_rows(ROWS); // Number of rows per scan
     /// const FRAME_COUNT: usize = compute_frame_count(BITS); // Number of frames for BCM
     ///
-    /// let mut framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
+    /// let framebuffer = DmaFrameBuffer::<ROWS, COLS, NROWS, BITS, FRAME_COUNT>::new();
     /// ```
     pub const fn new() -> Self {
+        assert!(BITS <= 8);
+
         Self {
+            _align: 0,
             frames: [Frame::new(); FRAME_COUNT],
         }
     }
 
-    /// This returns the size of the DMA buffer in bytes.  Its used to calculate the
-    /// number of DMA descriptors needed.
+    /// This returns the size of the DMA buffer in bytes.  Its used to calculate
+    /// the number of DMA descriptors needed.
     /// # Example
     /// ```rust,no_run
     /// const ROWS: usize = 32;
@@ -393,7 +364,6 @@ impl<
     pub const fn dma_buffer_size_bytes() -> usize {
         core::mem::size_of::<[Frame<ROWS, COLS, NROWS>; FRAME_COUNT]>()
     }
-
 
     /// Clear and format the framebuffer.
     /// Note:This must be called before the first use of the framebuffer!
@@ -422,7 +392,7 @@ impl<
         self.set_pixel_internal(p.x as usize, p.y as usize, color);
     }
 
-    fn set_pixel_internal(&mut self, x: usize, y: usize, color: Rgb888) {
+    fn set_pixel_internal(&mut self, x: usize, y: usize, color: Color) {
         if x >= COLS || y >= ROWS {
             return;
         }
@@ -455,8 +425,60 @@ impl<
         const NROWS: usize,
         const BITS: u8,
         const FRAME_COUNT: usize,
+    > embedded_graphics::prelude::OriginDimensions
+    for &DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        embedded_graphics::prelude::Size::new(COLS as u32, ROWS as u32)
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > embedded_graphics::prelude::OriginDimensions
+    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        embedded_graphics::prelude::Size::new(COLS as u32, ROWS as u32)
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
     > embedded_graphics::draw_target::DrawTarget
     for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    type Color = Color;
+
+    type Error = Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+    {
+        for pixel in pixels {
+            self.set_pixel_internal(pixel.0.x as usize, pixel.0.y as usize, pixel.1);
+        }
+        Ok(())
+    }
+}
+
+impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > embedded_graphics::draw_target::DrawTarget
+    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
     type Color = Color;
 
@@ -480,6 +502,21 @@ unsafe impl<
         const BITS: u8,
         const FRAME_COUNT: usize,
     > ReadBuffer for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+{
+    unsafe fn read_buffer(&self) -> (*const u8, usize) {
+        let ptr = &self.frames as *const _ as *const u8;
+        let len = core::mem::size_of_val(&self.frames);
+        (ptr, len)
+    }
+}
+
+unsafe impl<
+        const ROWS: usize,
+        const COLS: usize,
+        const NROWS: usize,
+        const BITS: u8,
+        const FRAME_COUNT: usize,
+    > ReadBuffer for &DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
     unsafe fn read_buffer(&self) -> (*const u8, usize) {
         let ptr = &self.frames as *const _ as *const u8;
@@ -559,11 +596,11 @@ impl<
         const NROWS: usize,
         const BITS: u8,
         const FRAME_COUNT: usize,
-    > super::FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+    > FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
     for DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
-    fn get_word_size(&self) -> super::WordSize {
-        super::WordSize::Eight
+    fn get_word_size(&self) -> WordSize {
+        WordSize::Sixteen
     }
 }
 
@@ -573,21 +610,11 @@ impl<
         const NROWS: usize,
         const BITS: u8,
         const FRAME_COUNT: usize,
-    > embedded_graphics::draw_target::DrawTarget
-    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+    > FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
+    for &DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
-    type Color = Color;
-
-    type Error = Infallible;
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
-    {
-        for pixel in pixels {
-            self.set_pixel_internal(pixel.0.x as usize, pixel.0.y as usize, pixel.1);
-        }
-        Ok(())
+    fn get_word_size(&self) -> WordSize {
+        WordSize::Sixteen
     }
 }
 
@@ -597,24 +624,10 @@ impl<
         const NROWS: usize,
         const BITS: u8,
         const FRAME_COUNT: usize,
-    > embedded_graphics::prelude::OriginDimensions
+    > FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
     for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
 {
-    fn size(&self) -> embedded_graphics::prelude::Size {
-        embedded_graphics::prelude::Size::new(COLS as u32, ROWS as u32)
-    }
-}
-
-impl<
-        const ROWS: usize,
-        const COLS: usize,
-        const NROWS: usize,
-        const BITS: u8,
-        const FRAME_COUNT: usize,
-    > super::FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
-    for &mut DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>
-{
-    fn get_word_size(&self) -> super::WordSize {
-        super::WordSize::Eight
+    fn get_word_size(&self) -> WordSize {
+        WordSize::Sixteen
     }
 }

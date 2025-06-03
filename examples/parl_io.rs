@@ -59,10 +59,10 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::framebuffer::DmaFrameBuffer;
-use esp_hub75::parl_io::Hub75;
+use esp_hub75::framebuffer::plain::DmaFrameBuffer;
 use esp_hub75::Color;
-use esp_hub75::Hub75Pins;
+use esp_hub75::Hub75;
+use esp_hub75::Hub75Pins16;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -77,28 +77,31 @@ macro_rules! mk_static {
     }};
 }
 
-pub struct DisplayPeripherals {
-    pub parl_io: PARL_IO,
-    pub dma_channel: esp_hal::dma::DmaChannel0,
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub addr0: AnyPin,
-    pub addr1: AnyPin,
-    pub addr2: AnyPin,
-    pub addr3: AnyPin,
-    pub addr4: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct DisplayPeripherals<'d> {
+    pub parl_io: PARL_IO<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_CH0<'d>,
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub addr0: AnyPin<'d>,
+    pub addr1: AnyPin<'d>,
+    pub addr2: AnyPin<'d>,
+    pub addr3: AnyPin<'d>,
+    pub addr4: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 5;
+const BITS: u8 = 3; // Note that the PARL_IO peripheral only supports 3 bits per pixel at the
+                    // moment.  This is due to size limitations of the
+                    // peripheral.  It can only write 32768 bytes at a time. This will be fixed in
+                    // the future
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
@@ -206,16 +209,16 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: DisplayPeripherals,
+    peripherals: DisplayPeripherals<'static>,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
 
-    let pins = Hub75Pins {
+    let pins = Hub75Pins16 {
         red1: peripherals.red1,
         grn1: peripherals.grn1,
         blu1: peripherals.blu1,

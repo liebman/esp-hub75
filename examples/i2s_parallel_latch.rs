@@ -8,17 +8,17 @@
 //!
 //! Folowing pins are used:
 //!
-//!   SIG     LAT  PIN      NEWPIN
-//! - R1      A  => GPIO4   GPIO16
-//! - G1      B  => GPIO21  GPIO4
-//! - B1      C  => GPIO22  GPIO17
-//! - R2      D  => GPIO2   GPIO18
-//! - G2      E  => GPIO25  GPIO5
-//! - B2         => GPIO0   GPIO19
-//! - OE_DMA     => GPIO32  GPIO26
-//! - OE_PWM     => GPIO33  GPIO27
-//! - CLK        => GPIO26  GPIO25
-//! - LAT        => GPIO27  GPIO2
+//!   SIG     LAT   PIN
+//! - R1      A  => GPIO16
+//! - G1      B  => GPIO4
+//! - B1      C  => GPIO17
+//! - R2      D  => GPIO18
+//! - G2      E  => GPIO5
+//! - B2         => GPIO19
+//! - OE_DMA     => GPIO26
+//! - OE_PWM     => GPIO27
+//! - CLK        => GPIO25
+//! - LAT        => GPIO2
 //!
 //! NOTE1: these are not the default pins for the SmartLEDShield_ESP32_V0
 //!
@@ -26,7 +26,6 @@
 //! signals
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::fmt;
 use core::sync::atomic::AtomicU32;
@@ -52,7 +51,6 @@ use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::dma::I2s1DmaChannel;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::Level;
 use esp_hal::gpio::Output;
@@ -67,9 +65,9 @@ use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::latched::DmaFrameBuffer;
-use esp_hub75::i2s_parallel_latch::Hub75;
-use esp_hub75::i2s_parallel_latch::Hub75Pins;
 use esp_hub75::Color;
+use esp_hub75::Hub75;
+use esp_hub75::Hub75Pins8;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -102,18 +100,18 @@ const NBARS: i32 = ROWS as i32 / 8;
 type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
-pub struct Hub75Peripherals {
-    pub i2s: AnyI2s,
-    pub dma_channel: I2s1DmaChannel,
-    pub red1: AnyPin,
-    pub grn1: AnyPin,
-    pub blu1: AnyPin,
-    pub red2: AnyPin,
-    pub grn2: AnyPin,
-    pub blu2: AnyPin,
-    pub blank: AnyPin,
-    pub clock: AnyPin,
-    pub latch: AnyPin,
+pub struct Hub75Peripherals<'d> {
+    pub i2s: AnyI2s<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_I2S1<'d>,
+    pub red1: AnyPin<'d>,
+    pub grn1: AnyPin<'d>,
+    pub blu1: AnyPin<'d>,
+    pub red2: AnyPin<'d>,
+    pub grn2: AnyPin<'d>,
+    pub blu2: AnyPin<'d>,
+    pub blank: AnyPin<'d>,
+    pub clock: AnyPin<'d>,
+    pub latch: AnyPin<'d>,
 }
 
 #[task]
@@ -217,16 +215,16 @@ async fn display_task(
 
 #[task]
 async fn hub75_task(
-    peripherals: Hub75Peripherals,
+    peripherals: Hub75Peripherals<'static>,
     rx: &'static FrameBufferExchange,
     tx: &'static FrameBufferExchange,
     fb: &'static mut FBType,
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, size_of::<FBType>());
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
 
-    let pins = Hub75Pins {
+    let pins = Hub75Pins8 {
         red1: peripherals.red1,
         grn1: peripherals.grn1,
         blu1: peripherals.blu1,
