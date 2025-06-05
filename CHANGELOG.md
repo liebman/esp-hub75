@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Changed
+
+- pin `esp-hal` to =1.0.0-beta.1
+- bump `esp-hal-embassy` to 0.8.1
+- bump `bitfield` to 0.19.1
+- bump `defmt` to 1.0.1
+- bump `defmt-rtt` (dev-dependencies) to 1.0.0
+- moved `static_cell` to dev-dependencies
+
+### Removed
+
+- removed `critical-section` as its an indirect dependency not a direct dependency
+
 ## [0.2.3] - 2025-06-05
 
 ### Fixed
