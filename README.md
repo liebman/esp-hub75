@@ -1,5 +1,9 @@
 # ESP-HUB75
 
+[![Crates.io](https://img.shields.io/crates/v/esp-hub75.svg)](https://crates.io/crates/esp-hub75)
+[![Documentation](https://docs.rs/esp-hub75/badge.svg)](https://docs.rs/esp-hub75)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](README.md)
+
 A no-std Rust library for driving HUB75 LED matrix displays from ESP32 series microcontrollers. This library provides efficient implementations using DMA (Direct Memory Access) for optimal performance across all supported ESP32 variants.
 
 ## Features

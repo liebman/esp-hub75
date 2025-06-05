@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- doc link in Cargo.toml
+- badges in README
+
 ## [0.2.0] - 2025-06-03
 
 ### Added
