@@ -27,18 +27,18 @@ A no-std Rust library for driving HUB75 LED matrix displays from ESP32 series mi
 
 ### ESP32-S3 (LCD_CAM Interface)
 
-- [`examples/hello_lcd_cam](examples/hello_lcd_cam.rs) - Displays "Hello, World!" on the display.
+- [`examples/hello_lcd_cam`](examples/hello_lcd_cam.rs) - Displays "Hello, World!" on the display.
 - [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Displays a RGB gradient and performance statistics.
 
 ### ESP32-C6 (PARL_IO Interface)
 
-[`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!" on the display.
-[`examples/parl_io.rs`](examples/parl_io.rs) - Displays a RGB gradient and performance statistics.
+- [`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!" on the display.
+- [`examples/parl_io.rs`](examples/parl_io.rs) - Displays a RGB gradient and performance statistics.
 
 ### ESP32 (I2S Parallel Interface)
 
-[`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" on the display.
-[`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Displays a RGB gradient and performance statistics.
+- [`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" on the display.
+- [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Displays a RGB gradient and performance statistics.
 
 ## Notes
 

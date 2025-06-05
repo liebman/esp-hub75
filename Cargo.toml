@@ -80,6 +80,11 @@ log = [
 ]
 invert-blank = [] # only for some latched implementations
 
+[package.metadata.docs.rs]
+features = ["esp32c6"]
+target = "riscv32imac-unknown-none-elf"
+cargo-args = ["-Z", "build-std=core"]
+
 # [patch.crates-io]
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-build        = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
