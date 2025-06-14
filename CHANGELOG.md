@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+## [0.3.0] - 2025-06-14
+
 ### Changed
 
 - pin `esp-hal` to =1.0.0-beta.1
@@ -78,7 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - initial version
 
 <!-- next-url -->
-[Unreleased]: https://github.com/liebman/esp-hub75/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/liebman/esp-hub75/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/liebman/esp-hub75/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/liebman/esp-hub75/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/liebman/esp-hub75/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/liebman/esp-hub75/compare/v0.2.0...v0.2.1
