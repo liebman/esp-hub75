@@ -28,6 +28,7 @@ embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "=1.0.0-beta.1", features = ["unstable"] }
 log = { version = "0.4.22", optional = true }
+hub75-framebuffer = { version = "0.1.0" }
 
 [build-dependencies]
 esp-build = "0.3.0"
@@ -55,20 +56,28 @@ esp32 = [
     "esp-backtrace/esp32",
     "esp-hal-embassy/esp32",
     "esp-println/esp32",
+    "hub75-framebuffer/esp32",
 ]
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
     "esp-hal-embassy/esp32s3",
     "esp-println/esp32s3",
+    "hub75-framebuffer/esp32s3",
 ]
 esp32c6 = [
     "esp-hal/esp32c6",
     "esp-backtrace/esp32c6",
     "esp-hal-embassy/esp32c6",
     "esp-println/esp32c6",
+    "hub75-framebuffer/esp32c6",
 ]
-defmt = ["dep:defmt", "esp-backtrace/defmt", "esp-hal/defmt"]
+defmt = [
+    "dep:defmt",
+    "esp-backtrace/defmt",
+    "esp-hal/defmt",
+    "hub75-framebuffer/defmt",
+]
 log = [
     "dep:log",
     "esp-backtrace/println",
@@ -85,6 +94,9 @@ targets = ["riscv32imac-unknown-none-elf"]
 cargo-args = ["-Z", "build-std=core"]
 
 # [patch.crates-io]
+
+# hub75-framebuffer = { path = "../hub75-framebuffer" }
+
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-build        = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
