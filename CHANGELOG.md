@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bump `defmt` to 1.0.1
 - bump `defmt-rtt` (dev-dependencies) to 1.0.0
 - moved `static_cell` to dev-dependencies
+- extracted framebuffer support to `hub75-framebuffer`
 
 ### Removed
 

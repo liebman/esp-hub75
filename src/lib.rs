@@ -37,10 +37,9 @@
 #![no_std]
 #![warn(missing_docs)]
 
-use embedded_graphics::pixelcolor::Rgb888;
 use esp_hal::gpio::AnyPin;
 
-pub mod framebuffer;
+pub use hub75_framebuffer as framebuffer;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(feature = "esp32c6", path = "parl_io.rs")]
@@ -49,7 +48,7 @@ pub use hub75::Hub75;
 pub use hub75::Hub75Transfer;
 
 /// The color type used by the HUB75 driver.
-pub type Color = Rgb888;
+pub use hub75_framebuffer::Color;
 
 /// Pin configuration HUB75 LED matrix displays using direct signals.
 ///
