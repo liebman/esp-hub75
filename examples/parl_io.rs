@@ -130,7 +130,7 @@ async fn display_task(
     let mut start = Instant::now();
 
     loop {
-        fb.clear();
+        fb.erase();
 
         const STEP: u8 = (256 / COLS) as u8;
         for x in 0..COLS {
@@ -240,7 +240,7 @@ async fn hub75_task(
         pins,
         channel,
         tx_descriptors,
-        Rate::from_mhz(15),
+        Rate::from_mhz(20),
     )
     .expect("failed to create hub75");
 
@@ -310,8 +310,6 @@ async fn main(spawner: Spawner) {
     info!("init framebuffers");
     let fb0 = mk_static!(FBType, FBType::new());
     let fb1 = mk_static!(FBType, FBType::new());
-    fb0.clear();
-    fb1.clear();
 
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);

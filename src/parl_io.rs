@@ -20,9 +20,9 @@ use esp_hal::time::Rate;
 
 use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
+use crate::Hub75Pins;
 use crate::Hub75Pins16;
 use crate::Hub75Pins8;
-use crate::Hub75Pins;
 /// HUB75 LED matrix display driver
 pub struct Hub75<'d, DM: esp_hal::DriverMode> {
     parl_io: ParlIoTx<'d, DM>,
@@ -108,10 +108,10 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
 
     /// Renders a frame buffer to the display.
     ///
-    /// Calling render consumes the `Hub75` instance and returns a `Hub75Transfer`
-    /// instance that can be used to wait for the transfer to complete.  After the
-    /// transfer is complete, the `Hub75` will be returned from the `wait()` method on
-    /// the `Hub75Transfer` instance.
+    /// Calling render consumes the `Hub75` instance and returns a
+    /// `Hub75Transfer` instance that can be used to wait for the transfer
+    /// to complete.  After the transfer is complete, the `Hub75` will be
+    /// returned from the `wait()` method on the `Hub75Transfer` instance.
     ///
     /// # Arguments
     /// * `fb` - The frame buffer to render
@@ -121,7 +121,8 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     /// complete
     ///
     /// # Errors
-    /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer cannot be started
+    /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
+    /// cannot be started
     pub fn render<
         const ROWS: usize,
         const COLS: usize,

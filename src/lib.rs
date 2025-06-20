@@ -1,44 +1,47 @@
 //! # ESP-HUB75
 //!
-//! A high-performance driver for HUB75 RGB LED matrix displays on ESP32
-//! microcontrollers.
+//! A `no-std` Rust driver for HUB75-style LED matrix panels on ESP32-series
+//! microcontrollers. HUB75 is a standard interface for driving large, bright,
+//! and colorful RGB LED displays, commonly used in digital signage and art
+//! installations.
 //!
-//! ## Features
+//! This library provides a high-performance implementation that uses Direct
+//! Memory Access (DMA) to drive the display with minimal CPU overhead. It is
+//! designed to work with a variety of ESP32 models, using the most efficient
+//! peripheral available on each chip:
 //!
-//! - Support for multiple ESP32 variants
-//! - High-performance DMA-based data transfer
-//! - supports both async and blocking operation
+//! - **ESP32-S3**: Uses the LCD_CAM peripheral
+//! - **ESP32-C6**: Uses the PARL_IO peripheral
+//! - **ESP32**: Uses the I2S peripheral in parallel mode
 //!
-//! ## Supported Hardware
+//! ## Usage
 //!
-//! - ESP32: Uses I2S parallel mode
-//! - ESP32-S3: Uses LCD-CAM peripheral
-//! - ESP32-C6: Uses PARL_IO peripheral
-//!
-//! ## Usage (example for ESP32-S3, others are similar)
+//! Here is an example of how to initialize the driver for an ESP32-S3:
 //!
 //! ```rust,no_run
 #![doc = include_str!("../examples/hello_lcd_cam.rs")]
 //! ```
-//!
+//! 
 //! ## Crate Features
 //!
-//! - `esp32`: Enable support for ESP32
-//! - `esp32s3`: Enable support for ESP32-S3
-//! - `esp32c6`: Enable support for ESP32-C6
-//! - `defmt`: Enable defmt logging support
-//! - `log`: Enable log logging support
+//! - `esp32`: Enable support for the ESP32
+//! - `esp32s3`: Enable support for the ESP32-S3
+//! - `esp32c6`: Enable support for the ESP32-C6
+//! - `defmt`: Enable logging with `defmt`
+//! - `log`: Enable logging with the `log` crate
+//! - `invert-blank`: Invert the blank signal, required for some controller boards.
+//! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
+//!   optimization that skips writing black pixels to the framebuffer.
 //!
 //! ## Safety
 //!
-//! This crate uses unsafe code internally to interface with hardware peripherals, but provides
-//! a safe public API.
+//! This crate uses `unsafe` code to interface with hardware peripherals, but it
+//! exposes a safe, high-level API.
 
 #![no_std]
 #![warn(missing_docs)]
 
 use esp_hal::gpio::AnyPin;
-
 pub use hub75_framebuffer as framebuffer;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
@@ -46,14 +49,13 @@ pub use hub75_framebuffer as framebuffer;
 mod hub75;
 pub use hub75::Hub75;
 pub use hub75::Hub75Transfer;
-
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 
-/// Pin configuration HUB75 LED matrix displays using direct signals.
+/// Pin configuration for a HUB75 panel without an external address latch.
 ///
-/// This structure defines the pin mapping for plain HUB75 displays. It includes
-/// all necessary control signals and data lines for driving the display.
+/// This configuration requires 16 bits of data per pixel transfer, as the row
+/// address lines are driven directly along with the color data.
 pub struct Hub75Pins16<'d> {
     /// Red data line for the upper half of the display
     pub red1: AnyPin<'d>,
@@ -85,16 +87,13 @@ pub struct Hub75Pins16<'d> {
     pub latch: AnyPin<'d>,
 }
 
-/// Pin configuration HUB75 LED matrix displays with an external latch.
+/// Pin configuration for a HUB75 panel with an external address latch.
 ///
-/// This structure defines the pin mapping for HUB75 displays with an external
-/// latch on the controller board. The external latch holds row address
-/// selection, allowing for a more memory-efficient implementation with 8-bit
-/// entries instead of 16-bit.
-///
-/// This configuration is used with controller boards that have
-/// hardware latch support, which reduces memory requirements by handling row
-/// addressing externally.
+/// This configuration is more memory-efficient, requiring only 8 bits of data
+/// per pixel transfer. The row address is set once per row and held by an
+/// external latch on the controller board. For an example of a latch circuit,
+/// see the [`hub75-framebuffer` crate documentation](https://crates.io/crates/hub75-framebuffer)
+/// and its [GitHub repository](https://github.com/liebman/hub75-framebuffer).
 pub struct Hub75Pins8<'d> {
     /// Red data line for the upper half of the display
     pub red1: AnyPin<'d>,
@@ -116,31 +115,30 @@ pub struct Hub75Pins8<'d> {
     pub latch: AnyPin<'d>,
 }
 
-/// Trait for converting HUB75 pin configurations into the appropriate
-/// peripheral-specific format.
+/// A trait for converting a set of HUB75 pins into the required format for a
+/// specific ESP32 peripheral.
 ///
-/// This trait provides a common interface for converting different HUB75 pin
-/// configurations (8-bit or 16-bit) into the format required by the specific
-/// ESP32 peripheral being used (I2S, LCD-CAM, or PARL_IO).
+/// This allows the driver to abstract over the differences in pin
+/// configurations between peripherals (I2S, LCD-CAM, PARL_IO) and between
+/// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
 ///
 /// # Type Parameters
-/// * `T` - The target pin configuration type for the specific peripheral
+/// * `T` - The target pin configuration type for the specific peripheral.
 pub trait Hub75Pins<'d, T> {
-    /// Converts the HUB75 pin configuration into the peripheral-specific
-    /// format.
+    /// Converts the high-level pin definition into the peripheral-specific
+    /// format needed by the driver.
     ///
     /// # Returns
     /// A tuple containing:
-    /// 1. The converted pin configuration for the specific peripheral
-    /// 2. The clock pin used for synchronization
+    /// 1. The converted pin configuration for the specific peripheral.
+    /// 2. The clock pin used for synchronization.
     fn convert_pins(self) -> (T, AnyPin<'d>);
 }
 
-/// Error type for HUB75 display operations.
+/// Represents errors that can occur during HUB75 driver operations.
 ///
-/// This enum represents all possible errors that can occur when working with
-/// HUB75 displays, including DMA transfer errors, buffer management errors,
-/// and peripheral-specific errors.
+/// This enum consolidates errors from the underlying `esp-hal` DMA, peripheral,
+/// and buffer management modules into a single type for easier error handling.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Hub75Error {

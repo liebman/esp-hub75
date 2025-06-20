@@ -21,14 +21,14 @@ opt-level = "s"
 
 [dependencies]
 bitfield = { version = "0.19.1" }
-cfg-if = "1.0.0"
+cfg-if = "1.0.1"
 defmt = { version = "1.0.1", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "=1.0.0-beta.1", features = ["unstable"] }
 log = { version = "0.4.22", optional = true }
-hub75-framebuffer = { version = "0.1.0" }
+hub75-framebuffer = { version = "0.2.0" }
 
 [build-dependencies]
 esp-build = "0.3.0"
@@ -51,26 +51,28 @@ static_cell = { version = "2.1", features = ["nightly"] }
 
 [features]
 default = []
+skip-black-pixels = ["hub75-framebuffer/skip-black-pixels"]
 esp32 = [
     "esp-hal/esp32",
     "esp-backtrace/esp32",
     "esp-hal-embassy/esp32",
     "esp-println/esp32",
-    "hub75-framebuffer/esp32",
+    "hub75-framebuffer/esp-hal-dma",
+    "hub75-framebuffer/esp32-ordering",
 ]
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
     "esp-hal-embassy/esp32s3",
     "esp-println/esp32s3",
-    "hub75-framebuffer/esp32s3",
+    "hub75-framebuffer/esp-hal-dma",
 ]
 esp32c6 = [
     "esp-hal/esp32c6",
     "esp-backtrace/esp32c6",
     "esp-hal-embassy/esp32c6",
     "esp-println/esp32c6",
-    "hub75-framebuffer/esp32c6",
+    "hub75-framebuffer/esp-hal-dma",
 ]
 defmt = [
     "dep:defmt",
@@ -96,6 +98,7 @@ cargo-args = ["-Z", "build-std=core"]
 # [patch.crates-io]
 
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
+# hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
 
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-build        = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
