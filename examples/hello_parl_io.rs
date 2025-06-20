@@ -69,7 +69,6 @@ fn main() -> ! {
     .expect("failed to create Hub75!");
 
     let mut fb = FBType::new();
-    fb.clear();
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
         .text_color(Color::YELLOW)

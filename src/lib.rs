@@ -20,7 +20,7 @@
 //! ```rust,no_run
 #![doc = include_str!("../examples/hello_lcd_cam.rs")]
 //! ```
-//!
+//! 
 //! ## Crate Features
 //!
 //! - `esp32`: Enable support for ESP32
@@ -38,7 +38,6 @@
 #![warn(missing_docs)]
 
 use esp_hal::gpio::AnyPin;
-
 pub use hub75_framebuffer as framebuffer;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
@@ -46,7 +45,6 @@ pub use hub75_framebuffer as framebuffer;
 mod hub75;
 pub use hub75::Hub75;
 pub use hub75::Hub75Transfer;
-
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 

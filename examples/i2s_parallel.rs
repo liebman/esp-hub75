@@ -87,7 +87,7 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 4;
+const BITS: u8 = 3;
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
@@ -130,7 +130,7 @@ async fn display_task(
     let mut start = Instant::now();
 
     loop {
-        fb.clear();
+        fb.erase();
 
         const STEP: u8 = (256 / COLS) as u8;
         for x in 0..COLS {
@@ -315,8 +315,6 @@ async fn main(_spawner: Spawner) {
     info!("init framebuffers");
     let fb0 = mk_static!(FBType, FBType::new());
     let fb1 = mk_static!(FBType, FBType::new());
-    fb0.clear();
-    fb1.clear();
 
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);
