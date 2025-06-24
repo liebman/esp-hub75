@@ -30,9 +30,6 @@ esp-hal = { version = "=1.0.0-beta.1", features = ["unstable"] }
 log = { version = "0.4.22", optional = true }
 hub75-framebuffer = { version = "0.2.0" }
 
-[build-dependencies]
-esp-build = "0.3.0"
-
 [dev-dependencies]
 defmt-rtt = { version = "1.0.0" }
 embassy-embedded-hal = { version = "0.3.0" }
@@ -47,7 +44,7 @@ esp-backtrace = { version = "0.16.0", features = [
 esp-println = { version = "0.14.0" }
 esp-hal-embassy = { version = "0.8.1" }
 heapless = { version = "0.8.0", features = ["ufmt"] }
-static_cell = { version = "2.1", features = ["nightly"] }
+static_cell = { version = "2.1.1" }
 
 [features]
 default = []
@@ -95,18 +92,17 @@ features = ["esp32c6"]
 targets = ["riscv32imac-unknown-none-elf"]
 cargo-args = ["-Z", "build-std=core"]
 
-# [patch.crates-io]
+[patch.crates-io]
 
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
 # hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
 
-# esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# esp-build        = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 
 # esp-backtrace = { path = "../esp-hal/esp-backtrace" }
 # esp-build = { path = "../esp-hal/esp-build" }
