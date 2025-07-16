@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Changed
+
+* bump `esp-hal` to `1.0.0-rc.0` [#18](https://github.com/liebman/esp-hub75/pull/18)
+* bump `hub-framebuffer` to 0.3.0 [#18](https://github.com/liebman/esp-hub75/pull/18)
+
 ## [0.4.0] - 2025-06-20
 
 ### ⚠️ Breaking
@@ -46,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-* correct targets for doc.rs config
+* correct targets for `doc.rs` config
 
 ## [0.2.2] - 2025-06-05
 
@@ -68,7 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * `parl_io` Hub75 driver
 * `i2s_parallel` Hub75 driver for `esp32` (#5)
-* `framebuffer::latched::DmaFrameBuffer` to support using a latch to [reduce pins/memory used](https://github.com/pixelmatix/SmartMatrix/blob/master/extras/hardware/ESP32/SmartLEDShield_ESP32_V0_sch.pdf)
+* `framebuffer::latched::DmaFrameBuffer` to support using a latch to
+  [reduce pins/memory used](https://github.com/pixelmatix/SmartMatrix/blob/master/extras/hardware/ESP32/SmartLEDShield_ESP32_V0_sch.pdf)
 * `i2s_parallel_latch` Hub75 driver for `esp32` with external latch
 * `lcd_cam_latch` Hub75 driver for `esp32-s3` with external latch support
 * Refactored framebuffer traits and interfaces (#13)

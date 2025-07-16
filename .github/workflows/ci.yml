@@ -61,10 +61,9 @@ jobs:
 
       # Install the Rust toolchain for Xtensa devices:
       - name: Install Xtensa toolchain
-        uses: esp-rs/xtensa-toolchain@v1.5
+        uses: esp-rs/xtensa-toolchain@v1.6
         with:
-          ldproxy: false
-          version: 1.86.0.0
+          version: 1.88.0.0
 
       # Install the Rust stable toolchain for RISC-V devices:
       - name: Install RISC-V toolchain
