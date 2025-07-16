@@ -9,7 +9,7 @@ edition = "2021"
 version = "0.4.0"
 authors = ["liebman <liebman@zod.com>"]
 license = "MIT OR Apache-2.0"
-rust-version = "1.86"
+rust-version = "1.88"
 
 [profile.dev]
 debug = true    # Symbols are nice and they don't increase the size on Flash
