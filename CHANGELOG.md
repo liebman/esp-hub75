@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * bump `esp-hal` to `1.0.0-rc.0` [#18](https://github.com/liebman/esp-hub75/pull/18)
 * bump `hub-framebuffer` to 0.3.0 [#18](https://github.com/liebman/esp-hub75/pull/18)
+* bump rust version to 1.88 [#20](https://github.com/liebman/esp-hub75/pull/20)
 
 ## [0.4.0] - 2025-06-20
 
