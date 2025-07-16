@@ -88,8 +88,11 @@ log = [
 ]
 invert-blank = [] # only for some latched implementations
 
+# this feature is required for the docs.rs build and release builds to work
+esp-hal-unstable = ["esp-hal/unstable"]
+
 [package.metadata.docs.rs]
-features = ["esp32c6"]
+features = ["esp32c6", "esp-hal-unstable"]
 targets = ["riscv32imac-unknown-none-elf"]
 cargo-args = ["-Z", "build-std=core"]
 
