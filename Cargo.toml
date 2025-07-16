@@ -26,23 +26,24 @@ defmt = { version = "1.0.1", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "=1.0.0-beta.1", features = ["unstable"] }
+esp-hal = { version = "=1.0.0-rc.0", default-features = false, features = ["requires-unstable"] }
 log = { version = "0.4.22", optional = true }
 hub75-framebuffer = { version = "0.2.0" }
 
 [dev-dependencies]
 defmt-rtt = { version = "1.0.0" }
-embassy-embedded-hal = { version = "0.3.0" }
+embassy-embedded-hal = { version = "0.3.1" }
 embassy-executor = { version = "0.7.0" }
 embassy-futures = { version = "0.1.1" }
 embassy-sync = { version = "0.6.2" }
 embassy-time = { version = "0.4.0", features = [] }
-esp-backtrace = { version = "0.16.0", features = [
+esp-backtrace = { version = "0.17.0", features = [
     "panic-handler",
     "exception-handler",
 ] }
-esp-println = { version = "0.14.0" }
-esp-hal-embassy = { version = "0.8.1" }
+esp-hal = { version = "=1.0.0-rc.0", features = ["unstable"] }
+esp-println = { version = "0.15.0" }
+esp-hal-embassy = { version = "0.9.0" }
 heapless = { version = "0.8.0", features = ["ufmt"] }
 static_cell = { version = "2.1.1" }
 
@@ -94,15 +95,15 @@ cargo-args = ["-Z", "build-std=core"]
 
 [patch.crates-io]
 
-# hub75-framebuffer = { path = "../hub75-framebuffer" }
+hub75-framebuffer = { path = "../hub75-framebuffer" }
 # hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
 
-esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 
 # esp-backtrace = { path = "../esp-hal/esp-backtrace" }
 # esp-build = { path = "../esp-hal/esp-build" }
