@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+* new example i2s_parallel_dimming as an example of using a delay as overall
+  brightness control. [#22](https://github.com/liebman/esp-hub75/pull/22)
+
 ## [0.5.0] - 2025-07-16
 
 ### Changed
