@@ -69,6 +69,10 @@ variants.
   "Hello, World!".
 - [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Shows a color gradient
   and stats.
+- [`examples/i2s_parallel_latch.rs`](examples/i2s_parallel_latch.rs) - Shows a
+  color gradient and stats.
+- [`examples/i2s_parallel_dimming.rs`](examples/i2s_parallel_dimming.rs) - Shows
+  a color gradient and stats.
 
 ## Crate Features
 
