@@ -14,6 +14,8 @@ use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
+#[cfg(feature = "iram")]
+use esp_hal_procmacros::ram;
 
 use crate::framebuffer::FrameBuffer;
 use crate::framebuffer::WordSize;
@@ -126,6 +128,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     /// # Errors
     /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
     /// cannot be started
+    #[cfg_attr(feature = "iram", ram)]
     pub fn render<
         const ROWS: usize,
         const COLS: usize,
@@ -177,6 +180,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     ///
     /// # Returns
     /// `true` if the transfer is complete and `wait()` will not block
+    #[cfg_attr(feature = "iram", ram)]
     pub fn is_done(&self) -> bool {
         self.xfer.is_done()
     }
@@ -190,6 +194,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     ///
     /// # Note
     /// This method clears the transfer interrupt flag
+    #[cfg_attr(feature = "iram", ram)]
     pub fn wait(self) -> (Result<(), DmaError>, Hub75<'d, DM>) {
         let (result, i8080, tx_buf) = self.xfer.wait();
         let (tx_descriptors, _) = tx_buf.split();
@@ -222,6 +227,7 @@ impl Hub75Transfer<'_, esp_hal::Async> {
     /// This method does not return the `Hub75` instance. Use `wait()` after
     /// `wait_for_done` returns to get the `Hub75` instance, it won't block at
     /// that point.
+    #[cfg_attr(feature = "iram", ram)]
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await;
         Ok(())
