@@ -1,5 +1,7 @@
-//! Embassy "async" example of an ESP32-S3 driving 9 64x64 HUB75 displays 
+//! Embassy "async" example of an ESP32-S3 driving 9 64x32 HUB75 displays
 //! in a 3x3 arrangement using the LCD_CAM peripheral.
+//! Please note that you should probably use the latched framebuffer instead to
+//! reach any sort of usable color depth while still fitting 2 frame buffers into RAM
 //!
 //! This example draws a simple gradient on the displays and shows the refresh
 //! rate and render rate plus a simple counter.
@@ -20,7 +22,7 @@
 //! - CLK => GPIO12
 //! - LAT => GPIO10
 //!
-//! Note that you most likeliy need level converters 3.3v to 5v for all HUB75
+//! Note that you most likely need level converters 3.3v to 5v for all HUB75
 //! signals
 
 #![no_std]
@@ -31,22 +33,25 @@
     holding buffers for the duration of a data transfer."
 )]
 #![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 use alloc::fmt;
 use embassy_executor::{task, Spawner};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Instant, Ticker};
 use embassy_time::{Duration, Timer};
+use embassy_time::{Instant, Ticker};
 use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::prelude::*;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
+use esp_hal::psram::{FlashFreq, PsramConfig, SpiRamFreq, SpiTimingConfigCoreClock};
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal_embassy::InterruptExecutor;
 use heapless::String;
+use hub75_framebuffer::FrameBufferOperations;
 use log::info;
 
 use embedded_graphics::geometry::Point;
@@ -75,16 +80,34 @@ extern crate alloc;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
+// These are some values that can be tweaked to experiment with the display
+
+// Whether to allocate the framebuffers to PSRAM
+const ALLOCATE_TO_PSRAM: bool = false;
+
+// This is the minimal refresh rate for the display is frames per second. Anything below 60 probably flickers
+const MIN_FRAMERATE: u32 = 80;
+
+// Specify color depth. 1 is very low but more does not fit into RAM.
+// When using less panels this could be increased while still fitting into RAM.
+// If the frame buffer is stored in PSRAM this
+// can also be increased but it will hurt performance even more.
+// When using the latched frame buffer, this can also be increased to 2.
+const BITS: u8 = if ALLOCATE_TO_PSRAM { 2 } else { 1 };
+
+// When allocating to PSRAM this need to be decreased to somewhere around 1Mhz
+const TRANSFER_SPEED: Rate = if ALLOCATE_TO_PSRAM {
+    Rate::from_khz(900)
+} else {
+    Rate::from_mhz(20)
+};
+
+// Panel layout settings
 const TILED_COLS: usize = 3;
 const TILED_ROWS: usize = 3;
 const ROWS: usize = 32;
 const PANEL_COLS: usize = 64;
 const FB_COLS: usize = compute_tiled_cols(PANEL_COLS, TILED_ROWS, TILED_COLS);
-// Reduced color depth. When using less panels this could be increased 
-// while still fitting into RAM. If the frame buffer is stored in PSRAM this 
-// can also be increased but it will hurt performance even more.
-// When using the latched frame buffer, this can also be increased to 2.
-const BITS: u8 = 1; 
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
@@ -130,7 +153,7 @@ async fn hub75_task(
         peripherals.pins,
         peripherals.dma_channel,
         tx_descriptors,
-        Rate::from_mhz(20), // Set to 1Mhz when using PSRAM. This seems to be on the higher end of what it can handle.
+        TRANSFER_SPEED,
     )
     .expect("failed to create Hub75!");
 
@@ -138,11 +161,27 @@ async fn hub75_task(
     let mut start = Instant::now();
 
     let mut fb = fb;
-    let mut ticker = Ticker::every(Duration::from_millis(
-        (1000f32 / target_frame_rate as f32) as u64,
-    ));
+
+    const MAX_DELAY: u64 = (1000_000f32 / MIN_FRAMERATE as f32) as u64;
+    const MULTIPLIER: f32 = -(MAX_DELAY as f32 / 255f32);
 
     loop {
+        // Delay control value (0-255)
+        // 0 = never render (infinite delay)
+        // 1 = maximum delay (MAX_DELAY microseconds)
+        // 255 = no delay (0 microseconds)
+        let delay_control = BRIGHTNESS.load(Ordering::Relaxed); // Use global BRIGHTNESS value
+
+        // Calculate delay based on control value
+        let delay_micros = if delay_control == 0 {
+            // Never render - use a very long delay
+            u64::MAX
+        } else {
+            // This gives: 1 -> MAX_DELAY, 255 -> 0
+            (MULTIPLIER * delay_control as f32 + MAX_DELAY as f32) as u64
+        };
+        let mut ticker = Ticker::every(Duration::from_micros(delay_micros));
+
         // if there is a new buffer available, get it and send the old one
         if rx.signaled() {
             let new_fb = rx.wait().await;
@@ -160,24 +199,6 @@ async fn hub75_task(
         let (result, new_hub75) = xfer.wait();
         hub75 = new_hub75;
         result.expect("transfer failed");
-
-        // Delay control value (0-255)
-        // 0 = never render (infinite delay)
-        // 1 = maximum delay (15000 microseconds)
-        // 255 = no delay (0 microseconds)
-        let delay_control = BRIGHTNESS.load(Ordering::Relaxed); // Use global BRIGHTNESS value
-
-        // Calculate delay based on control value
-        let delay_micros = if delay_control == 0 {
-            // Never render - use a very long delay
-            u64::MAX
-        } else {
-            // Direct mapping: BRIGHTNESS 1-255 -> delay 15000-0 microseconds
-            // Formula: delay = (255 - control_value) * 15000 / 254
-            // This gives: 1 -> 15000, 255 -> 0
-            (255 - delay_control as u64) * 15000 / 254
-        };
-        ticker.reset_after(Duration::from_micros(delay_micros));
 
         // Apply the calculated delay
         ticker.next().await;
@@ -211,8 +232,8 @@ async fn display_task(
     loop {
         fb.erase();
 
-        const STEP: u8 = (256 / COLS) as u8;
-        for x in 0..COLS {
+        const STEP: u8 = (256 / (PANEL_COLS * TILED_COLS)) as u8;
+        for x in 0..(PANEL_COLS * TILED_COLS) {
             let brightness = (x as u8) * STEP;
             for y in 0..8 {
                 fb.set_pixel(Point::new(x as i32, y), Color::new(brightness, 0, 0));
@@ -292,13 +313,23 @@ async fn display_task(
 async fn main(_spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let psram_config = PsramConfig {
+        flash_frequency: FlashFreq::FlashFreq120m,
+        ram_frequency: SpiRamFreq::Freq120m,
+        core_clock: SpiTimingConfigCoreClock::SpiTimingConfigCoreClock240m,
+        ..Default::default()
+    };
+    let config = esp_hal::Config::default()
+        .with_cpu_clock(CpuClock::max())
+        .with_psram(psram_config);
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
 
     let timer0 = SystemTimer::new(peripherals.SYSTIMER);
     esp_hal_embassy::init(timer0.alarm0);
+
+    esp_alloc::heap_allocator!(size: 32*1024);
 
     info!("Embassy initialized!");
 
@@ -329,31 +360,30 @@ async fn main(_spawner: Spawner) {
     // If the framebuffer is too large to fit in ram, we can allocate it on the
     // heap in PSRAM instead.
     // Allocate the framebuffer to PSRAM without ever putting it on the stack first
-    // esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
-    // use alloc::alloc::alloc;
-    // use alloc::boxed::Box;
-    // use core::alloc::Layout;
-    // use hub75_framebuffer::FrameBufferUser;
+    let (fb0, fb1) = if ALLOCATE_TO_PSRAM {
+        esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
+        use alloc::alloc::alloc;
+        use alloc::boxed::Box;
+        use core::alloc::Layout;
 
-    // let layout = Layout::new::<TiledFBType>();
+        let layout = Layout::new::<TiledFBType>();
 
-    // let fb0 = unsafe {
-    //     let ptr = alloc(layout) as *mut TiledFBType;
-    //     (*ptr).format();
-    //     Box::from_raw(ptr)
-    // };
-    // let fb1 = unsafe {
-    //     let ptr = alloc(layout) as *mut TiledFBType;
-    //     (*ptr).format();
-    //     Box::from_raw(ptr)
-    // };
-
-    // let fb0 = Box::leak(fb0);
-    // let fb1 = Box::leak(fb1);
-
-    // Allocate the framebuffers in static memory. This assumes that they fit into ram.
-    let fb0 = make_static!(TiledFrameBuffer::new());
-    let fb1 = make_static!(TiledFrameBuffer::new());
+        let fb0 = unsafe {
+            let ptr = alloc(layout) as *mut TiledFBType;
+            Box::from_raw(ptr)
+        };
+        let fb1 = unsafe {
+            let ptr = alloc(layout) as *mut TiledFBType;
+            Box::from_raw(ptr)
+        };
+        (Box::leak(fb0), Box::leak(fb1))
+    } else {
+        // Allocate the framebuffers in static memory. This assumes that they fit into ram.
+        (
+            make_static!(TiledFrameBuffer::new()),
+            make_static!(TiledFrameBuffer::new()),
+        )
+    };
 
     info!("init framebuffer exchange");
     static TX: FrameBufferExchange = FrameBufferExchange::new();
