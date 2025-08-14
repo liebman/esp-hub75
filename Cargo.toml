@@ -28,7 +28,7 @@ embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "=1.0.0-rc.0", default-features = false, features = ["requires-unstable"] }
 log = { version = "0.4.22", optional = true }
-hub75-framebuffer = { version = "0.3.0" }
+hub75-framebuffer = { version = "0.4.0" }
 esp-hal-procmacros = { version = "0.19.0", optional = true }
 
 [dev-dependencies]
