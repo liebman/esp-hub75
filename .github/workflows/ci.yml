@@ -44,6 +44,11 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: +esp
+            example: hello_i2s_parallel
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
             example: i2s_parallel_dimming
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32s3
@@ -56,10 +61,25 @@ jobs:
             toolchain: +esp
             example: lcd_cam_latch
             cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: hello_lcd_cam
+            cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
             example: parl_io
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_latch
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: hello_parl_io
             cargo_unstable: ""
     steps:
       - uses: actions/checkout@v4
@@ -85,5 +105,5 @@ jobs:
   
       - name: Build examples
         run: |
-          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "${{ matrix.target }},${{ matrix.features }}" ${{ matrix.cargo_unstable }}
+          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "iram,${{ matrix.target }},${{ matrix.features }}" ${{ matrix.cargo_unstable }}
 
