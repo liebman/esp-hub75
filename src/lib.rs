@@ -32,6 +32,10 @@
 //! - `invert-blank`: Invert the blank signal, required for some controller boards.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
 //!   optimization that skips writing black pixels to the framebuffer.
+//! - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
+//!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
+//!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
+//!   Enabling this feature consumes roughly 5–10 KiB of IRAM.
 //!
 //! ## Safety
 //!
