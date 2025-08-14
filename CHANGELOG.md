@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* added `iram` feature to place the hot rendering function in ram
 * new example i2s_parallel_dimming as an example of using a delay as overall
   brightness control. [#22](https://github.com/liebman/esp-hub75/pull/22)
 

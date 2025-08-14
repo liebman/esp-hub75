@@ -20,8 +20,7 @@ fn main() {
     {
         assert!(
             target == "xtensa-esp32-none-elf",
-            "feature esp32 does not match target {}",
-            target
+            "feature esp32 does not match target {target}"
         );
         println!("cargo:rustc-cfg=esp32");
     }
@@ -30,8 +29,7 @@ fn main() {
     {
         assert!(
             target == "xtensa-esp32s3-none-elf",
-            "feature esp32s3 does not match target {}",
-            target
+            "feature esp32s3 does not match target {target}"
         );
         println!("cargo:rustc-cfg=esp32s3");
     }
@@ -40,8 +38,7 @@ fn main() {
     {
         assert!(
             target == "riscv32imac-unknown-none-elf",
-            "feature esp32c6 does not match target {}",
-            target
+            "feature esp32c6 does not match target {target}"
         );
         println!("cargo:rustc-cfg=esp32c6");
     }

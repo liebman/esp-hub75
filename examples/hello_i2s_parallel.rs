@@ -6,6 +6,7 @@
 
 #![no_std]
 #![no_main]
+#![allow(clippy::uninlined_format_args)]
 
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;

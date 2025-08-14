@@ -24,6 +24,7 @@
 //! signals
 #![no_std]
 #![no_main]
+#![allow(clippy::uninlined_format_args)]
 
 use core::fmt;
 use core::sync::atomic::AtomicU32;
