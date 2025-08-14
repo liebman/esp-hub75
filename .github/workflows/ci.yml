@@ -64,6 +64,11 @@ jobs:
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
+            example: lcd_cam_tiled
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
             example: hello_lcd_cam
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32c6

@@ -35,6 +35,10 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
+#[cfg(feature = "defmt")]
+use defmt::info;
+#[cfg(feature = "defmt")]
+use defmt_rtt as _;
 use alloc::fmt;
 use embassy_executor::{task, Spawner};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -42,7 +46,6 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use embassy_time::{Instant, Ticker};
 use embedded_graphics::mono_font::ascii::FONT_5X7;
-use embedded_graphics::prelude::*;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -52,6 +55,7 @@ use esp_hal::timer::systimer::SystemTimer;
 use esp_hal_embassy::InterruptExecutor;
 use heapless::String;
 use hub75_framebuffer::FrameBufferOperations;
+#[cfg(feature = "log")]
 use log::info;
 
 use embedded_graphics::geometry::Point;
@@ -311,6 +315,7 @@ async fn display_task(
 
 #[esp_hal_embassy::main]
 async fn main(_spawner: Spawner) {
+    #[cfg(feature = "log")]
     esp_println::logger::init_logger_from_env();
 
     let psram_config = PsramConfig {

@@ -29,7 +29,7 @@ use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 
-const ROWS: usize = 64;
+const ROWS: usize = 32;
 const COLS: usize = 64;
 const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
