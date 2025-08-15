@@ -27,19 +27,13 @@
 
 #![no_std]
 #![no_main]
-#![deny(
-    clippy::mem_forget,
-    reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
-    holding buffers for the duration of a data transfer."
-)]
-#![feature(type_alias_impl_trait)]
-#![feature(impl_trait_in_assoc_type)]
+#![allow(clippy::uninlined_format_args)]
 
 #[cfg(feature = "defmt")]
 use defmt::info;
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
-use alloc::fmt;
+use core::fmt;
 use embassy_executor::{task, Spawner};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -50,7 +44,6 @@ use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
-use esp_hal::psram::{FlashFreq, PsramConfig, SpiRamFreq, SpiTimingConfigCoreClock};
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal_embassy::InterruptExecutor;
 use heapless::String;
@@ -76,18 +69,21 @@ use esp_hub75::Hub75Pins16;
 use hub75_framebuffer::tiling::{compute_tiled_cols, ChainTopRightDown, TiledFrameBuffer};
 
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
-use static_cell::make_static;
-
-extern crate alloc;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-// These are some values that can be tweaked to experiment with the display
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
 
-// Whether to allocate the framebuffers to PSRAM
-const ALLOCATE_TO_PSRAM: bool = false;
+// These are some values that can be tweaked to experiment with the display
 
 // This is the minimal refresh rate for the display is frames per second. Anything below 60 probably flickers
 const MIN_FRAMERATE: u32 = 80;
@@ -97,14 +93,10 @@ const MIN_FRAMERATE: u32 = 80;
 // If the frame buffer is stored in PSRAM this
 // can also be increased but it will hurt performance even more.
 // When using the latched frame buffer, this can also be increased to 2.
-const BITS: u8 = if ALLOCATE_TO_PSRAM { 2 } else { 1 };
+const BITS: u8 = 1;
 
 // When allocating to PSRAM this need to be decreased to somewhere around 1Mhz
-const TRANSFER_SPEED: Rate = if ALLOCATE_TO_PSRAM {
-    Rate::from_khz(900)
-} else {
-    Rate::from_mhz(20)
-};
+const TRANSFER_SPEED: Rate = Rate::from_mhz(20);
 
 // Panel layout settings
 const TILED_COLS: usize = 3;
@@ -166,7 +158,7 @@ async fn hub75_task(
 
     let mut fb = fb;
 
-    const MAX_DELAY: u64 = (1000_000f32 / MIN_FRAMERATE as f32) as u64;
+    const MAX_DELAY: u64 = (1_000_000_f32 / MIN_FRAMERATE as f32) as u64;
     const MULTIPLIER: f32 = -(MAX_DELAY as f32 / 255f32);
 
     loop {
@@ -318,23 +310,14 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger_from_env();
 
-    let psram_config = PsramConfig {
-        flash_frequency: FlashFreq::FlashFreq120m,
-        ram_frequency: SpiRamFreq::Freq120m,
-        core_clock: SpiTimingConfigCoreClock::SpiTimingConfigCoreClock240m,
-        ..Default::default()
-    };
     let config = esp_hal::Config::default()
-        .with_cpu_clock(CpuClock::max())
-        .with_psram(psram_config);
+        .with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
 
     let timer0 = SystemTimer::new(peripherals.SYSTIMER);
     esp_hal_embassy::init(timer0.alarm0);
-
-    esp_alloc::heap_allocator!(size: 32*1024);
 
     info!("Embassy initialized!");
 
@@ -365,30 +348,10 @@ async fn main(_spawner: Spawner) {
     // If the framebuffer is too large to fit in ram, we can allocate it on the
     // heap in PSRAM instead.
     // Allocate the framebuffer to PSRAM without ever putting it on the stack first
-    let (fb0, fb1) = if ALLOCATE_TO_PSRAM {
-        esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
-        use alloc::alloc::alloc;
-        use alloc::boxed::Box;
-        use core::alloc::Layout;
-
-        let layout = Layout::new::<TiledFBType>();
-
-        let fb0 = unsafe {
-            let ptr = alloc(layout) as *mut TiledFBType;
-            Box::from_raw(ptr)
-        };
-        let fb1 = unsafe {
-            let ptr = alloc(layout) as *mut TiledFBType;
-            Box::from_raw(ptr)
-        };
-        (Box::leak(fb0), Box::leak(fb1))
-    } else {
-        // Allocate the framebuffers in static memory. This assumes that they fit into ram.
-        (
-            make_static!(TiledFrameBuffer::new()),
-            make_static!(TiledFrameBuffer::new()),
-        )
-    };
+    let (fb0, fb1) = (
+        mk_static!(TiledFBType, TiledFrameBuffer::new()),
+        mk_static!(TiledFBType, TiledFrameBuffer::new()),
+    );
 
     info!("init framebuffer exchange");
     static TX: FrameBufferExchange = FrameBufferExchange::new();
@@ -396,7 +359,10 @@ async fn main(_spawner: Spawner) {
 
     let cpu1_fnctn = {
         move || {
-            let hp_executor = make_static!(InterruptExecutor::new(software_interrupt));
+            let hp_executor = mk_static!(
+                InterruptExecutor<2>,
+                InterruptExecutor::new(software_interrupt)
+            );
             let high_pri_spawner = hp_executor.start(Priority::Priority3);
 
             // hub75 runs as high priority task
@@ -404,7 +370,7 @@ async fn main(_spawner: Spawner) {
                 .spawn(hub75_task(hub75_per, &RX, &TX, fb1))
                 .ok();
 
-            let lp_executor = make_static!(Executor::new());
+            let lp_executor = mk_static!(Executor, Executor::new());
             // display task runs as low priority task
             lp_executor.run(|spawner| {
                 spawner.spawn(display_task(&TX, &RX, fb0)).ok();
@@ -417,7 +383,7 @@ async fn main(_spawner: Spawner) {
     use esp_hal_embassy::Executor;
     let cpu_control = CpuControl::new(peripherals.CPU_CTRL);
     const DISPLAY_STACK_SIZE: usize = 8192;
-    let app_core_stack: &mut Stack<DISPLAY_STACK_SIZE> = make_static!(Stack::new());
+    let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
     let mut _cpu_control = cpu_control;
 
     #[allow(static_mut_refs)]
@@ -436,12 +402,10 @@ async fn main(_spawner: Spawner) {
         } else if current_brightness == 255 {
             direction = -1;
             254
+        } else if direction == 1 {
+            current_brightness + 1
         } else {
-            if direction == 1 {
-                current_brightness + 1
-            } else {
-                current_brightness - 1
-            }
+            current_brightness - 1
         };
 
         // // Update BRIGHTNESS

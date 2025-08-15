@@ -31,7 +31,6 @@ log = { version = "0.4.22", optional = true }
 hub75-framebuffer = { version = "0.4.1" }
 esp-hal-procmacros = { version = "0.19.0", optional = true }
 esp-bootloader-esp-idf = "0.2.0"
-esp-alloc = "0.8.0"
 
 [dev-dependencies]
 defmt-rtt = { version = "1.0.0" }
@@ -44,11 +43,11 @@ esp-backtrace = { version = "0.17.0", features = [
     "panic-handler",
     "exception-handler",
 ] }
-esp-hal = { version = "=1.0.0-rc.0", features = ["unstable", "psram"] }
+esp-hal = { version = "=1.0.0-rc.0", features = ["unstable"] }
 esp-println = { version = "0.15.0" }
 esp-hal-embassy = { version = "0.9.0" }
 heapless = { version = "0.8.0", features = ["ufmt"] }
-static_cell = { version = "2.1.1", features = ["nightly"] }
+static_cell = { version = "2.1.1" }
 
 [features]
 default = []
@@ -81,7 +80,6 @@ esp32c6 = [
 ]
 defmt = [
     "dep:defmt",
-    "esp-alloc/defmt",
     "esp-bootloader-esp-idf/defmt",
     "esp-backtrace/defmt",
     "esp-hal/defmt",
