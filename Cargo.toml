@@ -28,8 +28,9 @@ embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "=1.0.0-rc.0", default-features = false, features = ["requires-unstable"] }
 log = { version = "0.4.22", optional = true }
-hub75-framebuffer = { version = "0.4.0" }
+hub75-framebuffer = { version = "0.4.1" }
 esp-hal-procmacros = { version = "0.19.0", optional = true }
+esp-bootloader-esp-idf = "0.2.0"
 
 [dev-dependencies]
 defmt-rtt = { version = "1.0.0" }
@@ -53,6 +54,7 @@ default = []
 skip-black-pixels = ["hub75-framebuffer/skip-black-pixels"]
 iram = ["dep:esp-hal-procmacros"]
 esp32 = [
+    "esp-bootloader-esp-idf/esp32",
     "esp-hal/esp32",
     "esp-backtrace/esp32",
     "esp-hal-embassy/esp32",
@@ -61,6 +63,7 @@ esp32 = [
     "hub75-framebuffer/esp32-ordering",
 ]
 esp32s3 = [
+    "esp-bootloader-esp-idf/esp32s3",
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
     "esp-hal-embassy/esp32s3",
@@ -68,6 +71,7 @@ esp32s3 = [
     "hub75-framebuffer/esp-hal-dma",
 ]
 esp32c6 = [
+    "esp-bootloader-esp-idf/esp32c6",
     "esp-hal/esp32c6",
     "esp-backtrace/esp32c6",
     "esp-hal-embassy/esp32c6",
@@ -76,12 +80,14 @@ esp32c6 = [
 ]
 defmt = [
     "dep:defmt",
+    "esp-bootloader-esp-idf/defmt",
     "esp-backtrace/defmt",
     "esp-hal/defmt",
     "hub75-framebuffer/defmt",
 ]
 log = [
     "dep:log",
+    "esp-bootloader-esp-idf/log-04",
     "esp-backtrace/println",
     "esp-hal/log-04",
     "esp-println/auto",
@@ -100,6 +106,7 @@ cargo-args = ["-Z", "build-std=core"]
 
 # [patch.crates-io]
 
+# hub75-framebuffer = { path = "../hub75-framebuffer" }
 # hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
 
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
