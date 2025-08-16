@@ -12,11 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * added `iram` feature to place the hot rendering function in ram
-* new example i2s_parallel_dimming as an example of using a delay as overall
+* new example `i2s_parallel_dimming` as an example of using a delay as overall
   brightness control. [#22](https://github.com/liebman/esp-hub75/pull/22)
+* new example `lcd_cam_tiled` as an example of tiling multiple panels into a
+  larger display [#29](https://github.com/liebman/esp-hub75/pull/29)
 
 ### Changed
 
+* bump `hub75-framebuffer` to `0.4.2` [#29](https://github.com/liebman/esp-hub75/pull/29)
 * bump `hub75-framebuffer` to `0.4.0` [#27](https://github.com/liebman/esp-hub75/pull/27)
 
 ## [0.5.0] - 2025-07-16
