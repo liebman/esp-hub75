@@ -1,10 +1,24 @@
-//! Embassy "async" example of an ESP32-S3 driving 9 64x32 HUB75 displays
-//! in a 3x3 arrangement using the LCD_CAM peripheral.
-//! Please note that you should probably use the latched framebuffer instead to
-//! reach any sort of usable color depth while still fitting 2 frame buffers into RAM
+//! Embassy "async" example of an ESP32-S3 driving 4 64x32 HUB75 displays
+//! in a 2x2 arrangement using the LCD_CAM peripheral.
 //!
 //! This example draws a simple gradient on the displays and shows the refresh
 //! rate and render rate plus a simple counter.
+//!
+//! Panel arrangement (front view):
+//! ```text
+//! ┌─────────────────────────────────┐
+//! │  Panel 1        │  Panel 0      │
+//! │  (64x32)        <  (64x32)      │
+//! │  Top-Left       <  Top-Right    │
+//! │                 │               │
+//! ├────────vv───────┼───────────────┤
+//! │  Panel 2        │  Panel 3      │
+//! │  (64x32)        >  (64x32)      │
+//! │  Bottom-Left    >  Bottom-Right │
+//! │                 │               │
+//! └─────────────────────────────────┘
+//! Total display area: 128x64 pixels
+//! ```
 //!
 //! Folowing pins are used:
 //! - R1  => GPIO38
@@ -29,46 +43,50 @@
 #![no_main]
 #![allow(clippy::uninlined_format_args)]
 
+use core::fmt;
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::Ordering;
+
 #[cfg(feature = "defmt")]
 use defmt::info;
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
-use core::fmt;
-use embassy_executor::{task, Spawner};
+use embassy_executor::task;
+use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Timer};
-use embassy_time::{Instant, Ticker};
-use embedded_graphics::mono_font::ascii::FONT_5X7;
-use esp_backtrace as _;
-use esp_hal::clock::CpuClock;
-use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::interrupt::Priority;
-use esp_hal::timer::systimer::SystemTimer;
-use esp_hal_embassy::InterruptExecutor;
-use heapless::String;
-use hub75_framebuffer::FrameBufferOperations;
-#[cfg(feature = "log")]
-use log::info;
-
+use embassy_time::Duration;
+use embassy_time::Instant;
+use embassy_time::Timer;
 use embedded_graphics::geometry::Point;
+use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::prelude::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
+use esp_backtrace as _;
+use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
+use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
+use esp_hal::timer::systimer::SystemTimer;
+use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::plain::DmaFrameBuffer;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
-use hub75_framebuffer::tiling::{compute_tiled_cols, ChainTopRightDown, TiledFrameBuffer};
-
-use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use heapless::String;
+use hub75_framebuffer::tiling::compute_tiled_cols;
+use hub75_framebuffer::tiling::ChainTopRightDown;
+use hub75_framebuffer::tiling::TiledFrameBuffer;
+use hub75_framebuffer::FrameBufferOperations;
+#[cfg(feature = "log")]
+use log::info;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -85,37 +103,29 @@ macro_rules! mk_static {
 
 // These are some values that can be tweaked to experiment with the display
 
-// This is the minimal refresh rate for the display is frames per second. Anything below 60 probably flickers
-const MIN_FRAMERATE: u32 = 80;
-
-// Specify color depth. 1 is very low but more does not fit into RAM.
-// When using less panels this could be increased while still fitting into RAM.
-// If the frame buffer is stored in PSRAM this
-// can also be increased but it will hurt performance even more.
-// When using the latched frame buffer, this can also be increased to 2.
-const BITS: u8 = 1;
-
-// When allocating to PSRAM this need to be decreased to somewhere around 1Mhz
 const TRANSFER_SPEED: Rate = Rate::from_mhz(20);
+const BITS: u8 = 3;
 
 // Panel layout settings
-const TILED_COLS: usize = 3;
-const TILED_ROWS: usize = 3;
-const ROWS: usize = 32;
+const TILED_COLS: usize = 2;
+const TILED_ROWS: usize = 2;
+const PANEL_ROWS: usize = 32;
 const PANEL_COLS: usize = 64;
 const FB_COLS: usize = compute_tiled_cols(PANEL_COLS, TILED_ROWS, TILED_COLS);
-const NROWS: usize = compute_rows(ROWS);
+const NROWS: usize = compute_rows(PANEL_ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
+const VIRTUAL_ROWS: usize = TILED_ROWS * PANEL_ROWS;
+const VIRTUAL_COLS: usize = TILED_COLS * PANEL_COLS;
 
 static REFRESH_RATE: AtomicU32 = AtomicU32::new(0);
 static RENDER_RATE: AtomicU32 = AtomicU32::new(0);
-static BRIGHTNESS: AtomicU8 = AtomicU8::new(128);
+static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-type FBType = DmaFrameBuffer<ROWS, FB_COLS, NROWS, BITS, FRAME_COUNT>;
+type FBType = DmaFrameBuffer<PANEL_ROWS, FB_COLS, NROWS, BITS, FRAME_COUNT>;
 type TiledFBType = TiledFrameBuffer<
     FBType,
-    ChainTopRightDown<ROWS, PANEL_COLS, TILED_ROWS, TILED_COLS>,
-    ROWS,
+    ChainTopRightDown<PANEL_ROWS, PANEL_COLS, TILED_ROWS, TILED_COLS>,
+    PANEL_ROWS,
     PANEL_COLS,
     NROWS,
     BITS,
@@ -158,26 +168,7 @@ async fn hub75_task(
 
     let mut fb = fb;
 
-    const MAX_DELAY: u64 = (1_000_000_f32 / MIN_FRAMERATE as f32) as u64;
-    const MULTIPLIER: f32 = -(MAX_DELAY as f32 / 255f32);
-
     loop {
-        // Delay control value (0-255)
-        // 0 = never render (infinite delay)
-        // 1 = maximum delay (MAX_DELAY microseconds)
-        // 255 = no delay (0 microseconds)
-        let delay_control = BRIGHTNESS.load(Ordering::Relaxed); // Use global BRIGHTNESS value
-
-        // Calculate delay based on control value
-        let delay_micros = if delay_control == 0 {
-            // Never render - use a very long delay
-            u64::MAX
-        } else {
-            // This gives: 1 -> MAX_DELAY, 255 -> 0
-            (MULTIPLIER * delay_control as f32 + MAX_DELAY as f32) as u64
-        };
-        let mut ticker = Ticker::every(Duration::from_micros(delay_micros));
-
         // if there is a new buffer available, get it and send the old one
         if rx.signaled() {
             let new_fb = rx.wait().await;
@@ -195,9 +186,6 @@ async fn hub75_task(
         let (result, new_hub75) = xfer.wait();
         hub75 = new_hub75;
         result.expect("transfer failed");
-
-        // Apply the calculated delay
-        ticker.next().await;
 
         count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -228,8 +216,8 @@ async fn display_task(
     loop {
         fb.erase();
 
-        const STEP: u8 = (256 / (PANEL_COLS * TILED_COLS)) as u8;
-        for x in 0..(PANEL_COLS * TILED_COLS) {
+        const STEP: u8 = (256 / VIRTUAL_COLS) as u8;
+        for x in 0..VIRTUAL_COLS {
             let brightness = (x as u8) * STEP;
             for y in 0..8 {
                 fb.set_pixel(Point::new(x as i32, y), Color::new(brightness, 0, 0));
@@ -251,9 +239,9 @@ async fn display_task(
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(0, 10),
+            Point::new(VIRTUAL_COLS as i32 / 2, VIRTUAL_ROWS as i32 / 2),
             fps_style,
-            Alignment::Left,
+            Alignment::Center,
         )
         .draw(fb)
         .unwrap();
@@ -267,7 +255,7 @@ async fn display_task(
 
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(192 / 2, 63 - 8),
+            Point::new(VIRTUAL_COLS as i32 / 2, VIRTUAL_ROWS as i32 - 8),
             fps_style,
             Alignment::Center,
         )
@@ -277,14 +265,14 @@ async fn display_task(
         buffer.clear();
         fmt::write(
             &mut buffer,
-            format_args!("Bright: {:5}", BRIGHTNESS.load(Ordering::Relaxed)),
+            format_args!("Simple: {:5}", SIMPLE_COUNTER.load(Ordering::Relaxed)),
         )
         .unwrap();
         Text::with_alignment(
             buffer.as_str(),
-            Point::new(192, 95),
+            Point::new(VIRTUAL_COLS as i32 / 2, VIRTUAL_ROWS as i32 - 20),
             fps_style,
-            Alignment::Right,
+            Alignment::Center,
         )
         .draw(fb)
         .unwrap();
@@ -305,13 +293,25 @@ async fn display_task(
     }
 }
 
+extern "C" {
+    static _stack_end_cpu0: u32;
+    static _stack_start_cpu0: u32;
+}
+
 #[esp_hal_embassy::main]
 async fn main(_spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger_from_env();
+    info!("Main starting!");
+    info!("main: stack size:  {}", unsafe {
+        core::ptr::addr_of!(_stack_start_cpu0).offset_from(core::ptr::addr_of!(_stack_end_cpu0))
+    });
+    info!("VIRTUAL_ROWS: {}", VIRTUAL_ROWS);
+    info!("VIRTUAL_COLS: {}", VIRTUAL_COLS);
+    info!("BITS: {}", BITS);
+    info!("FRAME_COUNT: {}", FRAME_COUNT);
 
-    let config = esp_hal::Config::default()
-        .with_cpu_clock(CpuClock::max());
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
@@ -345,13 +345,11 @@ async fn main(_spawner: Spawner) {
         pins,
     };
 
-    // If the framebuffer is too large to fit in ram, we can allocate it on the
-    // heap in PSRAM instead.
-    // Allocate the framebuffer to PSRAM without ever putting it on the stack first
-    let (fb0, fb1) = (
-        mk_static!(TiledFBType, TiledFrameBuffer::new()),
-        mk_static!(TiledFBType, TiledFrameBuffer::new()),
-    );
+    info!("init framebuffers");
+    let fb0 = mk_static!(TiledFBType, TiledFrameBuffer::new());
+    info!("fb0: {:?}", fb0);
+    let fb1 = mk_static!(TiledFBType, TiledFrameBuffer::new());
+    info!("fb1: {:?}", fb1);
 
     info!("init framebuffer exchange");
     static TX: FrameBufferExchange = FrameBufferExchange::new();
@@ -391,26 +389,10 @@ async fn main(_spawner: Spawner) {
         .start_app_core(app_core_stack, cpu1_fnctn)
         .unwrap();
 
-    let mut direction = 1i8;
-
     loop {
-        // Cycle BRIGHTNESS from 1 to 255 and back
-        let current_brightness = BRIGHTNESS.load(Ordering::Relaxed);
-        let new_brightness = if current_brightness == 1 {
-            direction = 1;
-            2
-        } else if current_brightness == 255 {
-            direction = -1;
-            254
-        } else if direction == 1 {
-            current_brightness + 1
-        } else {
-            current_brightness - 1
-        };
-
-        // // Update BRIGHTNESS
-        BRIGHTNESS.store(new_brightness, Ordering::Relaxed);
-
+        if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= 99999 {
+            SIMPLE_COUNTER.store(0, Ordering::Relaxed);
+        }
         Timer::after(Duration::from_millis(100)).await;
     }
 }
