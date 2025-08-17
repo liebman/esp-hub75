@@ -21,9 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * bump `hub75-framebuffer` to `0.4.2` [#29](https://github.com/liebman/esp-hub75/pull/29)
 * bump `hub75-framebuffer` to `0.4.0` [#27](https://github.com/liebman/esp-hub75/pull/27)
-* pin `enumset` to `1.1.7` its a dependency pulled in via `esp-hal` and `1.1.8`
-  (just released) generates compiler errors if the `defmt` feature on `esp-hal`
-  is enabled [#29](https://github.com/liebman/esp-hub75/pull/29)
 
 ## [0.5.0] - 2025-07-16
 

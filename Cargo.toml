@@ -31,10 +31,6 @@ log = { version = "0.4.22", optional = true }
 hub75-framebuffer = { version = "0.4.2" }
 esp-hal-procmacros = { version = "0.19.0", optional = true }
 esp-bootloader-esp-idf = "0.2.0"
-# there is an issue with esp-hal and enumset 1.1.8
-# https://github.com/Lymia/enumset/issues/67
-# pinning to 1.1.7 for now
-enumset = "=1.1.7"
 
 [dev-dependencies]
 defmt-rtt = { version = "1.0.0" }
