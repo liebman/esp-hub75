@@ -80,14 +80,14 @@ use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::plain::DmaFrameBuffer;
+use esp_hub75::framebuffer::tiling::compute_tiled_cols;
+use esp_hub75::framebuffer::tiling::ChainTopRightDown;
+use esp_hub75::framebuffer::tiling::TiledFrameBuffer;
+use esp_hub75::framebuffer::FrameBufferOperations;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 use heapless::String;
-use hub75_framebuffer::tiling::compute_tiled_cols;
-use hub75_framebuffer::tiling::ChainTopRightDown;
-use hub75_framebuffer::tiling::TiledFrameBuffer;
-use hub75_framebuffer::FrameBufferOperations;
 #[cfg(feature = "log")]
 use log::info;
 
