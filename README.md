@@ -58,7 +58,7 @@ variants.
 - [`examples/hello_lcd_cam`](examples/hello_lcd_cam.rs) - Displays "Hello, World!".
 - [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Shows a color gradient and stats.
 - [`examples/lcd_cam_tiled.rs`](examples/lcd_cam_tiled.rs) - uses 4 64x32 panels
-  in a 2x2 configuration, show a color gradient and stats
+  in a 2x2 configuration to show a color gradient and stats
 
 ### ESP32-C6 (PARL_IO Interface)
 

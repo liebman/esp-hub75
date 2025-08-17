@@ -20,6 +20,9 @@
 //! Total display area: 128x64 pixels
 //! ```
 //!
+//! ⚠️ **IMPORTANT:** Panels 2 and 3 (second row) need to be mounted upside down
+//! to maintain the correct data flow direction indicated by the arrows.
+//!
 //! Folowing pins are used:
 //! - R1  => GPIO38
 //! - G1  => GPIO42
