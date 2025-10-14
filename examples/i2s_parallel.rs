@@ -61,13 +61,13 @@ use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal_embassy::InterruptExecutor;
 use esp_hub75::framebuffer::compute_frame_count;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::framebuffer::plain::DmaFrameBuffer;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
+use esp_rtos::embassy::InterruptExecutor;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -288,7 +288,7 @@ extern "C" {
     static _stack_start_cpu0: u32;
 }
 
-#[esp_hal_embassy::main]
+#[esp_rtos::main]
 async fn main(_spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
@@ -307,7 +307,7 @@ async fn main(_spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     info!("init embassy");
-    esp_hal_embassy::init(timg0.timer0);
+    esp_rtos::start(timg0.timer0);
 
     info!("init framebuffer exchange");
     static TX: FrameBufferExchange = FrameBufferExchange::new();
@@ -373,18 +373,18 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    use esp_hal::system::CpuControl;
     use esp_hal::system::Stack;
-    use esp_hal_embassy::Executor;
-    let cpu_control = CpuControl::new(peripherals.CPU_CTRL);
+    use esp_rtos::embassy::Executor;
     const DISPLAY_STACK_SIZE: usize = 8192;
     let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
-    let mut _cpu_control = cpu_control;
 
-    #[allow(static_mut_refs)]
-    let _guard = _cpu_control
-        .start_app_core(app_core_stack, cpu1_fnctn)
-        .unwrap();
+    esp_rtos::start_second_core(
+        peripherals.CPU_CTRL,
+        sw_ints.software_interrupt0,
+        sw_ints.software_interrupt1,
+        app_core_stack,
+        cpu1_fnctn,
+    );
 
     loop {
         if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= 99999 {

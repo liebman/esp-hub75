@@ -26,26 +26,25 @@ defmt = { version = "1.0.1", optional = true }
 embedded-graphics = { version = "0.8.1" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "=1.0.0-rc.0", default-features = false, features = ["requires-unstable"] }
+esp-hal = { version = "=1.0.0-rc.1", default-features = false, features = ["requires-unstable"] }
 log = { version = "0.4.22", optional = true }
-hub75-framebuffer = { version = "0.4.2" }
-esp-hal-procmacros = { version = "0.19.0", optional = true }
-esp-bootloader-esp-idf = "0.2.0"
+hub75-framebuffer = { version = "0.5.0" }
+esp-hal-procmacros = { version = "0.20.0", optional = true }
+esp-bootloader-esp-idf = "0.3.0"
 
 [dev-dependencies]
 defmt-rtt = { version = "1.0.0" }
-embassy-embedded-hal = { version = "0.3.1" }
-embassy-executor = { version = "0.7.0" }
+embassy-embedded-hal = { version = "0.5.0" }
+embassy-executor = { version = "0.9.1" }
 embassy-futures = { version = "0.1.1" }
-embassy-sync = { version = "0.6.2" }
-embassy-time = { version = "0.4.0", features = [] }
-esp-backtrace = { version = "0.17.0", features = [
+embassy-sync = { version = "0.7.2" }
+embassy-time = { version = "0.5.0", features = [] }
+esp-backtrace = { version = "0.18.0", features = [
     "panic-handler",
-    "exception-handler",
 ] }
-esp-hal = { version = "=1.0.0-rc.0", features = ["unstable"] }
-esp-println = { version = "0.15.0" }
-esp-hal-embassy = { version = "0.9.0" }
+esp-hal = { version = "=1.0.0-rc.1", features = ["unstable"] }
+esp-println = { version = "0.16.0" }
+esp-rtos = { version = "0.1.1", features = ["embassy"] }
 heapless = { version = "0.8.0", features = ["ufmt"] }
 static_cell = { version = "2.1.1" }
 
@@ -57,7 +56,7 @@ esp32 = [
     "esp-bootloader-esp-idf/esp32",
     "esp-hal/esp32",
     "esp-backtrace/esp32",
-    "esp-hal-embassy/esp32",
+    "esp-rtos/esp32",
     "esp-println/esp32",
     "hub75-framebuffer/esp-hal-dma",
     "hub75-framebuffer/esp32-ordering",
@@ -66,7 +65,7 @@ esp32s3 = [
     "esp-bootloader-esp-idf/esp32s3",
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
-    "esp-hal-embassy/esp32s3",
+    "esp-rtos/esp32s3",
     "esp-println/esp32s3",
     "hub75-framebuffer/esp-hal-dma",
 ]
@@ -74,7 +73,7 @@ esp32c6 = [
     "esp-bootloader-esp-idf/esp32c6",
     "esp-hal/esp32c6",
     "esp-backtrace/esp32c6",
-    "esp-hal-embassy/esp32c6",
+    "esp-rtos/esp32c6",
     "esp-println/esp32c6",
     "hub75-framebuffer/esp-hal-dma",
 ]
@@ -111,7 +110,7 @@ cargo-args = ["-Z", "build-std=core"]
 
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
-# esp-hal-embassy  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
+# esp-rtos  = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-println      = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
@@ -119,7 +118,7 @@ cargo-args = ["-Z", "build-std=core"]
 # esp-backtrace = { path = "../esp-hal/esp-backtrace" }
 # esp-build = { path = "../esp-hal/esp-build" }
 # esp-hal = { path = "../esp-hal/esp-hal" }
-# esp-hal-embassy = { path = "../esp-hal/esp-hal-embassy" }
+# esp-rtos = { path = "../esp-hal/esp-rtos" }
 # esp-println = { path = "../esp-hal/esp-println" }
 # esp-riscv-rt = { path = "../esp-hal/esp-riscv-rt" }
 # xtensa-lx-rt = { path = "../esp-hal/xtensa-lx-rt" }

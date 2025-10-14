@@ -119,6 +119,20 @@ pub struct Hub75Pins8<'d> {
     pub latch: AnyPin<'d>,
 }
 
+/// A trait for applying a set of HUB75 pins onto the specific ESP32 peripheral
+///
+/// This allows the driver to abstract over the differences in pin
+/// configurations between peripherals (I2S, LCD-CAM, PARL_IO) and between
+/// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
+#[cfg(feature = "esp32s3")]
+pub trait Hub75Pins<'d> {
+    /// Apply pin configuration to the i8080 driver.
+    fn apply<DM: esp_hal::DriverMode>(
+        self,
+        i8080: esp_hal::lcd_cam::lcd::i8080::I8080<'d, DM>,
+    ) -> esp_hal::lcd_cam::lcd::i8080::I8080<'d, DM>;
+}
+
 /// A trait for converting a set of HUB75 pins into the required format for a
 /// specific ESP32 peripheral.
 ///
@@ -128,6 +142,7 @@ pub struct Hub75Pins8<'d> {
 ///
 /// # Type Parameters
 /// * `T` - The target pin configuration type for the specific peripheral.
+#[cfg(not(feature = "esp32s3"))]
 pub trait Hub75Pins<'d, T> {
     /// Converts the high-level pin definition into the peripheral-specific
     /// format needed by the driver.
