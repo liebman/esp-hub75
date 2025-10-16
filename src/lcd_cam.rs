@@ -2,14 +2,10 @@ use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::dma::TxChannelFor;
-use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
-use esp_hal::lcd_cam::lcd::i8080::TxEightBits;
-use esp_hal::lcd_cam::lcd::i8080::TxPins;
-use esp_hal::lcd_cam::lcd::i8080::TxSixteenBits;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::peripherals::LCD_CAM;
@@ -49,9 +45,9 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
     ///
     /// # Errors
     /// Returns an error if the peripheral cannot be configured
-    pub fn new<T: TxPins>(
+    pub fn new(
         lcd_cam: LCD_CAM<'d>,
-        hub75_pins: impl Hub75Pins<'d, T>,
+        hub75_pins: impl Hub75Pins<'d>,
         channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -76,9 +72,9 @@ impl<'d> Hub75<'d, esp_hal::Async> {
     ///
     /// # Errors
     /// Returns an error if the peripheral cannot be configured
-    pub fn new_async<T: TxPins>(
+    pub fn new_async(
         lcd_cam: LCD_CAM<'d>,
-        hub75_pins: impl Hub75Pins<'d, T>,
+        hub75_pins: impl Hub75Pins<'d>,
         channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
@@ -89,22 +85,20 @@ impl<'d> Hub75<'d, esp_hal::Async> {
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    fn new_internal<T: TxPins>(
+    fn new_internal(
         lcd_cam: LcdCam<'d, DM>,
-        hub75_pins: impl Hub75Pins<'d, T>,
+        hub75_pins: impl Hub75Pins<'d>,
         channel: impl TxChannelFor<LCD_CAM<'d>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
     ) -> Result<Self, Hub75Error> {
-        let (pins, clock) = hub75_pins.convert_pins();
         let i8080 = I8080::new(
             lcd_cam.lcd,
             channel,
-            pins,
             i8080::Config::default().with_frequency(frequency),
         )
-        .map_err(Hub75Error::I8080)?
-        .with_ctrl_pins(NoPin, clock);
+        .map_err(Hub75Error::I8080)?;
+        let i8080 = hub75_pins.apply(i8080);
         Ok(Self {
             i8080,
             tx_descriptors,
@@ -234,47 +228,84 @@ impl Hub75Transfer<'_, esp_hal::Async> {
     }
 }
 
-impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
-    fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
+impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
+    fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
         let (_, blank) = unsafe { self.blank.split() };
-        let pins = TxSixteenBits::new(
-            self.addr0,
-            self.addr1,
-            self.addr2,
-            self.addr3,
-            self.addr4,
-            self.latch,
-            NoPin,
-            NoPin,
-            blank.with_output_inverter(true),
-            self.red1,
-            self.grn1,
-            self.blu1,
-            self.red2,
-            self.grn2,
-            self.blu2,
-            NoPin,
-        );
-        (pins, self.clock)
+
+        i8080
+            .with_wrx(self.clock)
+            .with_data0(self.addr0)
+            .with_data1(self.addr1)
+            .with_data2(self.addr2)
+            .with_data3(self.addr3)
+            .with_data4(self.addr4)
+            .with_data5(self.latch)
+            .with_data6(NoPin)
+            .with_data7(NoPin)
+            .with_data8(blank.with_output_inverter(true))
+            .with_data9(self.red1)
+            .with_data10(self.grn1)
+            .with_data11(self.blu1)
+            .with_data12(self.red2)
+            .with_data13(self.grn2)
+            .with_data14(self.blu2)
+            .with_data15(NoPin)
     }
+    // fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
+    //     let (_, blank) = unsafe { self.blank.split() };
+    //     let pins = TxSixteenBits::new(
+    //         self.addr0,
+    //         self.addr1,
+    //         self.addr2,
+    //         self.addr3,
+    //         self.addr4,
+    //         self.latch,
+    //         NoPin,
+    //         NoPin,
+    //         blank.with_output_inverter(true),
+    //         self.red1,
+    //         self.grn1,
+    //         self.blu1,
+    //         self.red2,
+    //         self.grn2,
+    //         self.blu2,
+    //         NoPin,
+    //     );
+    //     (pins, self.clock)
+    // }
 }
 
-impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
-    fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
+impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
+    fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
         let (_, blank) = unsafe { self.blank.split() };
-        let pins = TxEightBits::new(
-            self.red1,
-            self.grn1,
-            self.blu1,
-            self.red2,
-            self.grn2,
-            self.blu2,
-            self.latch,
-            #[cfg(feature = "invert-blank")]
-            blank.with_output_inverter(true),
-            #[cfg(not(feature = "invert-blank"))]
-            blank,
-        );
-        (pins, self.clock)
+        #[cfg(feature = "invert-blank")]
+        let blank = blank.with_output_inverter(true);
+        i8080
+            .with_wrx(self.clock)
+            .with_data0(self.red1)
+            .with_data1(self.grn1)
+            .with_data2(self.blu1)
+            .with_data3(self.red2)
+            .with_data4(self.grn2)
+            .with_data5(self.blu2)
+            .with_data6(self.latch)
+            .with_data7(blank)
     }
+    // fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
+    //     let (_, blank) = unsafe { self.blank.split() };
+    //     let pins = TxEightBits::new(
+    //         self.red1,
+    //         self.grn1,
+    //         self.blu1,
+    //         self.red2,
+    //         self.grn2,
+    //         self.blu2,
+    //         self.latch,
+    //         #[cfg(feature = "invert-blank")]
+    //         blank.with_output_inverter(true),
+    //         #[cfg(not(feature = "invert-blank"))]
+    //         blank,
+    //     );
+    //     (pins, self.clock)
+    // }
 }
