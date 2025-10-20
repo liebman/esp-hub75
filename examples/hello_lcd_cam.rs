@@ -29,6 +29,8 @@ use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 
+esp_bootloader_esp_idf::esp_app_desc!();
+
 const ROWS: usize = 32;
 const COLS: usize = 64;
 const BITS: u8 = 4;
