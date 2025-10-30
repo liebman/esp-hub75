@@ -420,12 +420,10 @@ async fn main(_spawner: Spawner) {
         } else if current_brightness == 255 {
             direction = -1;
             254
+        } else if direction == 1 {
+            current_brightness + 1
         } else {
-            if direction == 1 {
-                current_brightness + 1
-            } else {
-                current_brightness - 1
-            }
+            current_brightness - 1
         };
 
         // Update BRIGHTNESS
