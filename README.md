@@ -91,6 +91,18 @@ variants.
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
   Enabling this feature consumes roughly 5–10 KiB of IRAM.
 
+##  Known Working Panels
+
+This library should work with any "normal" RGB matrix panels. The following panels have been
+tested and confirmed to work:
+
+| Panel | Scan Rate | Row Driver | Column Driver |
+|-------|-----------|------------|---------------|
+| Waveshare RGB-Matrix-P3-64x64 | 1/32 | SM5166 | SM16208 |
+| Waveshare RGB-Matrix-P3-64x32 | 1/16 | SM5166 | ICN2037 |
+
+**Note**: Help us grow this list! Please let us know of other working and non working panels/chips.
+
 ## License
 
 This project is dual-licensed under either of the following:

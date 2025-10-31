@@ -12,7 +12,7 @@ use esp_hal::i2s::parallel::TxSixteenBits;
 use esp_hal::i2s::AnyI2s;
 use esp_hal::time::Rate;
 #[cfg(feature = "iram")]
-use esp_hal_procmacros::ram;
+use esp_hal::ram;
 
 use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
