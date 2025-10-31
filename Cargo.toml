@@ -30,7 +30,7 @@ esp-hal = { version = "1.0.0", default-features = false, features = [
     "requires-unstable",
 ] }
 log = { version = "0.4.28", optional = true }
-hub75-framebuffer = { version = "0.5.0" }
+hub75-framebuffer = { version = "0.6.0" }
 esp-bootloader-esp-idf = "0.4.0"
 
 [dev-dependencies]
@@ -102,9 +102,9 @@ features = ["esp32c6", "esp-hal-unstable"]
 targets = ["riscv32imac-unknown-none-elf"]
 cargo-args = ["-Z", "build-std=core"]
 
-[patch.crates-io]
+# [patch.crates-io]
 
-hub75-framebuffer = { path = "../hub75-framebuffer" }
+# hub75-framebuffer = { path = "../hub75-framebuffer" }
 # hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
 
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
