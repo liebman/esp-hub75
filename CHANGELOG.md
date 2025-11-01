@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * examples: add esp_bootloader_esp_idf::esp_app_desc!() for latest espflash [#37](https://github.com/liebman/esp-hub75/pull/37)
-* bump `esp-hal` to `1.0.0-rc.1` [#39](https://github.com/liebman/esp-hub75/pull/39)
+* bump `esp-hal` to `1.0.0` [#39](https://github.com/liebman/esp-hub75/pull/39)
 
 ## [0.7.0] - 2025-10-16
 
