@@ -100,6 +100,7 @@ tested and confirmed to work:
 |-------|-----------|------------|---------------|
 | Waveshare RGB-Matrix-P3-64x64 | 1/32 | SM5166 | SM16208 |
 | Waveshare RGB-Matrix-P3-64x32 | 1/16 | SM5166 | ICN2037 |
+| Waveshare RGB-Matrix-P2.5-96x48 | 1/24 | SM5166 | ICN2037BP |
 
 **Note**: Help us grow this list! Please let us know of other working and non working panels/chips.
 

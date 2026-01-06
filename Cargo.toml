@@ -41,7 +41,6 @@ embassy-futures = { version = "0.1.1" }
 embassy-sync = { version = "0.7.2" }
 embassy-time = { version = "0.5.0", features = [] }
 esp-backtrace = { version = "0.18.1", features = ["panic-handler"] }
-esp-hal = { version = "1.0.0", features = ["unstable"] }
 esp-println = { version = "0.16.1" }
 esp-rtos = { version = "0.2.0", features = ["embassy"] }
 heapless = { version = "0.8.0", features = ["ufmt"] }
@@ -54,6 +53,7 @@ iram = []
 esp32 = [
     "esp-bootloader-esp-idf/esp32",
     "esp-hal/esp32",
+    "esp-hal/rt",
     "esp-backtrace/esp32",
     "esp-rtos/esp32",
     "esp-println/esp32",
@@ -63,6 +63,7 @@ esp32 = [
 esp32s3 = [
     "esp-bootloader-esp-idf/esp32s3",
     "esp-hal/esp32s3",
+    "esp-hal/rt",
     "esp-backtrace/esp32s3",
     "esp-rtos/esp32s3",
     "esp-println/esp32s3",
@@ -71,6 +72,7 @@ esp32s3 = [
 esp32c6 = [
     "esp-bootloader-esp-idf/esp32c6",
     "esp-hal/esp32c6",
+    "esp-hal/rt",
     "esp-backtrace/esp32c6",
     "esp-rtos/esp32c6",
     "esp-println/esp32c6",
@@ -93,6 +95,7 @@ log = [
     "esp-println/colors",
 ]
 invert-blank = [] # only for some latched implementations
+invert-clock = []
 
 # this feature is required for the docs.rs build and release builds to work
 esp-hal-unstable = ["esp-hal/unstable"]
@@ -102,7 +105,10 @@ features = ["esp32c6", "esp-hal-unstable"]
 targets = ["riscv32imac-unknown-none-elf"]
 cargo-args = ["-Z", "build-std=core"]
 
-# [patch.crates-io]
+[patch.crates-io]
+# esp-rom-sys 0.1.3 fails to compile on ESP32 (Xtensa) with Rust 1.92+ due to an i8/to_ascii_lowercase issue.
+# The fix is merged on esp-hal's `main`, but not yet released on crates.io.
+esp-rom-sys = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
 # hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
