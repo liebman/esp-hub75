@@ -54,11 +54,20 @@ pub struct Hub75<'d, DM: esp_hal::DriverMode> {
 }
 
 impl<'d> Hub75<'d, esp_hal::Blocking> {
-    /// Creates a new blocking HUB75 driver instance.
+    /// Creates a new blocking HUB75 driver instance
     ///
-    /// The concrete pin configuration is selected by the `hub75_pins` argument.
-    /// For example, use `Hub75Pins16` for direct-address panels or `Hub75Pins8`
-    /// when an external address latch is used.
+    /// # Arguments
+    /// * `i2s` - The I2S peripheral instance
+    /// * `hub75_pins` - The HUB75 pin configuration
+    /// * `channel` - The DMA channel to use for transfers
+    /// * `tx_descriptors` - DMA descriptors for the transfer buffer
+    /// * `frequency` - The clock frequency for the display
+    ///
+    /// # Returns
+    /// A new `Hub75` instance configured for blocking operation
+    ///
+    /// # Errors
+    /// Returns an error if the peripheral cannot be configured
     ///
     /// When the `invert-clock` feature is enabled, the 16-bit (`Hub75Pins16`) path
     /// inverts the HUB75 CLK signal (equivalent to a "clkphase" switch in other drivers).
@@ -87,9 +96,23 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    /// Starts a DMA transfer that renders the provided framebuffer.
+    /// Renders a frame buffer to the display.
     ///
-    /// This consumes `self` and returns a `Hub75Transfer` that can be waited on.
+    /// Calling render consumes the `Hub75` instance and returns a
+    /// `Hub75Transfer` instance that can be used to wait for the transfer
+    /// to complete.  After the transfer is complete, the `Hub75` will be
+    /// returned from the `wait()` method on the `Hub75Transfer` instance.
+    ///
+    /// # Arguments
+    /// * `fb` - The frame buffer to render
+    ///
+    /// # Returns
+    /// A `Hub75Transfer` instance that can be used to wait for the transfer to
+    /// complete
+    ///
+    /// # Errors
+    /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
+    /// cannot be started
     #[cfg_attr(feature = "iram", ram)]
     pub fn render<
         const ROWS: usize,
@@ -122,21 +145,34 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     }
 }
 
-/// Represents an in-progress transfer to the HUB75 display.
+/// Represents an in-progress transfer to the HUB75 display
 ///
-/// This is returned by `Hub75::render`.
+/// This struct is returned by `Hub75::render` and can be used to wait for the
+/// transfer to complete. It provides both blocking and async methods for
+/// waiting.
 pub struct Hub75Transfer<'d, DM: esp_hal::DriverMode> {
     xfer: I2sParallelTransfer<'d, DmaTxBuf, DM>,
 }
 
 impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
-    /// Returns `true` if the DMA transfer has completed.
+    /// Checks if the transfer is complete
+    ///
+    /// # Returns
+    /// `true` if the transfer is complete and `wait()` will not block
     #[cfg_attr(feature = "iram", ram)]
     pub fn is_done(&self) -> bool {
         self.xfer.is_done()
     }
 
-    /// Blocks until the DMA transfer completes and returns the driver for reuse.
+    /// Waits for the transfer to complete
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// 1. The result of the transfer
+    /// 2. The `Hub75` instance for reuse
+    ///
+    /// # Note
+    /// This method clears the transfer interrupt flag
     #[cfg_attr(feature = "iram", ram)]
     pub fn wait(self) -> (Result<(), DmaError>, Hub75<'d, DM>) {
         let (i2s, tx_buf) = self.xfer.wait();
@@ -152,7 +188,15 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
 }
 
 impl Hub75Transfer<'_, esp_hal::Async> {
-    /// Asynchronously waits for the DMA transfer to complete.
+    /// Asynchronously waits for the transfer to complete
+    ///
+    /// # Returns
+    /// A `Result` indicating whether the transfer completed successfully
+    ///
+    /// # Note
+    /// This method does not return the `Hub75` instance. Use `wait()` after
+    /// `wait_for_done` returns to get the `Hub75` instance, it won't block at
+    /// that point.
     #[cfg_attr(feature = "iram", ram)]
     pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
         self.xfer.wait_for_done().await
