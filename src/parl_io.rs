@@ -99,10 +99,14 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     {
         let (pins, clock_pin) = hub75_pins.convert_pins();
         let parl_io = ParlIo::new(parl_io, channel)?;
+        #[cfg(feature = "invert-clock")]
+        let sample_edge = SampleEdge::Normal;
+        #[cfg(not(feature = "invert-clock"))]
+        let sample_edge = SampleEdge::Invert;
         let config = TxConfig::default()
             .with_frequency(frequency)
             .with_idle_value(0)
-            .with_sample_edge(SampleEdge::Normal)
+            .with_sample_edge(sample_edge)
             .with_bit_order(BitPackOrder::Msb);
         let clock_pin = ClkOutPin::new(clock_pin);
         Ok((parl_io, pins, clock_pin, config))
