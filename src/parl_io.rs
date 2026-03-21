@@ -16,9 +16,9 @@ use esp_hal::parl_io::TxEightBits;
 use esp_hal::parl_io::TxPins;
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
-use esp_hal::time::Rate;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
+use esp_hal::time::Rate;
 
 use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
