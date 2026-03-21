@@ -84,6 +84,10 @@ variants.
 - `defmt`: Enable logging with `defmt`
 - `log`: Enable logging with the `log` crate
 - `invert-blank`: Invert the blank signal, required for some controller boards.
+- `invert-clock`: Invert the clock signal. By default the driver outputs data
+  that changes on the falling edge of CLK so that it is stable when the panel
+  latches on the rising edge. Enable this feature if your panel requires the
+  opposite polarity.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
 - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
