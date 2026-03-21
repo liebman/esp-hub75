@@ -10,9 +10,9 @@ use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
 use esp_hal::i2s::AnyI2s;
-use esp_hal::time::Rate;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
+use esp_hal::time::Rate;
 
 use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
@@ -53,6 +53,11 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         frequency: Rate,
     ) -> Result<Self, Hub75Error> {
         let (pins, clock) = hub75_pins.convert_pins();
+        // by default, we want data to change on the falling edge of the clock
+        // the esp32 i2s peripheral wants to do this on the rising edge so we invert the
+        // clock opposite of the feature flag
+        #[cfg(not(feature = "invert-clock"))]
+        let clock = clock.into_output_signal().with_output_inverter(true);
         let i2s = I2sParallel::new(i2s, channel, frequency, pins, clock);
         Ok(Self {
             i2s,
