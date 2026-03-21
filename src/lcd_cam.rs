@@ -102,7 +102,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         let mut config = i8080::Config::default().with_frequency(frequency);
         #[cfg(feature = "invert-clock")]
         let config = config.with_clock_mode(ClockMode {
-            polarity: Polarity::IdleHigh,
+            polarity: Polarity::IdleLow,
             phase: Phase::ShiftHigh,
         });
         let i8080 = I8080::new(lcd_cam.lcd, channel, config).map_err(Hub75Error::I8080)?;
