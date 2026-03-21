@@ -100,10 +100,11 @@ variants.
 This library should work with any "normal" RGB matrix panels. The following panels have been
 tested and confirmed to work:
 
-| Panel | Scan Rate | Row Driver | Column Driver |
-|-------|-----------|------------|---------------|
+| Panel | Scan Rate | Column Driver | Row Driver |
+|-------|-----------|---------------|------------|
 | Waveshare RGB-Matrix-P3-64x64 | 1/32 | SM5166 | SM16208 |
-| Waveshare RGB-Matrix-P3-64x32 | 1/16 | SM5166 | ICN2037 |
+| Waveshare RGB-Matrix-P3-64x32 | 1/16 | ICN2037 | SM5166 |
+| Generic 64x32 | 1/16 | DP5125D | RUC7258E |
 
 **Note**: Help us grow this list! Please let us know of other working and non working panels/chips.
 
