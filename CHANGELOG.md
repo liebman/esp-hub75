@@ -11,13 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0] - 2026-03-21
 
-### Breaking Changes
+### ⚠️ Breaking
 
-* **ESP32 (I2S parallel):** Fixed the default clock polarity. The ESP32 I2S
-  driver was using the wrong polarity — data was changing on the rising edge of
-  CLK, but HUB75 panels latch data on the rising edge so data must be stable at
-  that point. The default now matches the ESP32-S3 and ESP32-C6 drivers, with
-  data changing on the falling edge of CLK. If your panel relied on the old
+* **ESP32 (I2S parallel) and ESP32-C6:** Fixed the default clock polarity.
+  Both were using the wrong polarity — data was changing on the rising edge of
+  CLK, but most HUB75 panels latch data on the rising edge so data must be
+  stable at that point. The default is now correct for most panels, with data
+  changing on the falling edge of CLK. If your panel relied on the old
   (incorrect) polarity, enable the `invert-clock` feature.
 
 ### Added
