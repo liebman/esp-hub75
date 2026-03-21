@@ -7,11 +7,17 @@ use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
+#[cfg(feature = "invert-clock")]
+use esp_hal::lcd_cam::lcd::ClockMode;
+#[cfg(feature = "invert-clock")]
+use esp_hal::lcd_cam::lcd::Phase;
+#[cfg(feature = "invert-clock")]
+use esp_hal::lcd_cam::lcd::Polarity;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::peripherals::LCD_CAM;
-use esp_hal::time::Rate;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
+use esp_hal::time::Rate;
 
 use crate::framebuffer::FrameBuffer;
 use crate::framebuffer::WordSize;
@@ -92,12 +98,14 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
     ) -> Result<Self, Hub75Error> {
-        let i8080 = I8080::new(
-            lcd_cam.lcd,
-            channel,
-            i8080::Config::default().with_frequency(frequency),
-        )
-        .map_err(Hub75Error::I8080)?;
+        #[allow(unused_mut)]
+        let mut config = i8080::Config::default().with_frequency(frequency);
+        #[cfg(feature = "invert-clock")]
+        let config = config.with_clock_mode(ClockMode {
+            polarity: Polarity::IdleHigh,
+            phase: Phase::ShiftHigh,
+        });
+        let i8080 = I8080::new(lcd_cam.lcd, channel, config).map_err(Hub75Error::I8080)?;
         let i8080 = hub75_pins.apply(i8080);
         Ok(Self {
             i8080,
