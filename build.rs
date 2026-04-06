@@ -12,7 +12,7 @@ macro_rules! assert_unique_used_features {
 fn main() {
     // NOTE: update when adding new device support!
     // Ensure that exactly one chip has been specified:
-    assert_unique_used_features!("esp32", "esp32c6", "esp32s3");
+    assert_unique_used_features!("esp32", "esp32c6", "esp32s3", "esp32s3-idf");
 
     let target = std::env::var("TARGET").unwrap();
 
@@ -32,6 +32,17 @@ fn main() {
             "feature esp32s3 does not match target {target}"
         );
         println!("cargo:rustc-cfg=esp32s3");
+    }
+
+    #[cfg(feature = "esp32s3-idf")]
+    {
+        assert!(
+            target == "xtensa-esp32s3-espidf",
+            "feature esp32s3-idf requires target xtensa-esp32s3-espidf, got {target}"
+        );
+        println!("cargo:rustc-cfg=esp32s3_idf");
+        // Emit ESP-IDF link arguments (library paths, linker scripts, etc.)
+        embuild::espidf::sysenv::output();
     }
 
     #[cfg(feature = "esp32c6")]

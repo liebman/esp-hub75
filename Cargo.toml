@@ -28,10 +28,11 @@ embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
 esp-hal = { version = "1.0.0", default-features = false, features = [
     "requires-unstable",
-] }
+], optional = true }
+esp-idf-sys = { version = "0.37", optional = true }
 log = { version = "0.4.28", optional = true }
 hub75-framebuffer = { version = "0.6.0" }
-esp-bootloader-esp-idf = "0.4.0"
+esp-bootloader-esp-idf = { version = "0.4.0", optional = true }
 
 [dev-dependencies]
 defmt-rtt = { version = "1.1.0" }
@@ -52,6 +53,8 @@ default = []
 skip-black-pixels = ["hub75-framebuffer/skip-black-pixels"]
 iram = []
 esp32 = [
+    "dep:esp-hal",
+    "dep:esp-bootloader-esp-idf",
     "esp-bootloader-esp-idf/esp32",
     "esp-hal/esp32",
     "esp-backtrace/esp32",
@@ -61,6 +64,8 @@ esp32 = [
     "hub75-framebuffer/esp32-ordering",
 ]
 esp32s3 = [
+    "dep:esp-hal",
+    "dep:esp-bootloader-esp-idf",
     "esp-bootloader-esp-idf/esp32s3",
     "esp-hal/esp32s3",
     "esp-backtrace/esp32s3",
@@ -69,6 +74,8 @@ esp32s3 = [
     "hub75-framebuffer/esp-hal-dma",
 ]
 esp32c6 = [
+    "dep:esp-hal",
+    "dep:esp-bootloader-esp-idf",
     "esp-bootloader-esp-idf/esp32c6",
     "esp-hal/esp32c6",
     "esp-backtrace/esp32c6",
@@ -78,25 +85,38 @@ esp32c6 = [
 ]
 defmt = [
     "dep:defmt",
-    "esp-bootloader-esp-idf/defmt",
+    "esp-bootloader-esp-idf?/defmt",
     "esp-backtrace/defmt",
-    "esp-hal/defmt",
+    "esp-hal?/defmt",
     "hub75-framebuffer/defmt",
 ]
 log = [
     "dep:log",
-    "esp-bootloader-esp-idf/log-04",
+    "esp-bootloader-esp-idf?/log-04",
     "esp-backtrace/println",
-    "esp-hal/log-04",
+    "esp-hal?/log-04",
     "esp-println/auto",
     "esp-println/log-04",
     "esp-println/colors",
+]
+esp32s3-idf = [
+    "dep:esp-idf-sys",
+    "dep:embuild",
+    # Does NOT enable esp-hal, esp-backtrace, esp-rtos, etc.
+    # Does NOT enable hub75-framebuffer/esp-hal-dma (IDF takes raw *const c_void)
 ]
 invert-blank = [] # only for some latched implementations
 invert-clock = []
 
 # this feature is required for the docs.rs build and release builds to work
-esp-hal-unstable = ["esp-hal/unstable"]
+esp-hal-unstable = ["esp-hal?/unstable"]
+
+[[example]]
+name = "hello_lcd_cam_idf"
+required-features = ["esp32s3-idf"]
+
+[build-dependencies]
+embuild = { version = "0.33", optional = true }
 
 [package.metadata.docs.rs]
 features = ["esp32c6", "esp-hal-unstable"]
