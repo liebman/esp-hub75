@@ -1,8 +1,13 @@
-//! ESP32-S3 HUB75 driver using the ESP-IDF I80 (Intel 8080) LCD peripheral.
+//! ESP32-S3 / ESP32-P4 HUB75 driver using the ESP-IDF I80 (Intel 8080) LCD
+//! peripheral.
 //!
 //! This module drives HUB75 panels via the ESP-IDF's `esp_lcd_panel_io_i80`
 //! C API, which configures the LCD_CAM peripheral and its built-in GDMA
 //! channel automatically. No manual DMA descriptor management is required.
+//!
+//! Supported chips (via the corresponding Cargo feature):
+//! - `esp32s3-idf` — target `xtensa-esp32s3-espidf`
+//! - `esp32p4-idf` — target `riscv32imafc-esp-espidf`
 //!
 //! # Single-instance constraint
 //!
@@ -12,9 +17,8 @@
 //!
 //! # Memory
 //!
-//! The framebuffer must reside in internal SRAM. GDMA on ESP32-S3 cannot
-//! access PSRAM directly. This is the same constraint as the bare-metal
-//! `esp32s3` backend.
+//! The framebuffer must reside in internal SRAM. GDMA cannot access PSRAM
+//! directly. This is the same constraint as the bare-metal `esp32s3` backend.
 
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicI32;
@@ -42,22 +46,30 @@ use crate::Hub75IdfPins8;
 /// lines.
 const GPIO_NUM_NC: i32 = -1;
 
-/// Base address of GPIO_FUNCn_OUT_SEL_CFG registers on ESP32-S3.
-/// Each register is 4 bytes apart; bit 9 (`inv_sel`) inverts the output signal.
-const GPIO_OUT_SEL_CFG_BASE: u32 = 0x6000_4554;
+/// Base GPIO-matrix signal index for LCD_DATA_OUT[0].
+/// Data-line signals are contiguous: DATA[N] uses signal LCD_DATA_OUT0_SIGNAL +
+/// N.
+///
+/// ESP32-S3: LCD_DATA_OUT0_IDX = 133 (soc/gpio_sig_map.h)
+/// ESP32-P4: LCD_DATA_OUT_PAD_OUT0_IDX = 154 (soc/gpio_sig_map.h)
+#[cfg(feature = "esp32s3-idf")]
+const LCD_DATA_OUT0_SIGNAL: u32 = 133;
+#[cfg(feature = "esp32p4-idf")]
+const LCD_DATA_OUT0_SIGNAL: u32 = 154;
 
-/// Apply hardware output inversion to a GPIO via the ESP32-S3 GPIO matrix.
-///
-/// Sets bit 9 (`inv_sel`) of the GPIO_FUNCn_OUT_SEL_CFG register so the
-/// peripheral signal is inverted before reaching the pad.
-///
-/// # Safety
-/// Writes to a memory-mapped hardware register. Must only be called after the
-/// GPIO has been configured as an output by the IDF LCD driver.
-unsafe fn gpio_invert_output(gpio_num: i32) {
-    let reg = (GPIO_OUT_SEL_CFG_BASE + gpio_num as u32 * 4) as *mut u32;
-    reg.write_volatile(reg.read_volatile() | (1 << 9));
+// esp_rom_gpio_connect_out_signal is a ROM function present on all ESP32 chips.
+// It is not exposed through the esp-idf-sys bindings.h wrapper, so we declare
+// it directly. The linker resolves it via the IDF ROM linker scripts.
+extern "C" {
+    fn esp_rom_gpio_connect_out_signal(
+        gpio_num: u32,
+        signal_idx: u32,
+        out_inv: bool,
+        oen_inv: bool,
+    );
 }
+
+// ---- Static state (shared by both S3-IDF and P4-IDF) ----
 
 /// Flag set by the GDMA ISR callback when a color transfer completes.
 static TRANSFER_DONE: AtomicBool = AtomicBool::new(false);
@@ -68,7 +80,8 @@ static INSTANCE_TAKEN: AtomicBool = AtomicBool::new(false);
 /// BLANK GPIO number stored for use by the shutdown handler (-1 = none).
 static BLANK_GPIO_NUM: AtomicI32 = AtomicI32::new(-1);
 
-/// Shutdown handler registered with ESP-IDF via `esp_register_shutdown_handler`.
+/// Shutdown handler registered with ESP-IDF via
+/// `esp_register_shutdown_handler`.
 ///
 /// Drives the BLANK (OE) GPIO HIGH via the simple GPIO output path (bypassing
 /// the LCD peripheral) so the panel turns off before `esp_restart()` executes.
@@ -114,7 +127,7 @@ fn esp_check(ret: esp_err_t) -> Result<(), Hub75Error> {
     }
 }
 
-/// HUB75 LED matrix display driver for ESP32-S3 running ESP-IDF.
+/// HUB75 LED matrix display driver for ESP32-S3 / ESP32-P4 running ESP-IDF.
 ///
 /// Uses the ESP-IDF I80 (Intel 8080) LCD peripheral with automatic GDMA.
 /// Obtain an instance via [`Hub75::new`].
@@ -158,8 +171,9 @@ impl Hub75 {
         // --- I80 bus ---
         let mut bus_config: esp_lcd_i80_bus_config_t = unsafe { core::mem::zeroed() };
         // The IDF I80 bus driver requires a D/C GPIO even though HUB75 panels
-        // have no such signal. The user supplies any spare GPIO via Hub75IdfPins::dc_gpio().
-        // The driver will drive it HIGH during every color transfer; the panel ignores it.
+        // have no such signal. The user supplies any spare GPIO via
+        // Hub75IdfPins::dc_gpio(). The driver will drive it HIGH during every
+        // color transfer; the panel ignores it.
         bus_config.dc_gpio_num = pins.dc_gpio();
         bus_config.wr_gpio_num = pins.wr_gpio();
         // Must be set explicitly; zeroed() leaves clk_src = 0 = SOC_MOD_CLK_INVALID
@@ -167,7 +181,8 @@ impl Hub75 {
         bus_config.bus_width = bus_width;
         bus_config.max_transfer_bytes = max_transfer_bytes;
         // Copy data GPIO numbers into the fixed-size C array
-        // SAFETY: data_gpio_nums is [i32; 16] on ESP32-S3 (SOC_LCD_I80_BUS_WIDTH=16)
+        // SAFETY: data_gpio_nums is [i32; 16] (SOC_LCD_I80_BUS_WIDTH=16 on ESP32-S3 and
+        // ESP32-P4)
         for (i, &gpio) in data_gpios.iter().enumerate() {
             bus_config.data_gpio_nums[i] = gpio;
         }
@@ -205,11 +220,26 @@ impl Hub75 {
         }
 
         // Apply hardware output inversion to BLANK (OE) if required.
-        // The IDF LCD driver has already configured the GPIO as an output at
-        // this point, so writing to GPIO_FUNCn_OUT_SEL_CFG is safe.
+        // We use esp_rom_gpio_connect_out_signal() (a ROM function) rather than
+        // a direct register write so that the correct chip-specific signal
+        // routing path is used. Direct writes to GPIO_FUNCn_OUT_SEL_CFG can
+        // trigger hard faults on ESP32-P4 due to memory-protection constraints.
+        //
+        // The IDF I80 bus driver has already routed DATA[N] signals to the GPIO
+        // pads (with out_inv=false). We find which data slot the BLANK GPIO
+        // occupies and re-route that same signal with out_inv=true.
         let blank_gpio = pins.blank_gpio();
         if pins.invert_blank() {
-            unsafe { gpio_invert_output(blank_gpio) };
+            if let Some(slot) = data_gpios.iter().position(|&g| g == blank_gpio) {
+                unsafe {
+                    esp_rom_gpio_connect_out_signal(
+                        blank_gpio as u32,
+                        LCD_DATA_OUT0_SIGNAL + slot as u32,
+                        true,  // out_inv: invert the output signal
+                        false, // oen_inv: do not invert output-enable
+                    );
+                }
+            }
         }
 
         // Register a shutdown handler so the panel is blanked before any

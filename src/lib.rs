@@ -11,6 +11,7 @@
 //! peripheral available on each chip:
 //!
 //! - **ESP32-S3**: Uses the LCD_CAM peripheral (via `esp-hal` or `esp-idf`)
+//! - **ESP32-P4**: Uses the LCD_CAM peripheral (via `esp-idf`)
 //! - **ESP32-C6**: Uses the PARL_IO peripheral
 //! - **ESP32**: Uses the I2S peripheral in parallel mode
 //!
@@ -27,6 +28,7 @@
 //! - `esp32`: Enable support for the ESP32
 //! - `esp32s3`: Enable support for the ESP32-S3 (bare-metal, via `esp-hal`)
 //! - `esp32s3-idf`: Enable support for the ESP32-S3 running ESP-IDF (std/FreeRTOS)
+//! - `esp32p4-idf`: Enable support for the ESP32-P4 running ESP-IDF (std/FreeRTOS)
 //! - `esp32c6`: Enable support for the ESP32-C6
 //! - `defmt`: Enable logging with `defmt`
 //! - `log`: Enable logging with the `log` crate
@@ -48,17 +50,18 @@
 //! This crate uses `unsafe` code to interface with hardware peripherals, but it
 //! exposes a safe, high-level API.
 
-// no_std for all bare-metal targets; std is available when using esp32s3-idf
-#![cfg_attr(not(feature = "esp32s3-idf"), no_std)]
+// no_std for all bare-metal targets; std is available when using an IDF backend
+#![cfg_attr(not(feature = "idf_backend"), no_std)]
 #![warn(missing_docs)]
 
 // esp-hal pin types are only used by the bare-metal backends
-#[cfg(not(feature = "esp32s3-idf"))]
+#[cfg(not(feature = "idf_backend"))]
 use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(feature = "esp32s3-idf", path = "lcd_cam_idf.rs")]
+#[cfg_attr(feature = "esp32p4-idf", path = "lcd_cam_idf.rs")]
 #[cfg_attr(feature = "esp32c6", path = "parl_io.rs")]
 mod hub75;
 pub use hub75::Hub75;
@@ -71,7 +74,7 @@ pub use hub75_framebuffer::Color;
 ///
 /// This configuration requires 16 bits of data per pixel transfer, as the row
 /// address lines are driven directly along with the color data.
-#[cfg(not(feature = "esp32s3-idf"))]
+#[cfg(not(feature = "idf_backend"))]
 pub struct Hub75Pins16<'d> {
     /// Red data line for the upper half of the display
     pub red1: AnyPin<'d>,
@@ -111,7 +114,7 @@ pub struct Hub75Pins16<'d> {
 /// external latch on the controller board. For an example of a latch circuit,
 /// see the [`hub75-framebuffer` crate documentation](https://crates.io/crates/hub75-framebuffer)
 /// and its [GitHub repository](https://github.com/liebman/hub75-framebuffer).
-#[cfg(not(feature = "esp32s3-idf"))]
+#[cfg(not(feature = "idf_backend"))]
 pub struct Hub75Pins8<'d> {
     /// Red data line for the upper half of the display
     pub red1: AnyPin<'d>,
@@ -134,7 +137,7 @@ pub struct Hub75Pins8<'d> {
 }
 
 /// Pin configuration for a HUB75 panel without an external address latch,
-/// for use with the ESP-IDF backend (`esp32s3-idf` feature).
+/// for use with the ESP-IDF backend (`esp32s3-idf` or `esp32p4-idf` feature).
 ///
 /// All pins are specified as raw GPIO numbers (`i32`).
 /// Use `.pin()` from `esp_idf_hal::gpio::Pin` to convert typed pin handles
@@ -149,7 +152,7 @@ pub struct Hub75Pins8<'d> {
 /// even though HUB75 panels have no such signal. Assign any spare GPIO; the
 /// driver drives it HIGH throughout every color transfer and the panel ignores
 /// it. The pin does not need to be connected to anything on the panel side.
-#[cfg(feature = "esp32s3-idf")]
+#[cfg(feature = "idf_backend")]
 #[derive(Copy, Clone)]
 pub struct Hub75IdfPins16 {
     /// Red data line for the upper half of the display
@@ -186,7 +189,7 @@ pub struct Hub75IdfPins16 {
 }
 
 /// Pin configuration for a HUB75 panel with an external address latch,
-/// for use with the ESP-IDF backend (`esp32s3-idf` feature).
+/// for use with the ESP-IDF backend (`esp32s3-idf` or `esp32p4-idf` feature).
 ///
 /// All pins are specified as raw GPIO numbers (`i32`).
 /// Use `.pin()` from `esp_idf_hal::gpio::Pin` to convert typed pin handles
@@ -199,7 +202,7 @@ pub struct Hub75IdfPins16 {
 /// even though HUB75 panels have no such signal. Assign any spare GPIO; the
 /// driver drives it HIGH throughout every color transfer and the panel ignores
 /// it. The pin does not need to be connected to anything on the panel side.
-#[cfg(feature = "esp32s3-idf")]
+#[cfg(feature = "idf_backend")]
 pub struct Hub75IdfPins8 {
     /// Red data line for the upper half of the display
     pub red1: i32,
@@ -229,7 +232,7 @@ pub struct Hub75IdfPins8 {
 /// Implemented by [`Hub75IdfPins16`] and [`Hub75IdfPins8`].
 /// Provides the GPIO numbers and bus width needed to configure the
 /// ESP-IDF I80 LCD bus.
-#[cfg(feature = "esp32s3-idf")]
+#[cfg(feature = "idf_backend")]
 pub trait Hub75IdfPins {
     /// Number of data bus lines (8 or 16).
     fn bus_width(&self) -> usize;
@@ -271,7 +274,7 @@ pub trait Hub75Pins<'d> {
 ///
 /// # Type Parameters
 /// * `T` - The target pin configuration type for the specific peripheral.
-#[cfg(not(any(feature = "esp32s3", feature = "esp32s3-idf")))]
+#[cfg(not(any(feature = "esp32s3", feature = "idf_backend")))]
 pub trait Hub75Pins<'d, T> {
     /// Converts the high-level pin definition into the peripheral-specific
     /// format needed by the driver.
@@ -289,15 +292,15 @@ pub trait Hub75Pins<'d, T> {
 /// and buffer management modules into a single type for easier error handling.
 #[derive(Debug)]
 #[cfg_attr(
-    all(feature = "defmt", not(feature = "esp32s3-idf")),
+    all(feature = "defmt", not(feature = "idf_backend")),
     derive(defmt::Format)
 )]
 pub enum Hub75Error {
     /// Error occurred during DMA transfer operations (bare-metal backends)
-    #[cfg(not(feature = "esp32s3-idf"))]
+    #[cfg(not(feature = "idf_backend"))]
     Dma(esp_hal::dma::DmaError),
     /// Error occurred while managing DMA buffers (bare-metal backends)
-    #[cfg(not(feature = "esp32s3-idf"))]
+    #[cfg(not(feature = "idf_backend"))]
     DmaBuf(esp_hal::dma::DmaBufError),
     /// Error from the PARL_IO peripheral (ESP32-C6 only)
     #[cfg(feature = "esp32c6")]
@@ -308,19 +311,19 @@ pub enum Hub75Error {
     /// Configuration error for the I8080 interface (ESP32-S3 bare-metal only)
     #[cfg(feature = "esp32s3")]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
-    /// Error from the ESP-IDF LCD driver (ESP32-S3 IDF only)
-    #[cfg(feature = "esp32s3-idf")]
+    /// Error from the ESP-IDF LCD driver (IDF backends only)
+    #[cfg(feature = "idf_backend")]
     Idf(esp_idf_sys::EspError),
 }
 
-#[cfg(not(feature = "esp32s3-idf"))]
+#[cfg(not(feature = "idf_backend"))]
 impl From<esp_hal::dma::DmaError> for Hub75Error {
     fn from(e: esp_hal::dma::DmaError) -> Self {
         Self::Dma(e)
     }
 }
 
-#[cfg(not(feature = "esp32s3-idf"))]
+#[cfg(not(feature = "idf_backend"))]
 impl From<esp_hal::dma::DmaBufError> for Hub75Error {
     fn from(e: esp_hal::dma::DmaBufError) -> Self {
         Self::DmaBuf(e)
@@ -341,7 +344,7 @@ impl From<esp_hal::parl_io::ConfigError> for Hub75Error {
     }
 }
 
-#[cfg(feature = "esp32s3-idf")]
+#[cfg(feature = "idf_backend")]
 impl From<esp_idf_sys::EspError> for Hub75Error {
     fn from(e: esp_idf_sys::EspError) -> Self {
         Self::Idf(e)

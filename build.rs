@@ -12,7 +12,7 @@ macro_rules! assert_unique_used_features {
 fn main() {
     // NOTE: update when adding new device support!
     // Ensure that exactly one chip has been specified:
-    assert_unique_used_features!("esp32", "esp32c6", "esp32s3", "esp32s3-idf");
+    assert_unique_used_features!("esp32", "esp32c6", "esp32s3", "esp32s3-idf", "esp32p4-idf");
 
     let target = std::env::var("TARGET").unwrap();
 
@@ -41,6 +41,19 @@ fn main() {
             "feature esp32s3-idf requires target xtensa-esp32s3-espidf, got {target}"
         );
         println!("cargo:rustc-cfg=esp32s3_idf");
+        println!("cargo:rustc-cfg=idf_backend");
+        // Emit ESP-IDF link arguments (library paths, linker scripts, etc.)
+        embuild::espidf::sysenv::output();
+    }
+
+    #[cfg(feature = "esp32p4-idf")]
+    {
+        assert!(
+            target == "riscv32imafc-esp-espidf",
+            "feature esp32p4-idf requires target riscv32imafc-esp-espidf, got {target}"
+        );
+        println!("cargo:rustc-cfg=esp32p4_idf");
+        println!("cargo:rustc-cfg=idf_backend");
         // Emit ESP-IDF link arguments (library paths, linker scripts, etc.)
         embuild::espidf::sysenv::output();
     }
