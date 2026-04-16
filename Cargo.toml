@@ -20,31 +20,31 @@ debug = true    # Symbols are nice and they don't increase the size on Flash
 opt-level = "s"
 
 [dependencies]
-bitfield = { version = "0.19.1" }
+bitfield = { version = "0.19.4" }
 cfg-if = "1.0.4"
 defmt = { version = "1.0.1", optional = true }
-embedded-graphics = { version = "0.8.1" }
+embedded-graphics = { version = "0.8.2" }
 embedded-hal = { version = "1.0.0" }
 embedded-hal-async = { version = "1.0.0" }
-esp-hal = { version = "1.0.0", default-features = false, features = [
+esp-hal = { version = "=1.1.0-rc.0", default-features = false, features = [
     "requires-unstable",
 ] }
-log = { version = "0.4.28", optional = true }
-hub75-framebuffer = { version = "0.6.0" }
-esp-bootloader-esp-idf = "0.4.0"
+log = { version = "0.4.29", optional = true }
+hub75-framebuffer = { version = "0.6.0", git = "https://github.com/liebman/hub75-framebuffer.git", branch = "esp-hal-1.1" }
+esp-bootloader-esp-idf = "0.5.0"
 
 [dev-dependencies]
 defmt-rtt = { version = "1.1.0" }
-embassy-embedded-hal = { version = "0.5.0" }
-embassy-executor = { version = "0.9.1" }
+embassy-embedded-hal = { version = "0.6.0" }
+embassy-executor = { version = "0.10.0" }
 embassy-futures = { version = "0.1.1" }
-embassy-sync = { version = "0.7.2" }
-embassy-time = { version = "0.5.0", features = [] }
-esp-backtrace = { version = "0.18.1", features = ["panic-handler"] }
-esp-hal = { version = "1.0.0", features = ["unstable"] }
-esp-println = { version = "0.16.1" }
-esp-rtos = { version = "0.2.0", features = ["embassy"] }
-heapless = { version = "0.8.0", features = ["ufmt"] }
+embassy-sync = { version = "0.8.0" }
+embassy-time = { version = "0.5.1", features = [] }
+esp-backtrace = { version = "0.19.0", features = ["panic-handler"] }
+esp-hal = { version = "=1.1.0-rc.0", features = ["unstable"] }
+esp-println = { version = "0.17.0" }
+esp-rtos = { version = "0.3.0", features = ["embassy"] }
+heapless = { version = "0.9.2", features = ["ufmt"] }
 static_cell = { version = "2.1.1" }
 
 [features]
