@@ -344,12 +344,10 @@ async fn main(spawner: Spawner) {
         InterruptExecutor::new(software_interrupt)
     );
     let high_pri_spawner = hp_executor.start(Priority::Priority3);
-    high_pri_spawner
-        .spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1))
-        .ok();
+    high_pri_spawner.spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1).unwrap());
 
     // display task runs as low priority task
-    spawner.spawn(display_task(&TX, &RX, fb0)).ok();
+    spawner.spawn(display_task(&TX, &RX, fb0).unwrap());
 
     loop {
         if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= 99999 {

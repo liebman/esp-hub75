@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+* bump `esp-hal` to `1.1.0`
+* bump `hub75-framebuffer` to `0.7.0`
+
 ## [0.9.0] - 2026-03-21
 
 ### ⚠️ Breaking
