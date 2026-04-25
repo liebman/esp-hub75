@@ -2,6 +2,8 @@ use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
+use esp_hal::dma::DmaTxBuffer;
+use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::I2sParallel;
@@ -93,16 +95,10 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
     /// cannot be started
     #[cfg_attr(feature = "iram", ram)]
-    pub fn render<
-        const ROWS: usize,
-        const COLS: usize,
-        const NROWS: usize,
-        const BITS: u8,
-        const FRAME_COUNT: usize,
-    >(
+    pub fn render(
         self,
-        fb: &impl FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
-    ) -> Result<Hub75Transfer<'d, DM>, (Hub75Error, Self)> {
+        fb: &(impl FrameBuffer + ReadBuffer),
+    ) -> Result<Hub75Transfer<'d, DmaTxBuf, DM>, (Hub75Error, Self)> {
         let i2s = self.i2s;
         let tx_descriptors = self.tx_descriptors;
         let tx_buffer = unsafe {
@@ -110,7 +106,6 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
             // SAFETY: tx_buffer is only used until the tx_buf.split below!
             core::slice::from_raw_parts_mut(ptr as *mut u8, len)
         };
-        // TODO: can't recover from this because tx_descriptors is consumed!
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("DmaTxBuf::new failed");
         let xfer = i2s.send(tx_buf).map_err(|(e, i2s, buf)| {
             let (tx_descriptors, _) = buf.split();
@@ -122,7 +117,51 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
                 },
             )
         })?;
-        Ok(Hub75Transfer { xfer })
+        Ok(Hub75Transfer {
+            xfer,
+            tx_descriptors: None,
+        })
+    }
+
+    #[cfg_attr(feature = "iram", ram)]
+    /// Renders using a caller-provided DMA transmit buffer.
+    ///
+    /// This is the generic render path for custom [`DmaTxBuffer`]
+    /// implementations such as
+    /// [`hub75_framebuffer::bitplane::latched::BcmDmaTxBuf`], where descriptor chaining
+    /// defines transfer timing/weighting.
+    ///
+    /// # Arguments
+    /// * `buf` - DMA buffer implementing [`DmaTxBuffer`].
+    ///
+    /// # Returns
+    /// A [`Hub75Transfer`] which can be awaited and then consumed via
+    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer and
+    /// the driver instance.
+    ///
+    /// # Errors
+    /// Returns a tuple of `Hub75Error`, the recovered `Hub75` instance, and the
+    /// original buffer if the transfer cannot be started.
+    pub fn render_buf<BUF: DmaTxBuffer>(
+        self,
+        buf: BUF,
+    ) -> Result<Hub75Transfer<'d, BUF, DM>, (Hub75Error, Self, BUF)> {
+        let i2s = self.i2s;
+        let tx_descriptors = self.tx_descriptors;
+        match i2s.send(buf) {
+            Ok(xfer) => Ok(Hub75Transfer {
+                xfer,
+                tx_descriptors: Some(tx_descriptors),
+            }),
+            Err((e, i2s, buf)) => Err((
+                e.into(),
+                Self {
+                    i2s,
+                    tx_descriptors,
+                },
+                buf,
+            )),
+        }
     }
 }
 
@@ -131,11 +170,12 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
 /// This struct is returned by `Hub75::render` and can be used to wait for the
 /// transfer to complete. It provides both blocking and async methods for
 /// waiting.
-pub struct Hub75Transfer<'d, DM: esp_hal::DriverMode> {
-    xfer: I2sParallelTransfer<'d, DmaTxBuf, DM>,
+pub struct Hub75Transfer<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> {
+    xfer: I2sParallelTransfer<'d, BUF, DM>,
+    tx_descriptors: Option<&'static mut [DmaDescriptor]>,
 }
 
-impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
+impl<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> Hub75Transfer<'d, BUF, DM> {
     /// Checks if the transfer is complete
     ///
     /// # Returns
@@ -145,6 +185,28 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
         self.xfer.is_done()
     }
 
+    /// Waits for transfer completion and returns the finalized buffer plus hub.
+    #[cfg_attr(feature = "iram", ram)]
+    pub fn wait_with_buf(self) -> (Result<(), DmaError>, BUF::Final, Hub75<'d, DM>) {
+        let Hub75Transfer {
+            xfer,
+            tx_descriptors,
+        } = self;
+        let (i2s, final_buf) = xfer.wait();
+        let tx_descriptors = tx_descriptors
+            .expect("wait_with_buf is only supported for render_buf()-started transfers");
+        (
+            Ok(()),
+            final_buf,
+            Hub75 {
+                i2s,
+                tx_descriptors,
+            },
+        )
+    }
+}
+
+impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DmaTxBuf, DM> {
     /// Waits for the transfer to complete
     ///
     /// # Returns
@@ -168,7 +230,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     }
 }
 
-impl Hub75Transfer<'_, esp_hal::Async> {
+impl<BUF: DmaTxBuffer> Hub75Transfer<'_, BUF, esp_hal::Async> {
     /// Asynchronously waits for the transfer to complete
     ///
     /// # Returns

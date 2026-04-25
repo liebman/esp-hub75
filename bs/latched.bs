@@ -1,0 +1,49 @@
+# ESP32-C5 HUB75 "Paired Read" Driver
+# output:
+# pin 0 is R1
+# pin 1 is G1
+# pin 2 is B1
+# pin 3 is R2
+# pin 4 is G2
+# pin 5 is B2
+# pin 6 is LATCH
+# pin 7 is OE
+#
+
+cfg eof_on downstream
+cfg trailing_bytes 3
+cfg prefetch false
+
+# Slot 0: Pixel Shift Loop
+# DMA feeds the packed pixels first.
+# Map colors to pins. Bit 7 is EOR.
+# If EOR is 1 (True), jump back to pixel_loop. If 0 (Last Pixel), fall through.
+pixel_loop:
+    read 8, set 0..5 0..5, set 6 l, set 7 h, write 8, ifn 7 pixel_loop
+
+# Slot 1: Read Header & Latch Address High
+# The pixels are shifted. DMA now feeds the 32-bit Header!
+# ldctia pulls the Delay (High 16 bits).
+# We output the Address (Low 5 bits) and pulse LATCH High.
+read_header:
+    read 32, ldctia, set 0..4 0..4, set 6 h, set 7 h, set 16..31 16..31, write 8
+
+# Slot 2: Lock Address
+# Latch Low. The shift registers are now locked to the panel outputs.
+lock_addr:
+    set 0..4 0..4, set 6 l, set 7 h, write 8
+
+# Slot 3: LEDs ON
+# Commit OE Low to the pins ONCE.
+leds_on:
+    set 6 l, set 7 l, write 8
+
+# Slot 4: BCM Wait
+# Drop OE Low (LEDs ON).
+# Loop this slot until Counter A hits 0.
+#bcm_hold:
+#    loopa 65535 1 bcm_hold
+
+# Slot 5: Anti-Ghosting & Loop Back
+# OE High (LEDs OFF) before jumping back to shift the next row's pixels.
+    read 32,set 6 l, set 7 h, write 8, jmp pixel_loop

@@ -53,7 +53,7 @@ use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
-#[cfg_attr(feature = "esp32c6", path = "parl_io.rs")]
+#[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
 mod hub75;
 pub use hub75::Hub75;
 pub use hub75::Hub75Transfer;
@@ -170,10 +170,10 @@ pub enum Hub75Error {
     /// Error occurred while managing DMA buffers
     DmaBuf(esp_hal::dma::DmaBufError),
     /// Error from the PARL_IO peripheral (ESP32-C6 only)
-    #[cfg(feature = "esp32c6")]
+    #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
     ParlIo(esp_hal::parl_io::Error),
     /// Configuration error for the PARL_IO peripheral (ESP32-C6 only)
-    #[cfg(feature = "esp32c6")]
+    #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
     ConfigError(esp_hal::parl_io::ConfigError),
     /// Configuration error for the I8080 interface (ESP32-S3 only)
     #[cfg(feature = "esp32s3")]
@@ -192,14 +192,14 @@ impl From<esp_hal::dma::DmaBufError> for Hub75Error {
     }
 }
 
-#[cfg(feature = "esp32c6")]
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
 impl From<esp_hal::parl_io::Error> for Hub75Error {
     fn from(e: esp_hal::parl_io::Error) -> Self {
         Self::ParlIo(e)
     }
 }
 
-#[cfg(feature = "esp32c6")]
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
 impl From<esp_hal::parl_io::ConfigError> for Hub75Error {
     fn from(e: esp_hal::parl_io::ConfigError) -> Self {
         Self::ConfigError(e)

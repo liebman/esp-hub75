@@ -56,9 +56,9 @@ use esp_hal::interrupt::Priority;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hub75::framebuffer::compute_frame_count;
+use esp_hub75::framebuffer::bitplane::latched::BcmDmaTxBuf;
+use esp_hub75::framebuffer::bitplane::latched::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::framebuffer::latched::DmaFrameBuffer;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins8;
@@ -68,13 +68,12 @@ use heapless::String;
 use log::info;
 
 esp_bootloader_esp_idf::esp_app_desc!();
-
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
+        let x = STATIC_CELL.uninit().write($val);
         x
     }};
 }
@@ -85,16 +84,15 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
-const FRAME_COUNT: usize = compute_frame_count(BITS);
+const PLANES: usize = 8;
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;
 const LINE3: i32 = ROWS as i32 - 1;
 const NBARS: i32 = ROWS as i32 / 8;
 
-type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
+type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals<'d> {
@@ -219,7 +217,13 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
+    let (_, hub75_tx_descriptors) = esp_hal::dma_descriptors!(0, 4);
+    const BCM_DESC_COUNT: usize = FBType::bcm_descriptor_count();
+    let mut bcm_tx_descriptors: &'static mut [esp_hal::dma::DmaDescriptor] = mk_static!(
+        [esp_hal::dma::DmaDescriptor; BCM_DESC_COUNT],
+        [esp_hal::dma::DmaDescriptor::EMPTY; BCM_DESC_COUNT]
+    )
+    .as_mut_slice();
 
     let pins = Hub75Pins8 {
         red1: peripherals.red1,
@@ -237,10 +241,18 @@ async fn hub75_task(
         peripherals.parl_io,
         pins,
         channel,
-        tx_descriptors,
+        hub75_tx_descriptors,
         Rate::from_mhz(20),
     )
     .expect("failed to create Hub75!");
+    #[cfg(feature = "esp32c5")]
+    unsafe {
+        // on the C5 we don't need to tell PARL_IO how many bytes are in the transfer
+        use esp32c5 as pac;
+        let pio = pac::PARL_IO::steal();
+        pio.tx_genrl_cfg()
+            .modify(|_, w| w.tx_eof_gen_sel().set_bit().tx_gating_en().set_bit());
+    }
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -262,16 +274,24 @@ async fn hub75_task(
             fb = new_fb;
         }
 
+        let bcm_buf =
+            BcmDmaTxBuf::new(fb, bcm_tx_descriptors).expect("failed to create bcm tx buf");
         let mut xfer = hub75
-            .render(fb)
-            .map_err(|(e, _hub75)| e)
+            .render_buf(0, bcm_buf)
+            .map_err(|(e, _hub75, _buf)| e)
             .expect("failed to start render!");
         xfer.wait_for_done()
             .await
             .expect("rendering wait_for_done failed!");
-        let (result, new_hub75) = xfer.wait();
+        let (result, bcm_buf, new_hub75) = xfer.wait_with_buf();
+        let (new_fb, new_bcm_tx_descriptors) = bcm_buf.split();
+        fb = new_fb;
+        bcm_tx_descriptors = new_bcm_tx_descriptors;
         hub75 = new_hub75;
-        result.expect("transfer failed");
+        if let Err(e) = result {
+            info!("transfer failed: {:?}", e);
+            continue;
+        }
 
         count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -298,8 +318,7 @@ async fn main(spawner: Spawner) {
     });
     info!("ROWS: {}", ROWS);
     info!("COLS: {}", COLS);
-    info!("BITS: {}", BITS);
-    info!("FRAMES: {}", FRAME_COUNT);
+    info!("PLANES: {}", PLANES);
     info!("FB size: {}", core::mem::size_of::<FBType>());
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
@@ -316,7 +335,9 @@ async fn main(spawner: Spawner) {
 
     info!("init framebuffers");
     let fb0 = mk_static!(FBType, FBType::new());
+    fb0.erase();
     let fb1 = mk_static!(FBType, FBType::new());
+    fb1.erase();
 
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);
@@ -342,7 +363,7 @@ async fn main(spawner: Spawner) {
         red1: peripherals.GPIO9.degrade(),
         grn1: peripherals.GPIO8.degrade(),
         blu1: peripherals.GPIO7.degrade(),
-        red2: peripherals.GPIO6.degrade(),
+        red2: peripherals.GPIO0.degrade(), // GPIO6 did not work on waveshare ESP32-C5 board?
         grn2: peripherals.GPIO10.degrade(),
         blu2: peripherals.GPIO1.degrade(),
         blank: peripherals.GPIO23.degrade(), // GPIO27 on ESP32-C5 waveshare board is LED.....

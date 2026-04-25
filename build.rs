@@ -12,7 +12,7 @@ macro_rules! assert_unique_used_features {
 fn main() {
     // NOTE: update when adding new device support!
     // Ensure that exactly one chip has been specified:
-    assert_unique_used_features!("esp32", "esp32c6", "esp32s3");
+    assert_unique_used_features!("esp32", "esp32c5", "esp32c6", "esp32s3");
 
     let target = std::env::var("TARGET").unwrap();
 
@@ -32,6 +32,15 @@ fn main() {
             "feature esp32s3 does not match target {target}"
         );
         println!("cargo:rustc-cfg=esp32s3");
+    }
+
+    #[cfg(feature = "esp32c5")]
+    {
+        assert!(
+            target == "riscv32imac-unknown-none-elf",
+            "feature esp32c5 does not match target {target}"
+        );
+        println!("cargo:rustc-cfg=esp32c5");
     }
 
     #[cfg(feature = "esp32c6")]

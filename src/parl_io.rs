@@ -2,7 +2,10 @@ use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
 use esp_hal::dma::DmaTxBuf;
+use esp_hal::dma::DmaTxBuffer;
+use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::AnyPin;
+#[cfg(not(feature = "esp32c5"))]
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
@@ -14,6 +17,7 @@ use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxEightBits;
 use esp_hal::parl_io::TxPins;
+#[cfg(not(feature = "esp32c5"))]
 use esp_hal::parl_io::TxSixteenBits;
 use esp_hal::peripherals::PARL_IO;
 #[cfg(feature = "iram")]
@@ -23,6 +27,7 @@ use esp_hal::time::Rate;
 use crate::framebuffer::FrameBuffer;
 use crate::Hub75Error;
 use crate::Hub75Pins;
+#[cfg(not(feature = "esp32c5"))]
 use crate::Hub75Pins16;
 use crate::Hub75Pins8;
 /// HUB75 LED matrix display driver
@@ -130,16 +135,10 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
     /// cannot be started
     #[cfg_attr(feature = "iram", ram)]
-    pub fn render<
-        const ROWS: usize,
-        const COLS: usize,
-        const NROWS: usize,
-        const BITS: u8,
-        const FRAME_COUNT: usize,
-    >(
+    pub fn render(
         self,
-        fb: &impl FrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>,
-    ) -> Result<Hub75Transfer<'d, DM>, (Hub75Error, Self)> {
+        fb: &(impl FrameBuffer + ReadBuffer),
+    ) -> Result<Hub75Transfer<'d, DmaTxBuf, DM>, (Hub75Error, Self)> {
         let parl_io = self.parl_io;
         let tx_descriptors = self.tx_descriptors;
         let tx_buffer = unsafe {
@@ -150,8 +149,6 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         // TODO: can't recover from this because tx_descriptors is consumed!
         let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("failed to create DmaTxBuf!");
 
-        // TODO: parl_io has a max size limit of 32736 bytes so we need to send the
-        // framebuffer in chunks
         let xfer = parl_io
             .write(tx_buf.len(), tx_buf)
             .map_err(|(e, parl_io, buf)| {
@@ -164,7 +161,53 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
                     },
                 )
             })?;
-        Ok(Hub75Transfer { xfer })
+        Ok(Hub75Transfer {
+            xfer,
+            tx_descriptors: None,
+        })
+    }
+
+    #[cfg_attr(feature = "iram", ram)]
+    /// Renders using a caller-provided DMA transmit buffer.
+    ///
+    /// This is the generic render path for custom [`DmaTxBuffer`]
+    /// implementations such as
+    /// [`hub75_framebuffer::bitplane::latched::BcmDmaTxBuf`], where descriptor chaining
+    /// defines transfer timing/weighting.
+    ///
+    /// # Arguments
+    /// * `len` - Number of bytes to transmit with PARL_IO.
+    /// * `buf` - DMA buffer implementing [`DmaTxBuffer`].
+    ///
+    /// # Returns
+    /// A [`Hub75Transfer`] which can be awaited and then consumed via
+    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer and
+    /// the driver instance.
+    ///
+    /// # Errors
+    /// Returns a tuple of `Hub75Error`, the recovered `Hub75` instance, and the
+    /// original buffer if the transfer cannot be started.
+    pub fn render_buf<BUF: DmaTxBuffer>(
+        self,
+        len: usize,
+        buf: BUF,
+    ) -> Result<Hub75Transfer<'d, BUF, DM>, (Hub75Error, Self, BUF)> {
+        let parl_io = self.parl_io;
+        let tx_descriptors = self.tx_descriptors;
+        match parl_io.write(len, buf) {
+            Ok(xfer) => Ok(Hub75Transfer {
+                xfer,
+                tx_descriptors: Some(tx_descriptors),
+            }),
+            Err((e, parl_io, buf)) => Err((
+                e.into(),
+                Self {
+                    parl_io,
+                    tx_descriptors,
+                },
+                buf,
+            )),
+        }
     }
 }
 
@@ -172,11 +215,12 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
 ///
 /// This struct is returned by `Hub75::render` and can be used to wait for the
 /// transfer to complete.
-pub struct Hub75Transfer<'d, DM: esp_hal::DriverMode> {
-    xfer: ParlIoTxTransfer<'d, DmaTxBuf, DM>,
+pub struct Hub75Transfer<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> {
+    xfer: ParlIoTxTransfer<'d, BUF, DM>,
+    tx_descriptors: Option<&'static mut [DmaDescriptor]>,
 }
 
-impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
+impl<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> Hub75Transfer<'d, BUF, DM> {
     /// Checks if the transfer is complete
     ///
     /// # Returns
@@ -186,6 +230,28 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
         self.xfer.is_done()
     }
 
+    /// Waits for transfer completion and returns the finalized buffer plus hub.
+    #[cfg_attr(feature = "iram", ram)]
+    pub fn wait_with_buf(self) -> (Result<(), DmaError>, BUF::Final, Hub75<'d, DM>) {
+        let Hub75Transfer {
+            xfer,
+            tx_descriptors,
+        } = self;
+        let (result, parl_io, final_buf) = xfer.wait();
+        let tx_descriptors = tx_descriptors
+            .expect("wait_with_buf is only supported for render_buf()-started transfers");
+        (
+            result,
+            final_buf,
+            Hub75 {
+                parl_io,
+                tx_descriptors,
+            },
+        )
+    }
+}
+
+impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DmaTxBuf, DM> {
     /// Waits for the transfer to complete
     ///
     /// # Returns
@@ -218,7 +284,7 @@ impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DM> {
     }
 }
 
-impl Hub75Transfer<'_, esp_hal::Async> {
+impl<BUF: DmaTxBuffer> Hub75Transfer<'_, BUF, esp_hal::Async> {
     /// Asynchronously waits for the transfer to complete
     ///
     /// # Returns
@@ -235,6 +301,7 @@ impl Hub75Transfer<'_, esp_hal::Async> {
     }
 }
 
+#[cfg(not(feature = "esp32c5"))]
 impl<'d> Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let (_, blank) = unsafe { self.blank.split() };
