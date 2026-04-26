@@ -79,7 +79,7 @@ macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
+        let x = STATIC_CELL.uninit().write($val);
         x
     }};
 }
@@ -222,7 +222,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::plane_size_bytes());
 
     let pins = Hub75Pins16 {
         red1: peripherals.red1,

@@ -57,10 +57,9 @@ use esp_hal::peripherals::LCD_CAM;
 use esp_hal::system::Stack;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hub75::framebuffer::bitplane::latched::BcmDmaTxBuf;
 use esp_hub75::framebuffer::bitplane::latched::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::framebuffer::WordSize;
+use esp_hub75::BcmTxDmaBuf;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins8;
@@ -214,11 +213,11 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, hub75_tx_descriptors) = esp_hal::dma_descriptors!(0, 4);
-    const BCM_DESC_COUNT: usize = FBType::bcm_descriptor_count();
-    let mut bcm_tx_descriptors: &'static mut [esp_hal::dma::DmaDescriptor] = mk_static!(
-        [esp_hal::dma::DmaDescriptor; BCM_DESC_COUNT],
-        [esp_hal::dma::DmaDescriptor::EMPTY; BCM_DESC_COUNT]
+    const DESC_COUNT: usize =
+        BcmTxDmaBuf::descriptor_count_for(FBType::plane_count(), FBType::plane_size_bytes());
+    let hub75_tx_descriptors: &'static mut [esp_hal::dma::DmaDescriptor] = mk_static!(
+        [esp_hal::dma::DmaDescriptor; DESC_COUNT],
+        [esp_hal::dma::DmaDescriptor::EMPTY; DESC_COUNT]
     )
     .as_mut_slice();
 
@@ -260,19 +259,14 @@ async fn hub75_task(
             fb = new_fb;
         }
 
-        let bcm_buf =
-            BcmDmaTxBuf::new(fb, bcm_tx_descriptors).expect("failed to create bcm tx buf");
         let mut xfer = hub75
-            .render_buf(WordSize::Eight, bcm_buf)
-            .map_err(|(e, _hub75, _buf)| e)
+            .render(fb)
+            .map_err(|(e, _hub75)| e)
             .expect("failed to start render!");
         xfer.wait_for_done()
             .await
             .expect("rendering wait_for_done failed!");
-        let (result, bcm_buf, new_hub75) = xfer.wait_with_buf();
-        let (new_fb, new_bcm_tx_descriptors) = bcm_buf.split();
-        fb = new_fb;
-        bcm_tx_descriptors = new_bcm_tx_descriptors;
+        let (result, new_hub75) = xfer.wait();
         hub75 = new_hub75;
         if let Err(e) = result {
             info!("transfer failed: {:?}", e);

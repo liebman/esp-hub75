@@ -53,9 +53,6 @@ esp-rtos = { version = "0.3.0", features = ["embassy"] }
 heapless = { version = "0.9.2", features = ["ufmt"] }
 static_cell = { version = "2.1.1" }
 
-[build-dependencies]
-bsasm = { version = "0.1.0", path = "../bsasm" }
-
 [features]
 default = []
 skip-black-pixels = ["hub75-framebuffer/skip-black-pixels"]
@@ -66,7 +63,6 @@ esp32 = [
     "esp-backtrace/esp32",
     "esp-rtos/esp32",
     "esp-println/esp32",
-    "hub75-framebuffer/esp-hal-dma",
     "hub75-framebuffer/esp32-ordering",
 ]
 esp32s3 = [
@@ -75,7 +71,6 @@ esp32s3 = [
     "esp-backtrace/esp32s3",
     "esp-rtos/esp32s3",
     "esp-println/esp32s3",
-    "hub75-framebuffer/esp-hal-dma",
 ]
 esp32c5 = [
     "esp-bootloader-esp-idf/esp32c5",
@@ -83,7 +78,6 @@ esp32c5 = [
     "esp-backtrace/esp32c5",
     "esp-rtos/esp32c5",
     "esp-println/esp32c5",
-    "hub75-framebuffer/esp-hal-dma",
     "dep:esp32c5",
 ]
 esp32c6 = [
@@ -92,7 +86,6 @@ esp32c6 = [
     "esp-backtrace/esp32c6",
     "esp-rtos/esp32c6",
     "esp-println/esp32c6",
-    "hub75-framebuffer/esp-hal-dma",
     "dep:esp32c6",
 ]
 defmt = [
@@ -128,8 +121,8 @@ cargo-args = ["-Z", "build-std=core"]
 
 [patch.crates-io]
 
-hub75-framebuffer = { path = "../hub75-framebuffer" }
-# hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "main" }
+# hub75-framebuffer = { path = "../hub75-framebuffer" }
+hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "plane-based-framebuffers" }
 
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
@@ -138,11 +131,11 @@ hub75-framebuffer = { path = "../hub75-framebuffer" }
 # esp-riscv-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # xtensa-lx-rt     = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 
-esp-backtrace = { path = "../esp-hal/esp-backtrace" }
-# esp-build = { path = "../esp-hal/esp-build" }
-esp-hal = { path = "../esp-hal/esp-hal" }
-esp-rtos = { path = "../esp-hal/esp-rtos" }
-esp-println = { path = "../esp-hal/esp-println" }
-esp-riscv-rt = { path = "../esp-hal/esp-riscv-rt" }
-xtensa-lx-rt = { path = "../esp-hal/xtensa-lx-rt" }
-esp-rom-sys = { path = "../esp-hal/esp-rom-sys" }
+# esp-backtrace = { path = "../esp-hal/esp-backtrace" }
+# # esp-build = { path = "../esp-hal/esp-build" }
+# esp-hal = { path = "../esp-hal/esp-hal" }
+# esp-rtos = { path = "../esp-hal/esp-rtos" }
+# esp-println = { path = "../esp-hal/esp-println" }
+# esp-riscv-rt = { path = "../esp-hal/esp-riscv-rt" }
+# xtensa-lx-rt = { path = "../esp-hal/xtensa-lx-rt" }
+# esp-rom-sys = { path = "../esp-hal/esp-rom-sys" }

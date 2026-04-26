@@ -1,9 +1,7 @@
 use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
-use esp_hal::dma::DmaTxBuf;
 use esp_hal::dma::DmaTxBuffer;
-use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::I2sParallel;
@@ -79,6 +77,11 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
 impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     /// Renders a frame buffer to the display.
     ///
+    /// This method handles both contiguous (single-plane) and bitplane
+    /// (multi-plane BCM-weighted) framebuffers automatically. The DMA
+    /// descriptor chain is built internally — callers never need to manage
+    /// DMA buffer types.
+    ///
     /// Calling render consumes the `Hub75` instance and returns a
     /// `Hub75Transfer` instance that can be used to wait for the transfer
     /// to complete.  After the transfer is complete, the `Hub75` will be
@@ -97,18 +100,14 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     #[cfg_attr(feature = "iram", ram)]
     pub fn render(
         self,
-        fb: &(impl FrameBuffer + ReadBuffer),
-    ) -> Result<Hub75Transfer<'d, DmaTxBuf, DM>, (Hub75Error, Self)> {
+        fb: &impl FrameBuffer,
+    ) -> Result<Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM>, (Hub75Error, Self)> {
         let i2s = self.i2s;
         let tx_descriptors = self.tx_descriptors;
-        let tx_buffer = unsafe {
-            let (ptr, len) = fb.read_buffer();
-            // SAFETY: tx_buffer is only used until the tx_buf.split below!
-            core::slice::from_raw_parts_mut(ptr as *mut u8, len)
-        };
-        let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("DmaTxBuf::new failed");
+        let tx_buf = crate::bcm_dma_buf::BcmTxDmaBuf::new(tx_descriptors, fb);
+
         let xfer = i2s.send(tx_buf).map_err(|(e, i2s, buf)| {
-            let (tx_descriptors, _) = buf.split();
+            let tx_descriptors = buf.split();
             (
                 e.into(),
                 Self {
@@ -123,25 +122,23 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
         })
     }
 
-    #[cfg_attr(feature = "iram", ram)]
     /// Renders using a caller-provided DMA transmit buffer.
     ///
-    /// This is the generic render path for custom [`DmaTxBuffer`]
-    /// implementations such as
-    /// [`hub75_framebuffer::bitplane::latched::BcmDmaTxBuf`], where descriptor chaining
-    /// defines transfer timing/weighting.
+    /// This is an escape hatch for custom [`DmaTxBuffer`] implementations
+    /// where the caller manages the descriptor chain directly.
     ///
     /// # Arguments
     /// * `buf` - DMA buffer implementing [`DmaTxBuffer`].
     ///
     /// # Returns
     /// A [`Hub75Transfer`] which can be awaited and then consumed via
-    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer and
-    /// the driver instance.
+    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer
+    /// and the driver instance.
     ///
     /// # Errors
     /// Returns a tuple of `Hub75Error`, the recovered `Hub75` instance, and the
     /// original buffer if the transfer cannot be started.
+    #[cfg_attr(feature = "iram", ram)]
     pub fn render_buf<BUF: DmaTxBuffer>(
         self,
         buf: BUF,
@@ -206,20 +203,17 @@ impl<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> Hub75Transfer<'d, BUF, DM> {
     }
 }
 
-impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DmaTxBuf, DM> {
-    /// Waits for the transfer to complete
+impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM> {
+    /// Waits for the transfer to complete and recovers the `Hub75` instance.
     ///
     /// # Returns
     /// A tuple containing:
     /// 1. The result of the transfer
     /// 2. The `Hub75` instance for reuse
-    ///
-    /// # Note
-    /// This method clears the transfer interrupt flag
     #[cfg_attr(feature = "iram", ram)]
     pub fn wait(self) -> (Result<(), DmaError>, Hub75<'d, DM>) {
-        let (i2s, tx_buf) = self.xfer.wait();
-        let (tx_descriptors, _) = tx_buf.split();
+        let (i2s, bcm_buf) = self.xfer.wait();
+        let tx_descriptors = bcm_buf.split();
         (
             Ok(()),
             Hub75 {

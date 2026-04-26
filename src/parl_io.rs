@@ -1,9 +1,7 @@
 use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaError;
-use esp_hal::dma::DmaTxBuf;
 use esp_hal::dma::DmaTxBuffer;
-use esp_hal::dma::ReadBuffer;
 use esp_hal::gpio::AnyPin;
 #[cfg(not(feature = "esp32c5"))]
 use esp_hal::gpio::NoPin;
@@ -58,6 +56,14 @@ impl<'d> Hub75<'d, esp_hal::Async> {
         let (parl_io, pins, clk_pin, config) =
             Self::new_internal(parl_io, hub75_pins, channel, frequency)?;
         let parl_io = parl_io.into_async().tx.with_config(pins, clk_pin, config)?;
+        #[cfg(feature = "esp32c5")]
+        unsafe {
+            // on the C5 we don't need to tell PARL_IO how many bytes are in the transfer
+            use esp32c5 as pac;
+            let pio = pac::PARL_IO::steal();
+            pio.tx_genrl_cfg()
+                .modify(|_, w| w.tx_eof_gen_sel().set_bit().tx_gating_en().set_bit());
+        }
         Ok(Self {
             parl_io,
             tx_descriptors,
@@ -87,6 +93,14 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
         let (parl_io, pins, clk_pin, config) =
             Self::new_internal(parl_io, hub75_pins, channel, frequency)?;
         let parl_io = parl_io.tx.with_config(pins, clk_pin, config)?;
+        #[cfg(feature = "esp32c5")]
+        unsafe {
+            // on the C5 we don't need to tell PARL_IO how many bytes are in the transfer
+            use esp32c5 as pac;
+            let pio = pac::PARL_IO::steal();
+            pio.tx_genrl_cfg()
+                .modify(|_, w| w.tx_eof_gen_sel().set_bit().tx_gating_en().set_bit());
+        }
         Ok(Self {
             parl_io,
             tx_descriptors,
@@ -119,6 +133,11 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
 
     /// Renders a frame buffer to the display.
     ///
+    /// This method handles both contiguous (single-plane) and bitplane
+    /// (multi-plane BCM-weighted) framebuffers automatically. The DMA
+    /// descriptor chain is built internally — callers never need to manage
+    /// DMA buffer types.
+    ///
     /// Calling render consumes the `Hub75` instance and returns a
     /// `Hub75Transfer` instance that can be used to wait for the transfer
     /// to complete.  After the transfer is complete, the `Hub75` will be
@@ -137,43 +156,38 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     #[cfg_attr(feature = "iram", ram)]
     pub fn render(
         self,
-        fb: &(impl FrameBuffer + ReadBuffer),
-    ) -> Result<Hub75Transfer<'d, DmaTxBuf, DM>, (Hub75Error, Self)> {
+        fb: &impl FrameBuffer,
+    ) -> Result<Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM>, (Hub75Error, Self)> {
         let parl_io = self.parl_io;
         let tx_descriptors = self.tx_descriptors;
-        let tx_buffer = unsafe {
-            let (ptr, len) = fb.read_buffer();
-            // SAFETY: tx_buffer is only used until the tx_buf.split below!
-            core::slice::from_raw_parts_mut(ptr as *mut u8, len)
-        };
-        // TODO: can't recover from this because tx_descriptors is consumed!
-        let tx_buf = DmaTxBuf::new(tx_descriptors, tx_buffer).expect("failed to create DmaTxBuf!");
+        let tx_buf = crate::bcm_dma_buf::BcmTxDmaBuf::new(tx_descriptors, fb);
 
-        let xfer = parl_io
-            .write(tx_buf.len(), tx_buf)
-            .map_err(|(e, parl_io, buf)| {
-                let (tx_descriptors, _) = buf.split();
-                (
-                    e.into(),
-                    Self {
-                        parl_io,
-                        tx_descriptors,
-                    },
-                )
-            })?;
+        // on the C5 we don't need to tell PARL_IO how many bytes are in the transfer
+        #[cfg(feature = "esp32c5")]
+        let len = 0;
+        #[cfg(not(feature = "esp32c5"))]
+        let len = tx_buf.transfer_len();
+
+        let xfer = parl_io.write(len, tx_buf).map_err(|(e, parl_io, buf)| {
+            let tx_descriptors = buf.split();
+            (
+                e.into(),
+                Self {
+                    parl_io,
+                    tx_descriptors,
+                },
+            )
+        })?;
         Ok(Hub75Transfer {
             xfer,
             tx_descriptors: None,
         })
     }
 
-    #[cfg_attr(feature = "iram", ram)]
     /// Renders using a caller-provided DMA transmit buffer.
     ///
-    /// This is the generic render path for custom [`DmaTxBuffer`]
-    /// implementations such as
-    /// [`hub75_framebuffer::bitplane::latched::BcmDmaTxBuf`], where descriptor chaining
-    /// defines transfer timing/weighting.
+    /// This is an escape hatch for custom [`DmaTxBuffer`] implementations
+    /// where the caller manages the descriptor chain directly.
     ///
     /// # Arguments
     /// * `len` - Number of bytes to transmit with PARL_IO.
@@ -181,19 +195,25 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
     ///
     /// # Returns
     /// A [`Hub75Transfer`] which can be awaited and then consumed via
-    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer and
-    /// the driver instance.
+    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer
+    /// and the driver instance.
     ///
     /// # Errors
     /// Returns a tuple of `Hub75Error`, the recovered `Hub75` instance, and the
     /// original buffer if the transfer cannot be started.
+    #[cfg_attr(feature = "iram", ram)]
     pub fn render_buf<BUF: DmaTxBuffer>(
         self,
-        len: usize,
+        #[cfg_attr(feature = "esp32c5", allow(unused))] len: usize,
         buf: BUF,
     ) -> Result<Hub75Transfer<'d, BUF, DM>, (Hub75Error, Self, BUF)> {
         let parl_io = self.parl_io;
         let tx_descriptors = self.tx_descriptors;
+
+        // on the C5 we don't need to tell PARL_IO how many bytes are in the transfer
+        #[cfg(feature = "esp32c5")]
+        let len = 0;
+
         match parl_io.write(len, buf) {
             Ok(xfer) => Ok(Hub75Transfer {
                 xfer,
@@ -251,36 +271,24 @@ impl<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> Hub75Transfer<'d, BUF, DM> {
     }
 }
 
-impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, DmaTxBuf, DM> {
-    /// Waits for the transfer to complete
+impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM> {
+    /// Waits for the transfer to complete and recovers the `Hub75` instance.
     ///
     /// # Returns
     /// A tuple containing:
     /// 1. The result of the transfer
     /// 2. The `Hub75` instance for reuse
-    ///
-    /// # Note
-    /// This method clears the transfer interrupt flag
     #[cfg_attr(feature = "iram", ram)]
     pub fn wait(self) -> (Result<(), DmaError>, Hub75<'d, DM>) {
-        let (result, parl_io, tx_buf) = self.xfer.wait();
-        let (tx_descriptors, _) = tx_buf.split();
-        match result {
-            Ok(()) => (
-                Ok(()),
-                Hub75 {
-                    parl_io,
-                    tx_descriptors,
-                },
-            ),
-            Err(e) => (
-                Err(e),
-                Hub75 {
-                    parl_io,
-                    tx_descriptors,
-                },
-            ),
-        }
+        let (result, parl_io, bcm_buf) = self.xfer.wait();
+        let tx_descriptors = bcm_buf.split();
+        (
+            result,
+            Hub75 {
+                parl_io,
+                tx_descriptors,
+            },
+        )
     }
 }
 

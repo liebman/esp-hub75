@@ -51,6 +51,8 @@
 
 use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
+mod bcm_dma_buf;
+pub use bcm_dma_buf::BcmTxDmaBuf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]

@@ -75,7 +75,7 @@ macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
+        let x = STATIC_CELL.uninit().write($val);
         x
     }};
 }
@@ -101,10 +101,9 @@ pub struct DisplayPeripherals<'d> {
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 3; // Note that the PARL_IO peripheral only supports 3 bits per pixel at the
+const BITS: u8 = 4; // Note that the PARL_IO peripheral only supports 4 bits per pixel at the
                     // moment.  This is due to size limitations of the
-                    // peripheral.  It can only write 32768 bytes at a time. This will be fixed in
-                    // the future
+                    // peripheral.  It can only write 65535 bytes at a time.
 const NROWS: usize = compute_rows(ROWS);
 const FRAME_COUNT: usize = compute_frame_count(BITS);
 
@@ -219,7 +218,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
+    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::plane_size_bytes());
 
     let pins = Hub75Pins16 {
         red1: peripherals.red1,
