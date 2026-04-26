@@ -1,26 +1,26 @@
-//! Embassy "async" example driving a 64x64 HUB75 display using the I2S
-//! peripheral of an `esp32` with a SmartLEDShield_ESP32_V0 style circuit.
+//! Embassy "async" example of an ESP32-S3 driving a 64x64 HUB75 display using
+//! the LCD_CAM peripheral with 16-bit bitplane framebuffer (no latch circuit).
 //!
 //! This example draws a simple gradient on the display and shows the refresh
 //! rate and render rate plus a simple counter.
 //!
-//! Following pins are used:
+//! Folowing pins are used:
+//! - R1  => GPIO38
+//! - G1  => GPIO42
+//! - B1  => GPIO48
+//! - R2  => GPIO47
+//! - G2  => GPIO2
+//! - B2  => GPIO21
+//! - A   => GPIO14
+//! - B   => GPIO46
+//! - C   => GPIO13
+//! - D   => GPIO9
+//! - E   => GPIO3
+//! - OE  => GPIO11
+//! - CLK => GPIO12
+//! - LAT => GPIO10
 //!
-//!   SIG     LAT   PIN
-//! - R1      A  => GPIO16
-//! - G1      B  => GPIO4
-//! - B1      C  => GPIO17
-//! - R2      D  => GPIO18
-//! - G2      E  => GPIO5
-//! - B2         => GPIO19
-//! - OE_DMA     => GPIO26
-//! - OE_PWM     => GPIO27
-//! - CLK        => GPIO25
-//! - LAT        => GPIO2
-//!
-//! NOTE1: these are not the default pins for the SmartLEDShield_ESP32_V0
-//!
-//! NOTE2: you most likely need level converters 3.3v to 5v for all HUB75
+//! Note that you most likely need level converters 3.3v to 5v for all HUB75
 //! signals
 #![no_std]
 #![no_main]
@@ -51,21 +51,18 @@ use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::AnyPin;
-use esp_hal::gpio::Level;
-use esp_hal::gpio::Output;
-use esp_hal::gpio::OutputConfig;
 use esp_hal::gpio::Pin;
-use esp_hal::i2s::AnyI2s;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
+use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hub75::framebuffer::bitplane::latched::DmaFrameBuffer;
+use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::BcmTxDmaBuf;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
-use esp_hub75::Hub75Pins8;
+use esp_hub75::Hub75Pins16;
 use esp_rtos::embassy::InterruptExecutor;
 use heapless::String;
 #[cfg(feature = "log")]
@@ -73,6 +70,7 @@ use log::info;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
@@ -96,18 +94,24 @@ const LINE2: i32 = ROWS as i32 - 1 - 7;
 const LINE3: i32 = ROWS as i32 - 1;
 const NBARS: i32 = ROWS as i32 / 8;
 
+type Hub75Type = Hub75<'static, esp_hal::Async>;
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 type FrameBufferExchange = Signal<CriticalSectionRawMutex, &'static mut FBType>;
 
 pub struct Hub75Peripherals<'d> {
-    pub i2s: AnyI2s<'d>,
-    pub dma_channel: esp_hal::peripherals::DMA_I2S1<'d>,
+    pub lcd_cam: LCD_CAM<'d>,
+    pub dma_channel: esp_hal::peripherals::DMA_CH0<'d>,
     pub red1: AnyPin<'d>,
     pub grn1: AnyPin<'d>,
     pub blu1: AnyPin<'d>,
     pub red2: AnyPin<'d>,
     pub grn2: AnyPin<'d>,
     pub blu2: AnyPin<'d>,
+    pub addr0: AnyPin<'d>,
+    pub addr1: AnyPin<'d>,
+    pub addr2: AnyPin<'d>,
+    pub addr3: AnyPin<'d>,
+    pub addr4: AnyPin<'d>,
     pub blank: AnyPin<'d>,
     pub clock: AnyPin<'d>,
     pub latch: AnyPin<'d>,
@@ -223,27 +227,31 @@ async fn hub75_task(
     )
     .as_mut_slice();
 
-    let pins = Hub75Pins8 {
+    let pins = Hub75Pins16 {
         red1: peripherals.red1,
         grn1: peripherals.grn1,
         blu1: peripherals.blu1,
         red2: peripherals.red2,
         grn2: peripherals.grn2,
         blu2: peripherals.blu2,
+        addr0: peripherals.addr0,
+        addr1: peripherals.addr1,
+        addr2: peripherals.addr2,
+        addr3: peripherals.addr3,
+        addr4: peripherals.addr4,
         blank: peripherals.blank,
         clock: peripherals.clock,
         latch: peripherals.latch,
     };
 
-    let mut hub75 = Hub75::new(
-        peripherals.i2s,
+    let mut hub75 = Hub75Type::new_async(
+        peripherals.lcd_cam,
         pins,
         channel,
         hub75_tx_descriptors,
         Rate::from_mhz(20),
     )
-    .expect("failed to create Hub75!")
-    .into_async();
+    .expect("failed to create Hub75!");
 
     let mut count = 0u32;
     let mut start = Instant::now();
@@ -326,43 +334,48 @@ async fn main(_spawner: Spawner) {
     info!("fb1: {:?}", fb1);
 
     let hub75_peripherals = Hub75Peripherals {
-        i2s: peripherals.I2S1.into(),
-        dma_channel: peripherals.DMA_I2S1,
-        red1: peripherals.GPIO16.degrade(),
-        grn1: peripherals.GPIO4.degrade(),
-        blu1: peripherals.GPIO17.degrade(),
-        red2: peripherals.GPIO18.degrade(),
-        grn2: peripherals.GPIO5.degrade(),
-        blu2: peripherals.GPIO19.degrade(),
-        blank: peripherals.GPIO26.degrade(),
-        clock: peripherals.GPIO25.degrade(),
-        latch: peripherals.GPIO2.degrade(),
+        lcd_cam: peripherals.LCD_CAM,
+        dma_channel: peripherals.DMA_CH0,
+        red1: peripherals.GPIO38.degrade(),
+        grn1: peripherals.GPIO42.degrade(),
+        blu1: peripherals.GPIO48.degrade(),
+        red2: peripherals.GPIO47.degrade(),
+        grn2: peripherals.GPIO2.degrade(),
+        blu2: peripherals.GPIO21.degrade(),
+        addr0: peripherals.GPIO14.degrade(),
+        addr1: peripherals.GPIO46.degrade(),
+        addr2: peripherals.GPIO13.degrade(),
+        addr3: peripherals.GPIO9.degrade(),
+        addr4: peripherals.GPIO3.degrade(),
+        blank: peripherals.GPIO11.degrade(),
+        clock: peripherals.GPIO12.degrade(),
+        latch: peripherals.GPIO10.degrade(),
     };
 
-    let _pwm_pin = Output::new(peripherals.GPIO27, Level::High, OutputConfig::default());
-
+    // run hub75 and display on second core
     let cpu1_fnctn = {
         move || {
+            use esp_rtos::embassy::Executor;
             let hp_executor = mk_static!(
                 InterruptExecutor<2>,
                 InterruptExecutor::new(software_interrupt)
             );
             let high_pri_spawner = hp_executor.start(Priority::Priority3);
+
+            // hub75 runs as high priority task
             high_pri_spawner.spawn(hub75_task(hub75_peripherals, &RX, &TX, fb1).unwrap());
 
             let lp_executor = mk_static!(Executor, Executor::new());
+            // display task runs as low priority task
             lp_executor.run(|spawner| {
                 spawner.spawn(display_task(&TX, &RX, fb0).unwrap());
             });
         }
     };
 
-    use esp_rtos::embassy::Executor;
+    use esp_hal::system::Stack;
     const DISPLAY_STACK_SIZE: usize = 8192;
-    let app_core_stack = mk_static!(
-        esp_hal::system::Stack<DISPLAY_STACK_SIZE>,
-        esp_hal::system::Stack::new()
-    );
+    let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
 
     esp_rtos::start_second_core(
         peripherals.CPU_CTRL,

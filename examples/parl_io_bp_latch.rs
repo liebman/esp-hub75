@@ -86,7 +86,7 @@ const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
 #[cfg(feature = "esp32c5")]
-const PLANES: usize = 8;
+const PLANES: usize = 7;
 // On the c6 we only support 4 planes because PARL_IO is limited to 65535 bytes
 // at a time!!!
 #[cfg(not(feature = "esp32c5"))]

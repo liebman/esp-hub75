@@ -44,6 +44,11 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: +esp
+            example: i2s_parallel_bp
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
             example: i2s_parallel_bp_latch
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32
@@ -65,6 +70,11 @@ jobs:
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
             example: lcd_cam_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: lcd_cam_bp
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
@@ -95,6 +105,11 @@ jobs:
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
             example: parl_io
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_bp
             cargo_unstable: ""
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
