@@ -10,16 +10,15 @@ use esp_hal::dma::TransferDirection;
 
 const MAX_PLANES: usize = 8;
 
-/// Opaque DMA transmit buffer built internally by [`Hub75::render()`].
+/// Internal DMA transmit buffer used by [`Hub75::render()`].
 ///
-/// Callers never need to construct this directly — it is created behind the
-/// scenes and appears only as a type parameter in the returned
-/// [`Hub75Transfer`].  After the transfer completes, its resources are
-/// recovered automatically by [`Hub75Transfer::wait()`].
+/// This type is an implementation detail. Users should not need to interact
+/// with it directly — use the [`hub75_dma_descriptors!`] macro to allocate
+/// DMA descriptors and [`Hub75Transfer::wait()`] to recover resources.
 ///
 /// [`Hub75::render()`]: crate::Hub75::render
-/// [`Hub75Transfer`]: crate::Hub75Transfer
 /// [`Hub75Transfer::wait()`]: crate::Hub75Transfer::wait
+/// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
 pub struct BcmTxDmaBuf {
     descriptors: &'static mut [DmaDescriptor],
     planes: [(*const u8, usize); MAX_PLANES],
@@ -74,23 +73,14 @@ impl BcmTxDmaBuf {
         self.descriptors
     }
 
-    /// Computes the number of DMA descriptors needed for the given plane
-    /// configuration.
-    ///
-    /// Use this together with the framebuffer's `plane_count()` and
-    /// `plane_size_bytes()` const fns to size a static descriptor array:
-    ///
-    /// ```rust,ignore
-    /// const DESC: usize = BcmTxDmaBuf::descriptor_count_for(
-    ///     FBType::plane_count(),
-    ///     FBType::plane_size_bytes(),
-    /// );
-    /// ```
+    /// Computes the number of DMA descriptors needed for the given BCM
+    /// configuration. Delegates to [`crate::dma_descriptor_count`].
     #[must_use]
-    pub const fn descriptor_count_for(plane_count: usize, plane_bytes: usize) -> usize {
-        let descs_per_plane = plane_bytes.div_ceil(4095);
-        let total_reps = (1usize << plane_count) - 1;
-        descs_per_plane * total_reps
+    pub(crate) const fn descriptor_count_for(
+        bcm_chunk_count: usize,
+        bcm_chunk_bytes: usize,
+    ) -> usize {
+        crate::dma_descriptor_count(bcm_chunk_count, bcm_chunk_bytes)
     }
 }
 

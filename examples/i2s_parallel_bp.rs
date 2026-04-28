@@ -64,7 +64,6 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::BcmTxDmaBuf;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
@@ -227,13 +226,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    const DESC_COUNT: usize =
-        BcmTxDmaBuf::descriptor_count_for(FBType::plane_count(), FBType::plane_size_bytes());
-    let hub75_tx_descriptors: &'static mut [esp_hal::dma::DmaDescriptor] = mk_static!(
-        [esp_hal::dma::DmaDescriptor; DESC_COUNT],
-        [esp_hal::dma::DmaDescriptor::EMPTY; DESC_COUNT]
-    )
-    .as_mut_slice();
+    let hub75_tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
 
     let pins = Hub75Pins16 {
         red1: peripherals.red1,

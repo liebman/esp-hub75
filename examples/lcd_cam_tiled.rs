@@ -155,7 +155,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
 
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::plane_size_bytes());
+    let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
 
     let mut hub75 = Hub75::new_async(
         peripherals.lcd_cam,

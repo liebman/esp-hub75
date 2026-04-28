@@ -43,7 +43,7 @@ type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::plane_size_bytes());
+    let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
 
     let pins = Hub75Pins16 {
         red1: peripherals.GPIO38.degrade(),
