@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+* add support for `ESP32-C5`
+* add bitplane framebuffer support by using dma descripters to render bitplanes for BCM usingless memory
+
+### Changed
+
+* bump `hub75-framebuffer` to `0.8.0`
 * Removed unnessassary const generics from FrameBuffer, MutableFrameBuffer, FrameBufferOperations
 
 ## [0.10.0] - 2026-04-25
