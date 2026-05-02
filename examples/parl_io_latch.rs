@@ -74,7 +74,7 @@ macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
+        let x = STATIC_CELL.uninit().write($val);
         x
     }};
 }
@@ -219,7 +219,7 @@ async fn hub75_task(
 ) {
     info!("hub75_task: starting!");
     let channel = peripherals.dma_channel;
-    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
+    let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
 
     let pins = Hub75Pins8 {
         red1: peripherals.red1,
@@ -321,6 +321,7 @@ async fn main(spawner: Spawner) {
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);
 
+    #[cfg(feature = "esp32c6")]
     let hub75_peripherals = Hub75Peripherals {
         parl_io: peripherals.PARL_IO,
         dma_channel: peripherals.DMA_CH0,
@@ -334,9 +335,26 @@ async fn main(spawner: Spawner) {
         clock: peripherals.GPIO19.degrade(),
         latch: peripherals.GPIO18.degrade(),
     };
+    #[cfg(feature = "esp32c5")]
+    let hub75_peripherals = Hub75Peripherals {
+        parl_io: peripherals.PARL_IO,
+        dma_channel: peripherals.DMA_CH0,
+        red1: peripherals.GPIO9.degrade(),
+        grn1: peripherals.GPIO8.degrade(),
+        blu1: peripherals.GPIO7.degrade(),
+        red2: peripherals.GPIO6.degrade(),
+        grn2: peripherals.GPIO10.degrade(),
+        blu2: peripherals.GPIO1.degrade(),
+        blank: peripherals.GPIO23.degrade(), // GPIO27 on ESP32-C5 waveshare board is LED.....
+        clock: peripherals.GPIO5.degrade(),
+        latch: peripherals.GPIO26.degrade(),
+    };
 
-    // Configure OE_PWM pin (GPIO20) as high output
+    // Configure OE_PWM pin as high output
+    #[cfg(feature = "esp32c6")]
     let _oe_pwm = Output::new(peripherals.GPIO20, Level::High, OutputConfig::default());
+    #[cfg(feature = "esp32c5")]
+    let _oe_pwm = Output::new(peripherals.GPIO4, Level::High, OutputConfig::default());
 
     // Run hub75 as high priority task (interrupt executor)
     let hp_executor = mk_static!(

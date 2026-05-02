@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [esp32, esp32s3, esp32c6]
+        target: [esp32, esp32s3, esp32c5, esp32c6]
         features: [log, defmt]
         include:
           - target: esp32
@@ -40,6 +40,16 @@ jobs:
             rust_target: xtensa-esp32-none-elf
             toolchain: +esp
             example: i2s_parallel_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: i2s_parallel_bp
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: i2s_parallel_bp_latch
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32
             rust_target: xtensa-esp32-none-elf
@@ -64,6 +74,16 @@ jobs:
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
+            example: lcd_cam_bp
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: lcd_cam_bp_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
             example: lcd_cam_tiled
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32s3
@@ -71,6 +91,16 @@ jobs:
             toolchain: +esp
             example: hello_lcd_cam
             cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32c5
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_latch
+            cargo_unstable: ""
+          - target: esp32c5
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_bp_latch
+            cargo_unstable: ""
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
@@ -79,7 +109,17 @@ jobs:
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
+            example: parl_io_bp
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
             example: parl_io_latch
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_bp_latch
             cargo_unstable: ""
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf

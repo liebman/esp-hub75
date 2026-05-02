@@ -51,14 +51,62 @@
 
 use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
+#[doc(hidden)]
+pub mod bcm_dma_buf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
-#[cfg_attr(feature = "esp32c6", path = "parl_io.rs")]
+#[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
 mod hub75;
 pub use hub75::Hub75;
 pub use hub75::Hub75Transfer;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
+
+/// Computes the number of DMA descriptors required for a given framebuffer
+/// configuration.
+///
+/// Users should prefer the [`hub75_dma_descriptors!`] macro which calls this
+/// automatically. This function is public for advanced use cases.
+///
+/// # Arguments
+/// * `bcm_chunk_count` - Number of BCM chunks (from
+///   `FBType::bcm_chunk_count()`)
+/// * `bcm_chunk_bytes` - Byte size of one BCM chunk (from
+///   `FBType::bcm_chunk_bytes()`)
+#[must_use]
+pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize) -> usize {
+    let descs_per_chunk = bcm_chunk_bytes.div_ceil(4095);
+    let total_reps = (1usize << bcm_chunk_count) - 1;
+    descs_per_chunk * total_reps
+}
+
+/// Allocates static DMA descriptors sized for the given framebuffer type.
+///
+/// This macro computes the required number of DMA descriptors at compile time
+/// and allocates them in a static cell. It returns `&'static mut
+/// [DmaDescriptor]` suitable for passing to [`Hub75::new`] or
+/// [`Hub75::new_async`].
+///
+/// # Example
+/// ```rust,ignore
+/// type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
+/// let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
+/// ```
+#[macro_export]
+macro_rules! hub75_dma_descriptors {
+    ($fb_type:ty) => {{
+        const __N: usize = $crate::dma_descriptor_count(
+            <$fb_type>::bcm_chunk_count(),
+            <$fb_type>::bcm_chunk_bytes(),
+        );
+        static __DESC_CELL: static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
+            static_cell::StaticCell::new();
+        __DESC_CELL
+            .uninit()
+            .write([esp_hal::dma::DmaDescriptor::EMPTY; __N])
+            .as_mut_slice()
+    }};
+}
 
 /// Pin configuration for a HUB75 panel without an external address latch.
 ///
@@ -170,10 +218,10 @@ pub enum Hub75Error {
     /// Error occurred while managing DMA buffers
     DmaBuf(esp_hal::dma::DmaBufError),
     /// Error from the PARL_IO peripheral (ESP32-C6 only)
-    #[cfg(feature = "esp32c6")]
+    #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
     ParlIo(esp_hal::parl_io::Error),
     /// Configuration error for the PARL_IO peripheral (ESP32-C6 only)
-    #[cfg(feature = "esp32c6")]
+    #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
     ConfigError(esp_hal::parl_io::ConfigError),
     /// Configuration error for the I8080 interface (ESP32-S3 only)
     #[cfg(feature = "esp32s3")]
@@ -192,14 +240,14 @@ impl From<esp_hal::dma::DmaBufError> for Hub75Error {
     }
 }
 
-#[cfg(feature = "esp32c6")]
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
 impl From<esp_hal::parl_io::Error> for Hub75Error {
     fn from(e: esp_hal::parl_io::Error) -> Self {
         Self::ParlIo(e)
     }
 }
 
-#[cfg(feature = "esp32c6")]
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
 impl From<esp_hal::parl_io::ConfigError> for Hub75Error {
     fn from(e: esp_hal::parl_io::ConfigError) -> Self {
         Self::ConfigError(e)
