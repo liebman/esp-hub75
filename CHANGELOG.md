@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking
+
+* **new macro to allocate dma descriptors:** The new bitplane framebuffers require more DMA descriptors
+  to implement BCM by randering the same frame multiple times.
+  ```
+  -    let (_, tx_descriptors) = esp_hal::dma_descriptors!(0, FBType::dma_buffer_size_bytes());
+  +    let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
+  ```
+
 ### Added
 
 * add support for `ESP32-C5`
