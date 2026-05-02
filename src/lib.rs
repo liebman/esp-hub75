@@ -12,7 +12,30 @@
 //!
 //! - **ESP32-S3**: Uses the LCD_CAM peripheral
 //! - **ESP32-C6**: Uses the PARL_IO peripheral
+//! - **ESP32-C5**: Uses the PARL_IO peripheral (8-bit mode only; requires a
+//!   latch circuit and `Hub75Pins8`)
 //! - **ESP32**: Uses the I2S peripheral in parallel mode
+//!
+//! ## Framebuffers
+//!
+//! The `hub75-framebuffer` crate provides two families of framebuffer: the
+//! **standard** framebuffers and the **bitplane** framebuffers. Each family
+//! has a direct-drive variant (16-bit, no external latch) and a latched
+//! variant (8-bit, requires an external address-latch circuit). Both families
+//! can be sent directly to the peripheral without any extra formatting step.
+//! The difference is how they achieve Binary Code Modulation (BCM):
+//!
+//! - **Standard** framebuffers (`framebuffer::plain::DmaFrameBuffer` /
+//!   `framebuffer::latched::DmaFrameBuffer`) pre-render a complete copy of the
+//!   pixel data for every BCM bit-weight. This makes DMA output straightforward
+//!   but multiplies memory usage by the number of frames (`frame_count`).
+//! - **Bitplane** framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer`
+//!   / `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
+//!   pixel per plane. The driver uses DMA descriptors to assemble the BCM
+//!   output on the fly, avoiding the duplicated memory. The result is
+//!   significantly lower RAM usage with the same visual quality.
+//!
+//! Bitplane framebuffers are strongly recommended for most applications.
 //!
 //! ## Usage
 //!
@@ -26,6 +49,7 @@
 //!
 //! - `esp32`: Enable support for the ESP32
 //! - `esp32s3`: Enable support for the ESP32-S3
+//! - `esp32c5`: Enable support for the ESP32-C5
 //! - `esp32c6`: Enable support for the ESP32-C6
 //! - `defmt`: Enable logging with `defmt`
 //! - `log`: Enable logging with the `log` crate
