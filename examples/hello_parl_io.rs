@@ -22,9 +22,8 @@ use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
 use esp_hal::main;
 use esp_hal::time::Rate;
-use esp_hub75::framebuffer::compute_frame_count;
+use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::framebuffer::plain::DmaFrameBuffer;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
@@ -33,11 +32,13 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 const ROWS: usize = 64;
 const COLS: usize = 64;
-const BITS: u8 = 4;
 const NROWS: usize = compute_rows(ROWS);
-const FRAME_COUNT: usize = compute_frame_count(BITS);
+#[cfg(feature = "esp32c5")]
+const PLANES: usize = 7;
+#[cfg(not(feature = "esp32c5"))]
+const PLANES: usize = 4;
 
-type FBType = DmaFrameBuffer<ROWS, COLS, NROWS, BITS, FRAME_COUNT>;
+type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
 #[main]
 fn main() -> ! {
