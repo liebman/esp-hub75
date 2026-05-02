@@ -16,15 +16,38 @@ peripheral available on each chip:
 
 - **ESP32-S3**: Uses the LCD_CAM peripheral
 - **ESP32-C6**: Uses the PARL_IO peripheral
+- **ESP32-C5**: Uses the PARL_IO peripheral (8-bit mode only; requires a
+  latch circuit and `Hub75Pins8`)
 - **ESP32**: Uses the I2S peripheral in parallel mode
 
 The driver is built on top of the `embedded-graphics` crate, allowing you to
 easily draw shapes, text, and images on the display. It also uses a zero-copy
 framebuffer for efficient memory usage.
 
+## Framebuffers
+
+The `hub75-framebuffer` crate provides two families of framebuffer: the
+**standard** framebuffers and the **bitplane** framebuffers. Each family has a
+direct-drive variant (16-bit, no external latch) and a latched variant (8-bit,
+requires an external address-latch circuit). Both families can be sent directly
+to the peripheral without any extra formatting step. The difference is how they
+achieve Binary Code Modulation (BCM):
+
+- **Standard** framebuffers (`framebuffer::plain::DmaFrameBuffer` /
+  `framebuffer::latched::DmaFrameBuffer`) pre-render a complete copy of the
+  pixel data for every BCM bit-weight. This makes DMA output straightforward
+  but multiplies memory usage by the number of frames (`frame_count`).
+- **Bitplane** framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer` /
+  `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
+  pixel per plane. The driver uses DMA descriptors to assemble the BCM output
+  on the fly, avoiding the duplicated memory. The result is significantly lower
+  RAM usage with the same visual quality.
+
+Bitplane framebuffers are strongly recommended for most applications.
+
 ## Hardware Requirements
 
-- An ESP32-series microcontroller (ESP32, ESP32-S3, or ESP32-C6)
+- An ESP32-series microcontroller (ESP32, ESP32-S3, ESP32-C5, or ESP32-C6)
 - A HUB75 LED matrix panel
 - A 5V power supply capable of providing several amps of current
 - A 3.3V to 5V level shifter (e.g., 74HCT245) is highly recommended
@@ -60,10 +83,13 @@ variants.
 - [`examples/lcd_cam_tiled.rs`](examples/lcd_cam_tiled.rs) - uses 4 64x32 panels
   in a 2x2 configuration to show a color gradient and stats
 
-### ESP32-C6 (PARL_IO Interface)
+### ESP32-C6 / ESP32-C5 (PARL_IO Interface)
 
 - [`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!".
 - [`examples/parl_io.rs`](examples/parl_io.rs) - Shows a color gradient and stats.
+
+**Note**: The ESP32-C5 does not support 16-bit mode, so only the latched
+examples (`parl_io_latch.rs`, `parl_io_bp_latch.rs`) can be used with it.
 
 ### ESP32 (I2S Parallel Interface)
 
@@ -80,6 +106,7 @@ variants.
 
 - `esp32`: Enable support for the ESP32
 - `esp32s3`: Enable support for the ESP32-S3
+- `esp32c5`: Enable support for the ESP32-C5
 - `esp32c6`: Enable support for the ESP32-C6
 - `defmt`: Enable logging with `defmt`
 - `log`: Enable logging with the `log` crate
