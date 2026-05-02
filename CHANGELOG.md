@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * add support for `ESP32-C5`
-* add bitplane framebuffer support by using dma descripters to render bitplanes for BCM usingless memory
+* add bitplane framebuffer support by using dma descripters to render bitplanes for BCM using less memory
 
 ### Changed
 

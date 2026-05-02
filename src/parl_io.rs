@@ -62,7 +62,7 @@ impl<'d> Hub75<'d, esp_hal::Async> {
             use esp32c5 as pac;
             let pio = pac::PARL_IO::steal();
             pio.tx_genrl_cfg()
-                .modify(|_, w| w.tx_eof_gen_sel().set_bit().tx_gating_en().set_bit());
+                .modify(|_, w| w.tx_eof_gen_sel().set_bit());
         }
         Ok(Self {
             parl_io,
@@ -99,7 +99,7 @@ impl<'d> Hub75<'d, esp_hal::Blocking> {
             use esp32c5 as pac;
             let pio = pac::PARL_IO::steal();
             pio.tx_genrl_cfg()
-                .modify(|_, w| w.tx_eof_gen_sel().set_bit().tx_gating_en().set_bit());
+                .modify(|_, w| w.tx_eof_gen_sel().set_bit());
         }
         Ok(Self {
             parl_io,
