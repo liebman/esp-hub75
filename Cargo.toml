@@ -20,38 +20,31 @@ debug = true    # Symbols are nice and they don't increase the size on Flash
 opt-level = "s"
 
 [dependencies]
-bitfield = { version = "0.19.4" }
-cfg-if = "1.0.4"
-defmt = { version = "1.0.1", optional = true }
-embedded-graphics = { version = "0.8.2" }
-embedded-hal = { version = "1.0.0" }
-embedded-hal-async = { version = "1.0.0" }
+defmt = { version = "1.1.0", optional = true }
 esp32c5 = { version = "0.2.2", "features" = [
     "impl-register-debug",
 ], optional = true }
-esp32c6 = { version = "0.23", "features" = [
-    "impl-register-debug",
-], optional = true }
+critical-section = "1"
 esp-hal = { version = "1.1.0", default-features = false, features = [
     "requires-unstable",
 ] }
-log = { version = "0.4.29", optional = true }
+log = { version = "0.4.30", optional = true }
 hub75-framebuffer = { version = "0.8.1" }
-esp-bootloader-esp-idf = "0.5.0"
+static_cell = { version = "2.1.1" }
 
 [dev-dependencies]
-defmt-rtt = { version = "1.1.0" }
-embassy-embedded-hal = { version = "0.6.0" }
+defmt-rtt = { version = "1.2.0" }
 embassy-executor = { version = "0.10.0" }
-embassy-futures = { version = "0.1.1" }
 embassy-sync = { version = "0.8.0" }
 embassy-time = { version = "0.5.1", features = [] }
+embedded-graphics = { version = "0.8.2" }
 esp-backtrace = { version = "0.19.0", features = ["panic-handler"] }
+esp-bootloader-esp-idf = "0.5.0"
 esp-hal = { version = "1.1.0", features = ["unstable"] }
 esp-println = { version = "0.17.0" }
 esp-rtos = { version = "0.3.0", features = ["embassy"] }
-heapless = { version = "0.9.2", features = ["ufmt"] }
-static_cell = { version = "2.1.1" }
+heapless = { version = "0.9.3", features = ["ufmt"] }
+embedded-sprites = "0.2.0"
 
 [features]
 default = []
@@ -86,7 +79,6 @@ esp32c6 = [
     "esp-backtrace/esp32c6",
     "esp-rtos/esp32c6",
     "esp-println/esp32c6",
-    "dep:esp32c6",
 ]
 defmt = [
     "dep:defmt",

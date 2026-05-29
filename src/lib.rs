@@ -76,6 +76,8 @@
 use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
+pub use static_cell;
+#[doc(hidden)]
 pub mod bcm_dma_buf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
@@ -83,6 +85,12 @@ pub mod bcm_dma_buf;
 mod hub75;
 pub use hub75::Hub75;
 pub use hub75::Hub75Transfer;
+
+/// ISR-driven HUB75 driver for PARL_IO peripherals.
+///
+/// Requires the `isr` crate feature.
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+pub mod parl_io_isr;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 
@@ -123,8 +131,8 @@ macro_rules! hub75_dma_descriptors {
             <$fb_type>::bcm_chunk_count(),
             <$fb_type>::bcm_chunk_bytes(),
         );
-        static __DESC_CELL: static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
-            static_cell::StaticCell::new();
+        static __DESC_CELL: $crate::static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
+            $crate::static_cell::StaticCell::new();
         __DESC_CELL
             .uninit()
             .write([esp_hal::dma::DmaDescriptor::EMPTY; __N])
