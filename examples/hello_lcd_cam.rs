@@ -1,8 +1,8 @@
 //! Example for using the LCD/CAM driver with a HUB75 LED matrix display
 //!
 //! This example demonstrates how to use the LCD/CAM driver to drive a HUB75 LED
-//! matrix display. It uses the ESP32's LCD/CAM peripheral in I8080 mode to send
-//! data to the display.
+//! matrix display. It uses the ESP32-S3's LCD/CAM peripheral in I8080 mode with
+//! ISR-driven BCM refresh.
 
 #![no_std]
 #![no_main]
@@ -37,6 +37,15 @@ const PLANES: usize = 7;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write($val);
+        x
+    }};
+}
+
 #[main]
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
@@ -60,7 +69,7 @@ fn main() -> ! {
         latch: peripherals.GPIO10.degrade(),
     };
 
-    let mut hub75 = Hub75::new_async(
+    let hub75 = Hub75::new(
         peripherals.LCD_CAM,
         pins,
         peripherals.DMA_CH0,
@@ -69,7 +78,7 @@ fn main() -> ! {
     )
     .expect("failed to create Hub75!");
 
-    let mut fb = FBType::new();
+    let fb = mk_static!(FBType, FBType::new());
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
         .text_color(Color::YELLOW)
@@ -77,15 +86,12 @@ fn main() -> ! {
         .build();
     let point = Point::new(32, 31);
     Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
-        .draw(&mut fb)
+        .draw(fb)
         .expect("failed to draw text");
+
+    hub75.start(&*fb).expect("failed to start Hub75");
+
     loop {
-        let xfer = hub75
-            .render(&fb)
-            .map_err(|(e, _hub75)| e)
-            .expect("failed to start render!");
-        let (result, new_hub75) = xfer.wait();
-        hub75 = new_hub75;
-        result.expect("transfer failed");
+        core::hint::spin_loop();
     }
 }

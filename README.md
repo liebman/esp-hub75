@@ -89,7 +89,7 @@ variants.
 - [`examples/parl_io.rs`](examples/parl_io.rs) - Shows a color gradient and stats.
 
 **Note**: The ESP32-C5 does not support 16-bit mode, so only the latched
-examples (`parl_io_latch.rs`, `parl_io_bp_latch.rs`) can be used with it.
+examples (`parl_io_latch.rs`) can be used with it.
 
 ### ESP32 (I2S Parallel Interface)
 
