@@ -16,9 +16,9 @@ use embedded_graphics::prelude::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
-use embedded_sprites::{image::Image, include_image, sprite::Sprite};
-use esp_hub75::Color;
-
+use embedded_sprites::image::Image;
+use embedded_sprites::include_image;
+use embedded_sprites::sprite::Sprite;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
@@ -26,20 +26,25 @@ use esp_hal::main;
 use esp_hal::time::Rate;
 use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
+use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write($val);
+        x
+    }};
+}
+
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
-#[cfg(feature = "esp32c5")]
 const PLANES: usize = 7;
-#[cfg(not(feature = "esp32c5"))]
-const PLANES: usize = 4;
-
-// const IMG_HEIGHT: u32 = 43;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
@@ -69,36 +74,36 @@ fn main() -> ! {
         latch: peripherals.GPIO6.degrade(),
     };
 
-    let mut hub75 = Hub75::new_async(
-        peripherals.PARL_IO,
-        pins,
-        peripherals.DMA_CH0,
-        tx_descriptors,
-        Rate::from_mhz(20),
-    )
-    .expect("failed to create Hub75!");
-
-    let mut fb = FBType::new();
+    let fb = mk_static!(FBType, FBType::new());
 
     let rustacean = Sprite::new(Point::new(0, 0), &GRASS_DATA);
-    rustacean.draw(&mut fb).expect("failed to draw image");
+    rustacean.draw(fb).expect("failed to draw image");
 
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
         .text_color(Color::WHITE)
         .background_color(Color::BLACK)
         .build();
-    Text::with_alignment("Hello, Hub75", Point::new(31, 55), text_style, Alignment::Center)
-        .draw(&mut fb)
-        .expect("failed to draw text");
+    Text::with_alignment(
+        "Hello, Hub75",
+        Point::new(31, 55),
+        text_style,
+        Alignment::Center,
+    )
+    .draw(fb)
+    .expect("failed to draw text");
+
+    let _hub75 = Hub75::new(
+        peripherals.PARL_IO,
+        pins,
+        peripherals.DMA_CH0,
+        tx_descriptors,
+        Rate::from_mhz(20),
+    )
+    .expect("failed to create Hub75");
+    _hub75.start(&*fb).expect("failed to start Hub75");
 
     loop {
-        let xfer = hub75
-            .render(&fb)
-            .map_err(|(e, _hub75)| e)
-            .expect("failed to start render!");
-        let (result, new_hub75) = xfer.wait();
-        hub75 = new_hub75;
-        result.expect("transfer failed");
+        core::hint::spin_loop();
     }
 }

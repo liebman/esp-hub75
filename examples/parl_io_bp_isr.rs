@@ -1,11 +1,9 @@
-//! ISR-driven example of an ESP32-C6 driving a 64×64 HUB75 display using
-//! the PARL_IO peripheral with 16-bit bitplane framebuffer (no latch circuit).
+//! Example of an ESP32-C6 driving a 64×64 HUB75 display using the PARL_IO
+//! peripheral with 16-bit bitplane framebuffer (no latch circuit).
 //!
-//! Unlike `parl_io_bp` which needs `Hub75::new_async()` plus an
-//! `InterruptExecutor` for high-priority rendering, this example uses
-//! `Hub75Isr` — the TxEof interrupt handles the entire BCM refresh loop so
-//! no dedicated render task is required.  The async `swap()` method lets the
-//! display task exchange framebuffers without blocking.
+//! The TxEof interrupt handles the entire BCM refresh loop — no dedicated
+//! render task is required. The async `swap()` method lets the display task
+//! exchange framebuffers without blocking.
 //!
 //! Following pins are used:
 //! - R1  => GPIO19
@@ -56,8 +54,8 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
-use esp_hub75::parl_io_isr::Hub75Isr;
 use esp_hub75::Color;
+use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 use heapless::String;
 #[cfg(feature = "log")]
@@ -90,7 +88,7 @@ const NBARS: i32 = ROWS as i32 / 8;
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
 #[task]
-async fn display_task(hub75: Hub75Isr<esp_hal::Async>, mut fb: &'static mut FBType) {
+async fn display_task(hub75: Hub75<esp_hal::Async>, mut fb: &'static mut FBType) {
     info!("display_task: starting!");
     let fps_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
@@ -123,11 +121,7 @@ async fn display_task(hub75: Hub75Isr<esp_hal::Async>, mut fb: &'static mut FBTy
 
         let mut buffer: String<64> = String::new();
 
-        fmt::write(
-            &mut buffer,
-            format_args!("Refresh: {:4}", refresh_rate),
-        )
-        .unwrap();
+        fmt::write(&mut buffer, format_args!("Refresh: {:4}", refresh_rate)).unwrap();
         Text::with_alignment(
             buffer.as_str(),
             Point::new(0, LINE3),
@@ -167,7 +161,7 @@ async fn display_task(hub75: Hub75Isr<esp_hal::Async>, mut fb: &'static mut FBTy
         .draw(fb)
         .unwrap();
 
-        let old_ptr = hub75.swap(fb).await;
+        let old_ptr = hub75.swap(fb).await.expect("DMA transfer failed");
         fb = unsafe { &mut *(old_ptr as *mut FBType) };
 
         render_count += 1;
@@ -237,15 +231,15 @@ async fn main(spawner: Spawner) {
         latch: peripherals.GPIO6.degrade(),
     };
 
-    let hub75 = Hub75Isr::new_async(
+    let hub75 = Hub75::new_async(
         peripherals.PARL_IO,
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
         Rate::from_mhz(20),
-        &*fb0,
     )
-    .expect("failed to create Hub75Isr");
+    .expect("failed to create Hub75");
+    hub75.start(&*fb0).expect("failed to start Hub75");
 
     spawner.spawn(display_task(hub75, fb1).unwrap());
 
