@@ -61,6 +61,11 @@ jobs:
             toolchain: +esp
             example: i2s_parallel_dimming
             cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: rustacean_i2s
+            cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
@@ -74,32 +79,17 @@ jobs:
           - target: esp32s3
             rust_target: xtensa-esp32s3-none-elf
             toolchain: +esp
-            example: lcd_cam_bp
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
-            rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
-            example: lcd_cam_bp_latch
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
-            rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
-            example: lcd_cam_tiled
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
-            rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
             example: hello_lcd_cam
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: rustacean_lcd_cam
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32c5
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
             example: parl_io_latch
-            cargo_unstable: ""
-          - target: esp32c5
-            rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
-            example: parl_io_bp_latch
             cargo_unstable: ""
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
@@ -109,22 +99,12 @@ jobs:
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
-            example: parl_io_bp
-            cargo_unstable: ""
-          - target: esp32c6
-            rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
             example: parl_io_latch
             cargo_unstable: ""
           - target: esp32c6
             rust_target: riscv32imac-unknown-none-elf
             toolchain: ""
-            example: parl_io_bp_latch
-            cargo_unstable: ""
-          - target: esp32c6
-            rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
-            example: hello_parl_io
+            example: rustacean_parl_io
             cargo_unstable: ""
     steps:
       - uses: actions/checkout@v4

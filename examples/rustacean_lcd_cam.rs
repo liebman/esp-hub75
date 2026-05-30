@@ -39,6 +39,15 @@ const PLANES: usize = 7;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write($val);
+        x
+    }};
+}
+
 #[include_image]
 const GRASS_DATA: Image<hub75_framebuffer::Color> = "./images/rustacean-flat-happy-64x64.png";
 
@@ -65,7 +74,7 @@ fn main() -> ! {
         latch: peripherals.GPIO10.degrade(),
     };
 
-    let mut hub75 = Hub75::new_async(
+    let hub75 = Hub75::new(
         peripherals.LCD_CAM,
         pins,
         peripherals.DMA_CH0,
@@ -74,10 +83,10 @@ fn main() -> ! {
     )
     .expect("failed to create Hub75!");
 
-    let mut fb = FBType::new();
+    let fb = mk_static!(FBType, FBType::new());
 
     let rustacean = Sprite::new(Point::new(0, 0), &GRASS_DATA);
-    rustacean.draw(&mut fb).expect("failed to draw image");
+    rustacean.draw(fb).expect("failed to draw image");
 
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
@@ -90,16 +99,12 @@ fn main() -> ! {
         text_style,
         Alignment::Center,
     )
-    .draw(&mut fb)
+    .draw(fb)
     .expect("failed to draw text");
 
+    hub75.start(&*fb).expect("failed to start Hub75");
+
     loop {
-        let xfer = hub75
-            .render(&fb)
-            .map_err(|(e, _hub75)| e)
-            .expect("failed to start render!");
-        let (result, new_hub75) = xfer.wait();
-        hub75 = new_hub75;
-        result.expect("transfer failed");
+        core::hint::spin_loop();
     }
 }

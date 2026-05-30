@@ -115,7 +115,7 @@ impl BcmBuf {
     }
 
     /// Byte length of the next DMA transfer that `prepare()` will build.
-    #[cfg(not(feature = "esp32c5"))]
+    #[cfg(feature = "esp32c6")]
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn current_transfer_len(&self) -> usize {
         #[cfg(feature = "full-chain-dma")]
