@@ -12,13 +12,10 @@ aliases=(
     # build-c5-li
     build-c5-bli
     build-c6r
-    build-c6-bpi
-    build-c6-bli
-    build-s3
+    build-c6-bp
+    build-c6-bl
     build-s3-bp
-    build-s3-l
     build-s3-bl
-    build-s3-t
     build-s3h
     build-s3r
 )

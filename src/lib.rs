@@ -18,31 +18,23 @@
 //!
 //! ## Framebuffers
 //!
-//! The `hub75-framebuffer` crate provides two families of framebuffer: the
-//! **standard** framebuffers and the **bitplane** framebuffers. Each family
-//! has a direct-drive variant (16-bit, no external latch) and a latched
-//! variant (8-bit, requires an external address-latch circuit). Both families
+//! The `hub75-framebuffer` crate provides **bitplane** framebuffers in two
+//! variants: a direct-drive variant (16-bit, no external latch) and a latched
+//! variant (8-bit, requires an external address-latch circuit). Both variants
 //! can be sent directly to the peripheral without any extra formatting step.
-//! The difference is how they achieve Binary Code Modulation (BCM):
 //!
-//! - **Standard** framebuffers (`framebuffer::plain::DmaFrameBuffer` /
-//!   `framebuffer::latched::DmaFrameBuffer`) pre-render a complete copy of the
-//!   pixel data for every BCM bit-weight. This makes DMA output straightforward
-//!   but multiplies memory usage by the number of frames (`frame_count`).
-//! - **Bitplane** framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer`
-//!   / `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
-//!   pixel per plane. The driver uses DMA descriptors to assemble the BCM
-//!   output on the fly, avoiding the duplicated memory. The result is
-//!   significantly lower RAM usage with the same visual quality.
-//!
-//! Bitplane framebuffers are strongly recommended for most applications.
+//! Bitplane framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer` /
+//! `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
+//! pixel per plane. The driver uses DMA descriptors to assemble the BCM
+//! (Binary Code Modulation) output on the fly, keeping RAM usage low while
+//! delivering high visual quality.
 //!
 //! ## Usage
 //!
 //! Here is an example of how to initialize the driver for an ESP32-S3:
 //!
 //! ```rust,no_run
-#![doc = include_str!("../examples/hello_lcd_cam.rs")]
+#![doc = include_str!("../examples/rustacean_lcd_cam.rs")]
 //! ```
 //! 
 //! ## Crate Features
@@ -77,17 +69,19 @@ use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
 pub use static_cell;
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(any(feature = "esp32c5", feature = "esp32c6", feature = "esp32s3"))]
 pub(crate) mod bcm_buf;
-#[cfg(any(feature = "esp32", feature = "esp32s3"))]
+#[cfg(feature = "esp32")]
 #[doc(hidden)]
 pub mod bcm_dma_buf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
 mod hub75;
+#[cfg(any(feature = "esp32c5", feature = "esp32c6", feature = "esp32s3"))]
+mod isr;
 pub use hub75::Hub75;
-#[cfg(any(feature = "esp32", feature = "esp32s3"))]
+#[cfg(feature = "esp32")]
 pub use hub75::Hub75Transfer;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
@@ -208,6 +202,9 @@ pub struct Hub75Pins8<'d> {
 /// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
 #[cfg(feature = "esp32s3")]
 pub trait Hub75Pins<'d> {
+    /// Returns the bus width (8-bit or 16-bit) for this pin configuration.
+    fn word_size(&self) -> crate::framebuffer::WordSize;
+
     /// Apply pin configuration to the i8080 driver.
     fn apply<DM: esp_hal::DriverMode>(
         self,
