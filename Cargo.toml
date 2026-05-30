@@ -97,6 +97,7 @@ log = [
     "esp-println/log-04",
     "esp-println/colors",
 ]
+full-chain-dma = [] # full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 plane limit)
 invert-blank = [] # only for some latched implementations
 invert-clock = []
 

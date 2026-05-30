@@ -81,6 +81,9 @@ use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
 pub use static_cell;
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+pub(crate) mod bcm_buf;
+#[cfg(any(feature = "esp32", feature = "esp32s3"))]
 #[doc(hidden)]
 pub mod bcm_dma_buf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
@@ -88,13 +91,8 @@ pub mod bcm_dma_buf;
 #[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
 mod hub75;
 pub use hub75::Hub75;
+#[cfg(any(feature = "esp32", feature = "esp32s3"))]
 pub use hub75::Hub75Transfer;
-
-/// ISR-driven HUB75 driver for PARL_IO peripherals.
-///
-/// Requires the `isr` crate feature.
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
-pub mod parl_io_isr;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 
@@ -248,7 +246,7 @@ pub trait Hub75Pins<'d, T> {
 ///
 /// This enum consolidates errors from the underlying `esp-hal` DMA, peripheral,
 /// and buffer management modules into a single type for easier error handling.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Hub75Error {
     /// Error occurred during DMA transfer operations
