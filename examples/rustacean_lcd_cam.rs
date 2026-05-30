@@ -16,9 +16,9 @@ use embedded_graphics::prelude::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
-use embedded_sprites::{image::Image, include_image, sprite::Sprite};
-use esp_hub75::Color;
-
+use embedded_sprites::image::Image;
+use embedded_sprites::include_image;
+use embedded_sprites::sprite::Sprite;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
@@ -26,6 +26,7 @@ use esp_hal::main;
 use esp_hal::time::Rate;
 use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
 use esp_hub75::framebuffer::compute_rows;
+use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
 
@@ -83,9 +84,14 @@ fn main() -> ! {
         .text_color(Color::WHITE)
         .background_color(Color::BLACK)
         .build();
-    Text::with_alignment("Hello, Hub75", Point::new(31, 55), text_style, Alignment::Center)
-        .draw(&mut fb)
-        .expect("failed to draw text");
+    Text::with_alignment(
+        "Hello, Hub75",
+        Point::new(31, 55),
+        text_style,
+        Alignment::Center,
+    )
+    .draw(&mut fb)
+    .expect("failed to draw text");
 
     loop {
         let xfer = hub75
