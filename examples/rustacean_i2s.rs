@@ -1,7 +1,7 @@
 //! Example rendering a Rustacean PNG image on a HUB75 LED matrix using I2S
 //!
 //! The image is pre-converted to raw RGB888 bytes and drawn via
-//! `embedded_graphics::image::ImageRaw`.
+//! `embedded_sprites`. Uses ISR-driven BCM refresh via `start()`.
 
 #![no_std]
 #![no_main]
@@ -37,12 +37,19 @@ const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
 const PLANES: usize = 7;
 
-// const IMG_HEIGHT: u32 = 43;
-
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write($val);
+        x
+    }};
+}
+
 #[include_image]
-const GRASS_DATA: Image<hub75_framebuffer::Color> = "./images/rustacean-orig-noshadow-64x64.png";
+const RUSTACEAN: Image<hub75_framebuffer::Color> = "./images/rustacean-orig-noshadow-64x64.png";
 
 #[main]
 fn main() -> ! {
@@ -67,20 +74,19 @@ fn main() -> ! {
         latch: peripherals.GPIO26.degrade(),
     };
 
-    let mut hub75 = Hub75::new(
-        peripherals.I2S0.into(),
+    let hub75 = Hub75::new(
+        peripherals.I2S0,
         pins,
         peripherals.DMA_I2S0,
         tx_descriptors,
         Rate::from_mhz(20),
     )
-    .expect("failed to create Hub75!")
-    .into_async();
+    .expect("failed to create Hub75!");
 
-    let mut fb = FBType::new();
+    let fb = mk_static!(FBType, FBType::new());
 
-    let rustacean = Sprite::new(Point::new(0, 0), &GRASS_DATA);
-    rustacean.draw(&mut fb).expect("failed to draw image");
+    let rustacean = Sprite::new(Point::new(0, 0), &RUSTACEAN);
+    rustacean.draw(fb).expect("failed to draw image");
 
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
@@ -93,16 +99,12 @@ fn main() -> ! {
         text_style,
         Alignment::Center,
     )
-    .draw(&mut fb)
+    .draw(fb)
     .expect("failed to draw text");
 
+    hub75.start(&*fb).expect("failed to start Hub75");
+
     loop {
-        let xfer = hub75
-            .render(&fb)
-            .map_err(|(e, _hub75)| e)
-            .expect("failed to start render!");
-        let (result, new_hub75) = xfer.wait();
-        hub75 = new_hub75;
-        result.expect("transfer failed");
+        core::hint::spin_loop();
     }
 }

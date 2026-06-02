@@ -1,9 +1,10 @@
 //! Shared ISR-driven BCM refresh infrastructure.
 //!
 //! This module is compiled for all platforms that use an interrupt-driven
-//! display refresh loop (ESP32-S3 via LCD_CAM, ESP32-C5/C6 via PARL_IO).
-//! It contains the transfer state machine, the interrupt handler, and the
-//! public [`Hub75`] driver handle with `start()` / `swap()` API.
+//! display refresh loop (ESP32 via I2S Parallel, ESP32-S3 via LCD_CAM,
+//! ESP32-C5/C6 via PARL_IO). It contains the transfer state machine, the
+//! interrupt handler, and the public [`Hub75`] driver handle with `start()` /
+//! `swap()` API.
 
 use core::cell::RefCell;
 use core::sync::atomic::AtomicBool;
@@ -28,6 +29,12 @@ use crate::Hub75Error;
 // ---------------------------------------------------------------------------
 // Platform-specific type aliases
 // ---------------------------------------------------------------------------
+
+#[cfg(feature = "esp32")]
+pub(crate) type TxDriver = esp_hal::i2s::parallel::I2sParallel<'static, Blocking>;
+
+#[cfg(feature = "esp32")]
+pub(crate) type TxTransfer = esp_hal::i2s::parallel::I2sParallelTransfer<'static, BcmBuf, Blocking>;
 
 #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
 pub(crate) type TxDriver = esp_hal::parl_io::ParlIoTx<'static, Blocking>;
@@ -83,6 +90,20 @@ fn signal_swap_done(cs: critical_section::CriticalSection) {
 // Platform-specific transfer helpers
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "esp32")]
+#[cfg_attr(feature = "iram", ram)]
+fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
+    tx.send(buf)
+        .map_err(|(err, tx, buf)| (Hub75Error::Dma(err), tx, buf))
+}
+
+#[cfg(feature = "esp32")]
+#[cfg_attr(feature = "iram", ram)]
+fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
+    let (tx, buf) = xfer.wait();
+    (Ok(()), tx, buf)
+}
+
 #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
 #[cfg_attr(feature = "iram", ram)]
 fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
@@ -93,6 +114,13 @@ fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, 
 
     tx.write(transfer_len, buf)
         .map_err(|(err, tx, buf)| (Hub75Error::ParlIo(err), tx, buf))
+}
+
+#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg_attr(feature = "iram", ram)]
+fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
+    let (result, tx, buf) = xfer.wait();
+    (result.map_err(Hub75Error::Dma), tx, buf)
 }
 
 #[cfg(feature = "esp32s3")]
@@ -109,6 +137,13 @@ fn start_transfer(
         WordSize::Sixteen => tx.send(Command::<u16>::None, 0, buf),
     };
     result.map_err(|(err, tx, buf)| (Hub75Error::Dma(err), tx, buf))
+}
+
+#[cfg(feature = "esp32s3")]
+#[cfg_attr(feature = "iram", ram)]
+fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
+    let (result, tx, buf) = xfer.wait();
+    (result.map_err(Hub75Error::Dma), tx, buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -134,10 +169,10 @@ pub(crate) fn hub75_isr() {
         };
 
         // .wait() returns instantly — the interrupt already fired.
-        let (result, tx, mut buf) = xfer.wait();
+        let (result, tx, mut buf) = finish_transfer(xfer);
 
         if let Err(err) = result {
-            state.transfer = TransferPhase::Error(Hub75Error::Dma(err), tx, buf);
+            state.transfer = TransferPhase::Error(err, tx, buf);
             HAS_ERROR.store(true, Ordering::Release);
             signal_swap_done(cs);
             return;

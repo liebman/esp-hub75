@@ -78,29 +78,26 @@ variants.
 
 ### ESP32-S3 (LCD_CAM Interface)
 
-- [`examples/hello_lcd_cam`](examples/hello_lcd_cam.rs) - Displays "Hello, World!".
-- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Shows a color gradient and stats.
-- [`examples/lcd_cam_tiled.rs`](examples/lcd_cam_tiled.rs) - uses 4 64x32 panels
-  in a 2x2 configuration to show a color gradient and stats
+- [`examples/hello_lcd_cam.rs`](examples/hello_lcd_cam.rs) - Displays "Hello, World!" using blocking `start()`.
+- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Async `start()`/`swap()` with color gradient and stats.
+- [`examples/lcd_cam_latch.rs`](examples/lcd_cam_latch.rs) - Latched (8-bit) variant with color gradient and stats.
+- [`examples/rustacean_lcd_cam.rs`](examples/rustacean_lcd_cam.rs) - Renders a Rustacean image.
 
 ### ESP32-C6 / ESP32-C5 (PARL_IO Interface)
 
-- [`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!".
-- [`examples/parl_io.rs`](examples/parl_io.rs) - Shows a color gradient and stats.
+- [`examples/parl_io.rs`](examples/parl_io.rs) - Async `start()`/`swap()` with color gradient and stats.
+- [`examples/parl_io_latch.rs`](examples/parl_io_latch.rs) - Latched (8-bit) variant.
+- [`examples/rustacean_parl_io.rs`](examples/rustacean_parl_io.rs) - Renders a Rustacean image.
 
 **Note**: The ESP32-C5 does not support 16-bit mode, so only the latched
 examples (`parl_io_latch.rs`) can be used with it.
 
 ### ESP32 (I2S Parallel Interface)
 
-- [`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays
-  "Hello, World!".
-- [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Shows a color gradient
-  and stats.
-- [`examples/i2s_parallel_latch.rs`](examples/i2s_parallel_latch.rs) - Shows a
-  color gradient and stats.
-- [`examples/i2s_parallel_dimming.rs`](examples/i2s_parallel_dimming.rs) - Shows
-  a color gradient and stats.
+- [`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" using blocking `start()`.
+- [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Async `start()`/`swap()` with color gradient and stats.
+- [`examples/i2s_parallel_latch.rs`](examples/i2s_parallel_latch.rs) - Latched (8-bit) variant.
+- [`examples/rustacean_i2s.rs`](examples/rustacean_i2s.rs) - Renders a Rustacean image.
 
 ## Crate Features
 
