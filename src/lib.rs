@@ -73,20 +73,13 @@ use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
 pub use static_cell;
-#[cfg(any(feature = "esp32c5", feature = "esp32c6", feature = "esp32s3"))]
 pub(crate) mod bcm_buf;
-#[cfg(feature = "esp32")]
-#[doc(hidden)]
-pub mod bcm_dma_buf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
 mod hub75;
-#[cfg(any(feature = "esp32c5", feature = "esp32c6", feature = "esp32s3"))]
 mod isr;
 pub use hub75::Hub75;
-#[cfg(feature = "esp32")]
-pub use hub75::Hub75Transfer;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 

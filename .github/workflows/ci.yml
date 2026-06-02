@@ -44,22 +44,7 @@ jobs:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
             toolchain: +esp
-            example: i2s_parallel_bp
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
-            example: i2s_parallel_bp_latch
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
             example: hello_i2s_parallel
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
-            example: i2s_parallel_dimming
             cargo_unstable: "-Zbuild-std=core,alloc"
           - target: esp32
             rust_target: xtensa-esp32-none-elf
