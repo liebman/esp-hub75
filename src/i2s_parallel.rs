@@ -1,244 +1,185 @@
+//! HUB75 driver for I2S Parallel peripherals (ESP32).
+//!
+//! This module provides an interrupt-driven display controller that
+//! continuously refreshes a HUB75 panel from a framebuffer. The I2S DMA
+//! `out_total_eof` interrupt drives the entire BCM (Binary Code Modulation)
+//! refresh loop. Buffer swaps happen atomically at frame boundaries.
+//!
+//! # Blocking example
+//!
+//! ```rust,ignore
+//! let hub75 = Hub75::new(
+//!     peripherals.I2S0, pins, peripherals.DMA_I2S0,
+//!     tx_descriptors, Rate::from_mhz(20),
+//! ).expect("failed to create Hub75");
+//! hub75.start(&*fb).expect("failed to start Hub75");
+//!
+//! // Display refreshes automatically — main thread is free.
+//! loop { core::hint::spin_loop(); }
+//! ```
+//!
+//! # Async example
+//!
+//! ```rust,ignore
+//! let hub75 = Hub75::new_async(
+//!     peripherals.I2S0, pins, peripherals.DMA_I2S0,
+//!     tx_descriptors, Rate::from_mhz(20),
+//! ).expect("failed to create Hub75");
+//! hub75.start(&*fb0).expect("failed to start Hub75");
+//!
+//! // Swap buffers — yields to the executor, returns Err on DMA failure.
+//! let old_ptr = hub75.swap(&*fb1).await.expect("DMA error");
+//! ```
+
 use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaError;
-use esp_hal::dma::DmaTxBuffer;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::I2sParallel;
-use esp_hal::i2s::parallel::I2sParallelTransfer;
 use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
 use esp_hal::i2s::AnyI2s;
-#[cfg(feature = "iram")]
-use esp_hal::ram;
+use esp_hal::peripherals::Interrupt;
 use esp_hal::time::Rate;
+use esp_hal::Blocking;
 
-use crate::framebuffer::FrameBuffer;
+use crate::bcm_buf::BcmBuf;
+pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins16;
 use crate::Hub75Pins8;
 
-/// HUB75 LED matrix display driver using I2S Parallel
-///
-/// This driver uses the ESP32's I2S peripheral in parallel mode to drive HUB75
-/// LED matrix displays. It supports both 8-bit and 16-bit configurations and
-/// can operate in either blocking or async mode.
-pub struct Hub75<'d, DM: esp_hal::DriverMode> {
-    i2s: I2sParallel<'d, DM>,
-    tx_descriptors: &'static mut [DmaDescriptor],
+// ---------------------------------------------------------------------------
+// I2S instance trait — maps concrete peripherals to their interrupt and
+// register block for enabling `out_total_eof`.
+// ---------------------------------------------------------------------------
+
+/// Helper trait implemented for I2S0 and I2S1 to provide interrupt binding
+/// and `out_total_eof` enable. Users don't need to interact with this trait
+/// directly — just pass `peripherals.I2S0` or `peripherals.I2S1` to the
+/// constructor.
+pub trait I2sHub75Instance: esp_hal::i2s::parallel::Instance {
+    #[doc(hidden)]
+    fn bind_and_enable_isr();
 }
 
-impl<'d> Hub75<'d, esp_hal::Blocking> {
-    /// Creates a new blocking HUB75 driver instance
-    ///
-    /// # Arguments
-    /// * `i2s` - The I2S peripheral instance
-    /// * `hub75_pins` - The HUB75 pin configuration
-    /// * `channel` - The DMA channel to use for transfers
-    /// * `tx_descriptors` - DMA descriptors for the transfer buffer
-    /// * `frequency` - The clock frequency for the display
-    ///
-    /// # Returns
-    /// A new `Hub75` instance configured for blocking operation
-    ///
-    /// # Errors
-    /// Returns an error if the peripheral cannot be configured
-    pub fn new<T: TxPins<'d>>(
-        i2s: AnyI2s<'d>,
-        hub75_pins: impl Hub75Pins<'d, T>,
-        channel: impl DmaChannelFor<AnyI2s<'d>>,
+impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
+    fn bind_and_enable_isr() {
+        unsafe {
+            esp_hal::interrupt::bind_handler(Interrupt::I2S0, crate::isr::hub75_isr);
+            let stolen = esp_hal::peripherals::I2S0::steal();
+            stolen
+                .register_block()
+                .int_ena()
+                .modify(|_, w| w.out_total_eof().set_bit());
+        }
+    }
+}
+
+impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
+    fn bind_and_enable_isr() {
+        unsafe {
+            esp_hal::interrupt::bind_handler(Interrupt::I2S1, crate::isr::hub75_isr);
+            let stolen = esp_hal::peripherals::I2S1::steal();
+            stolen
+                .register_block()
+                .int_ena()
+                .modify(|_, w| w.out_total_eof().set_bit());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
+impl<DM: esp_hal::DriverMode> Hub75<DM> {
+    fn new_internal<T: TxPins<'static> + 'static, I: I2sHub75Instance + 'static>(
+        i2s: I,
+        hub75_pins: impl Hub75Pins<'static, T>,
+        channel: impl DmaChannelFor<AnyI2s<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
     ) -> Result<Self, Hub75Error> {
-        let (pins, clock) = hub75_pins.convert_pins();
-        // by default, we want data to change on the falling edge of the clock
-        // the esp32 i2s peripheral wants to do this on the rising edge so we invert the
-        // clock opposite of the feature flag
+        let (pins, clock_pin) = hub75_pins.convert_pins();
+
+        // By default data changes on the falling edge of CLK so it is stable
+        // when the panel latches on the rising edge. The ESP32 I2S peripheral
+        // shifts on the rising edge, so we invert the clock output unless the
+        // user opted into the opposite polarity.
         #[cfg(not(feature = "invert-clock"))]
-        let clock = clock.into_output_signal().with_output_inverter(true);
-        let i2s = I2sParallel::new(i2s, channel, frequency, pins, clock);
-        Ok(Self {
-            i2s,
-            tx_descriptors,
-        })
-    }
+        let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
 
-    /// Converts this blocking instance into an async instance
-    pub fn into_async(self) -> Hub75<'d, esp_hal::Async> {
-        Hub75 {
-            i2s: self.i2s.into_async(),
-            tx_descriptors: self.tx_descriptors,
-        }
+        let i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
+
+        // Bind our ISR and enable the out_total_eof interrupt so we get
+        // notified on each DMA transfer completion.
+        I::bind_and_enable_isr();
+
+        let buf = BcmBuf::new(tx_descriptors);
+        crate::isr::init_isr_state(i2s_parallel, buf);
+
+        Ok(Self::from_phantom())
     }
 }
 
-impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    /// Renders a frame buffer to the display.
+impl Hub75<Blocking> {
+    /// Create a new blocking HUB75 driver.
     ///
-    /// This method handles both contiguous (single-plane) and bitplane
-    /// (multi-plane BCM-weighted) framebuffers automatically. The DMA
-    /// descriptor chain is built internally — callers never need to manage
-    /// DMA buffer types.
-    ///
-    /// Calling render consumes the `Hub75` instance and returns a
-    /// `Hub75Transfer` instance that can be used to wait for the transfer
-    /// to complete.  After the transfer is complete, the `Hub75` will be
-    /// returned from the `wait()` method on the `Hub75Transfer` instance.
+    /// The driver is created in an idle state. Call [`Hub75::start`] with a
+    /// framebuffer to begin display refresh.
     ///
     /// # Arguments
-    /// * `fb` - The frame buffer to render
+    /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
+    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
+    /// * `channel` -- DMA channel (DMA_I2S0 or DMA_I2S1)
+    /// * `tx_descriptors` -- DMA descriptor storage (use
+    ///   [`hub75_dma_descriptors!`])
+    /// * `frequency` -- I2S clock rate
     ///
-    /// # Returns
-    /// A `Hub75Transfer` instance that can be used to wait for the transfer to
-    /// complete
-    ///
-    /// # Errors
-    /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
-    /// cannot be started
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn render(
-        self,
-        fb: &impl FrameBuffer,
-    ) -> Result<Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM>, (Hub75Error, Self)> {
-        let i2s = self.i2s;
-        let tx_descriptors = self.tx_descriptors;
-        let tx_buf = crate::bcm_dma_buf::BcmTxDmaBuf::new(tx_descriptors, fb);
-
-        let xfer = i2s.send(tx_buf).map_err(|(e, i2s, buf)| {
-            let tx_descriptors = buf.split();
-            (
-                e.into(),
-                Self {
-                    i2s,
-                    tx_descriptors,
-                },
-            )
-        })?;
-        Ok(Hub75Transfer {
-            xfer,
-            tx_descriptors: None,
-        })
+    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
+    pub fn new<T: TxPins<'static> + 'static, I: I2sHub75Instance + 'static>(
+        i2s: I,
+        hub75_pins: impl Hub75Pins<'static, T>,
+        channel: impl DmaChannelFor<AnyI2s<'static>>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: Rate,
+    ) -> Result<Self, Hub75Error> {
+        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency)
     }
+}
 
-    /// Renders using a caller-provided DMA transmit buffer.
+impl Hub75<esp_hal::Async> {
+    /// Create a new async HUB75 driver.
     ///
-    /// This is an escape hatch for custom [`DmaTxBuffer`] implementations
-    /// where the caller manages the descriptor chain directly.
+    /// The driver is created in an idle state. Call [`Hub75::start`] with a
+    /// framebuffer to begin display refresh.
     ///
     /// # Arguments
-    /// * `buf` - DMA buffer implementing [`DmaTxBuffer`].
+    /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
+    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
+    /// * `channel` -- DMA channel (DMA_I2S0 or DMA_I2S1)
+    /// * `tx_descriptors` -- DMA descriptor storage (use
+    ///   [`hub75_dma_descriptors!`])
+    /// * `frequency` -- I2S clock rate
     ///
-    /// # Returns
-    /// A [`Hub75Transfer`] which can be awaited and then consumed via
-    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer
-    /// and the driver instance.
-    ///
-    /// # Errors
-    /// Returns a tuple of `Hub75Error`, the recovered `Hub75` instance, and the
-    /// original buffer if the transfer cannot be started.
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn render_buf<BUF: DmaTxBuffer>(
-        self,
-        buf: BUF,
-    ) -> Result<Hub75Transfer<'d, BUF, DM>, (Hub75Error, Self, BUF)> {
-        let i2s = self.i2s;
-        let tx_descriptors = self.tx_descriptors;
-        match i2s.send(buf) {
-            Ok(xfer) => Ok(Hub75Transfer {
-                xfer,
-                tx_descriptors: Some(tx_descriptors),
-            }),
-            Err((e, i2s, buf)) => Err((
-                e.into(),
-                Self {
-                    i2s,
-                    tx_descriptors,
-                },
-                buf,
-            )),
-        }
+    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
+    pub fn new_async<T: TxPins<'static> + 'static, I: I2sHub75Instance + 'static>(
+        i2s: I,
+        hub75_pins: impl Hub75Pins<'static, T>,
+        channel: impl DmaChannelFor<AnyI2s<'static>>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: Rate,
+    ) -> Result<Self, Hub75Error> {
+        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency)
     }
 }
 
-/// Represents an in-progress transfer to the HUB75 display
-///
-/// This struct is returned by `Hub75::render` and can be used to wait for the
-/// transfer to complete. It provides both blocking and async methods for
-/// waiting.
-pub struct Hub75Transfer<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> {
-    xfer: I2sParallelTransfer<'d, BUF, DM>,
-    tx_descriptors: Option<&'static mut [DmaDescriptor]>,
-}
-
-impl<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> Hub75Transfer<'d, BUF, DM> {
-    /// Checks if the transfer is complete
-    ///
-    /// # Returns
-    /// `true` if the transfer is complete and `wait()` will not block
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn is_done(&self) -> bool {
-        self.xfer.is_done()
-    }
-
-    /// Waits for transfer completion and returns the finalized buffer plus hub.
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn wait_with_buf(self) -> (Result<(), DmaError>, BUF::Final, Hub75<'d, DM>) {
-        let Hub75Transfer {
-            xfer,
-            tx_descriptors,
-        } = self;
-        let (i2s, final_buf) = xfer.wait();
-        let tx_descriptors = tx_descriptors
-            .expect("wait_with_buf is only supported for render_buf()-started transfers");
-        (
-            Ok(()),
-            final_buf,
-            Hub75 {
-                i2s,
-                tx_descriptors,
-            },
-        )
-    }
-}
-
-impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM> {
-    /// Waits for the transfer to complete and recovers the `Hub75` instance.
-    ///
-    /// # Returns
-    /// A tuple containing:
-    /// 1. The result of the transfer
-    /// 2. The `Hub75` instance for reuse
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn wait(self) -> (Result<(), DmaError>, Hub75<'d, DM>) {
-        let (i2s, bcm_buf) = self.xfer.wait();
-        let tx_descriptors = bcm_buf.split();
-        (
-            Ok(()),
-            Hub75 {
-                i2s,
-                tx_descriptors,
-            },
-        )
-    }
-}
-
-impl<BUF: DmaTxBuffer> Hub75Transfer<'_, BUF, esp_hal::Async> {
-    /// Asynchronously waits for the transfer to complete
-    ///
-    /// # Returns
-    /// A `Result` indicating whether the transfer completed successfully
-    ///
-    /// # Note
-    /// This method does not return the `Hub75` instance. Use `wait()` after
-    /// `wait_for_done` returns to get the `Hub75` instance, it won't block at
-    /// that point.
-    #[cfg_attr(feature = "iram", ram)]
-    pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
-        self.xfer.wait_for_done().await
-    }
-}
+// ---------------------------------------------------------------------------
+// Pin configurations
+// ---------------------------------------------------------------------------
 
 impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
