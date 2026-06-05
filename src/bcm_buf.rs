@@ -10,7 +10,7 @@
 //! `advance()` always signals a frame boundary — reducing interrupt count at
 //! the cost of more descriptor RAM and the ESP32-C6 65535-byte transfer limit.
 
-use core::ptr::null_mut;
+use core::ptr::{null, null_mut};
 
 use esp_hal::dma::BurstConfig;
 use esp_hal::dma::DmaDescriptor;
@@ -35,7 +35,7 @@ pub(crate) fn planes_from_fb(fb: &impl FrameBuffer) -> PlaneInfo {
         plane_count <= MAX_PLANES,
         "plane_count {plane_count} exceeds MAX_PLANES"
     );
-    let mut planes: PlaneInfo = [(null_mut() as *const u8, 0usize); MAX_PLANES];
+    let mut planes: PlaneInfo = [(null::<u8>(), 0usize); MAX_PLANES];
     for (i, slot) in planes.iter_mut().enumerate().take(plane_count) {
         *slot = fb.plane_ptr_len(i);
     }
@@ -64,7 +64,7 @@ impl BcmBuf {
     pub(crate) fn new(descriptors: &'static mut [DmaDescriptor]) -> Self {
         Self {
             descriptors,
-            planes: [(null_mut() as *const u8, 0usize); MAX_PLANES],
+            planes: [(null::<u8>(), 0usize); MAX_PLANES],
             plane_count: 0,
             #[cfg(not(feature = "full-chain-dma"))]
             current_plane: 0,
@@ -75,6 +75,14 @@ impl BcmBuf {
 
     /// Set plane pointers and count, resetting the BCM state machine.
     pub(crate) fn reset_with_planes(&mut self, new_planes: PlaneInfo, plane_count: usize) {
+        debug_assert!(plane_count > 0 && plane_count <= MAX_PLANES);
+        debug_assert!(
+            self.descriptors.len()
+                >= crate::dma_descriptor_count(plane_count, new_planes[0].1),
+            "not enough DMA descriptors: have {}, need {}",
+            self.descriptors.len(),
+            crate::dma_descriptor_count(plane_count, new_planes[0].1),
+        );
         self.planes = new_planes;
         self.plane_count = plane_count;
         #[cfg(not(feature = "full-chain-dma"))]
@@ -141,14 +149,7 @@ unsafe impl DmaTxBuffer for BcmBuf {
 
     #[cfg_attr(feature = "iram", ram)]
     fn prepare(&mut self) -> Preparation {
-        #[cfg(not(feature = "full-chain-dma"))]
-        {
-            self.prepare_single_plane()
-        }
-        #[cfg(feature = "full-chain-dma")]
-        {
-            self.prepare_full_chain()
-        }
+        self.prepare_descriptors()
     }
 
     fn into_view(self) -> Self::View {
@@ -161,44 +162,44 @@ unsafe impl DmaTxBuffer for BcmBuf {
 }
 
 impl BcmBuf {
-    /// Build descriptors for a single plane (default ISR path).
+    /// Build DMA descriptors for the next transfer.
+    ///
+    /// Without `full-chain-dma` this covers a single bit-plane; with the
+    /// feature enabled it covers the entire BCM repetition chain.
     #[cfg(not(feature = "full-chain-dma"))]
     #[cfg_attr(feature = "iram", ram)]
-    fn prepare_single_plane(&mut self) -> Preparation {
+    fn prepare_descriptors(&mut self) -> Preparation {
         let (ptr, len) = self.planes[self.current_plane];
+        let desc_count = len.div_ceil(4095);
         let mut remaining = len;
         let mut offset = 0;
-        let mut desc_idx = 0;
 
-        while remaining > 0 {
+        for i in 0..desc_count {
             let chunk = remaining.min(4095);
-            let desc = &mut self.descriptors[desc_idx];
-            desc.buffer = unsafe { ptr.add(offset) as *mut u8 };
-            desc.set_size(chunk);
-            desc.set_length(chunk);
-            desc.set_owner(Owner::Dma);
-            desc.set_suc_eof(false);
-            desc.next = null_mut();
-            remaining -= chunk;
-            offset += chunk;
-            desc_idx += 1;
-        }
-
-        for i in 0..desc_idx {
-            let is_last = i + 1 == desc_idx;
+            let is_last = i + 1 == desc_count;
             let next = if is_last {
                 null_mut()
             } else {
                 unsafe { self.descriptors.as_mut_ptr().add(i + 1) }
             };
             let desc = &mut self.descriptors[i];
+            // SAFETY: `ptr` originates from a live framebuffer plane and
+            // `offset` stays within the plane's `len` bytes.
+            desc.buffer = unsafe { ptr.add(offset) as *mut u8 };
+            desc.set_size(chunk);
+            desc.set_length(chunk);
             desc.set_owner(Owner::Dma);
             desc.set_suc_eof(is_last);
             desc.next = next;
+            remaining -= chunk;
+            offset += chunk;
         }
 
-        let mut seed = EmptyBuf;
-        let mut prep: Preparation = seed.prepare();
+        // `EmptyBuf` provides a `Preparation` with safe defaults; we override
+        // the fields relevant to our descriptor chain. If `Preparation` gains
+        // new fields in a future esp-hal release, review them here.
+        let mut empty = EmptyBuf;
+        let mut prep: Preparation = empty.prepare();
         prep.start = self.descriptors.as_mut_ptr();
         prep.direction = TransferDirection::Out;
         prep.burst_transfer = BurstConfig::default();
@@ -207,10 +208,17 @@ impl BcmBuf {
         prep
     }
 
-    /// Build descriptors for the entire BCM repetition chain (full-chain-dma).
+    /// Build DMA descriptors for the next transfer.
+    ///
+    /// Without `full-chain-dma` this covers a single bit-plane; with the
+    /// feature enabled it covers the entire BCM repetition chain.
     #[cfg(feature = "full-chain-dma")]
     #[cfg_attr(feature = "iram", ram)]
-    fn prepare_full_chain(&mut self) -> Preparation {
+    fn prepare_descriptors(&mut self) -> Preparation {
+        let total_descs = crate::dma_descriptor_count(
+            self.plane_count,
+            self.planes[0].1,
+        );
         let mut desc_idx = 0;
 
         for plane_idx in 0..self.plane_count {
@@ -222,13 +230,21 @@ impl BcmBuf {
                 let mut offset = 0;
                 while remaining > 0 {
                     let chunk = remaining.min(4095);
+                    let is_last = desc_idx + 1 == total_descs;
+                    let next = if is_last {
+                        null_mut()
+                    } else {
+                        unsafe { self.descriptors.as_mut_ptr().add(desc_idx + 1) }
+                    };
                     let desc = &mut self.descriptors[desc_idx];
+                    // SAFETY: `plane_ptr` originates from a live framebuffer
+                    // plane and `offset` stays within the plane's byte length.
                     desc.buffer = unsafe { plane_ptr.add(offset) as *mut u8 };
                     desc.set_size(chunk);
                     desc.set_length(chunk);
                     desc.set_owner(Owner::Dma);
-                    desc.set_suc_eof(false);
-                    desc.next = null_mut();
+                    desc.set_suc_eof(is_last);
+                    desc.next = next;
                     remaining -= chunk;
                     offset += chunk;
                     desc_idx += 1;
@@ -236,21 +252,11 @@ impl BcmBuf {
             }
         }
 
-        for i in 0..desc_idx {
-            let is_last = i + 1 == desc_idx;
-            let next = if is_last {
-                null_mut()
-            } else {
-                unsafe { self.descriptors.as_mut_ptr().add(i + 1) }
-            };
-            let desc = &mut self.descriptors[i];
-            desc.set_owner(Owner::Dma);
-            desc.set_suc_eof(is_last);
-            desc.next = next;
-        }
-
-        let mut seed = EmptyBuf;
-        let mut prep: Preparation = seed.prepare();
+        // `EmptyBuf` provides a `Preparation` with safe defaults; we override
+        // the fields relevant to our descriptor chain. If `Preparation` gains
+        // new fields in a future esp-hal release, review them here.
+        let mut empty = EmptyBuf;
+        let mut prep: Preparation = empty.prepare();
         prep.start = self.descriptors.as_mut_ptr();
         prep.direction = TransferDirection::Out;
         prep.burst_transfer = BurstConfig::default();

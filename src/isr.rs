@@ -73,7 +73,9 @@ pub(crate) struct IsrState {
 // SAFETY: All access is serialised by `critical_section`.
 unsafe impl Send for IsrState {}
 
-static ISR_STATE: Mutex<RefCell<Option<IsrState>>> = Mutex::new(RefCell::new(None));
+type SharedIsrState = Mutex<RefCell<Option<IsrState>>>;
+
+static ISR_STATE: SharedIsrState = Mutex::new(RefCell::new(None));
 static SWAP_DONE: AtomicBool = AtomicBool::new(false);
 static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));

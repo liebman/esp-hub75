@@ -45,11 +45,19 @@
 //! - `esp32c6`: Enable support for the ESP32-C6
 //! - `defmt`: Enable logging with `defmt`
 //! - `log`: Enable logging with the `log` crate
-//! - `invert-blank`: Invert the blank signal, required for some controller boards.
+//! - `invert-blank`: Invert the blank signal. This only applies to 8-bit
+//!   latched configurations (`Hub75Pins8`); in 16-bit direct-drive mode the
+//!   blank signal is always active-low. Some latch controller boards include
+//!   a hardware inverter on the blank line — enable this feature to compensate.
 //! - `invert-clock`: Invert the clock signal. By default the driver outputs data
 //!   that changes on the falling edge of CLK so that it is stable when the panel
 //!   latches on the rising edge. Enable this feature if your panel requires the
 //!   opposite polarity.
+//! - `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
+//!   transfer instead of one plane per interrupt. This reduces interrupt
+//!   frequency at the cost of more DMA descriptor RAM. Note that the ESP32-C6
+//!   PARL_IO peripheral has a 65 535-byte per-transfer limit, which constrains
+//!   the maximum panel size and plane count when this feature is enabled.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
 //!   optimization that skips writing black pixels to the framebuffer.
 //! - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Appends a
@@ -252,6 +260,21 @@ pub enum Hub75Error {
     /// Configuration error for the I8080 interface (ESP32-S3 only)
     #[cfg(feature = "esp32s3")]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
+}
+
+impl core::fmt::Display for Hub75Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Dma(e) => write!(f, "DMA error: {e:?}"),
+            Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),
+            #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+            Self::ParlIo(e) => write!(f, "PARL_IO error: {e:?}"),
+            #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+            Self::ConfigError(e) => write!(f, "PARL_IO config error: {e:?}"),
+            #[cfg(feature = "esp32s3")]
+            Self::I8080(e) => write!(f, "I8080 config error: {e:?}"),
+        }
+    }
 }
 
 impl From<esp_hal::dma::DmaError> for Hub75Error {
