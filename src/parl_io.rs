@@ -167,6 +167,8 @@ use esp_hal::parl_io::TxSixteenBits;
 #[cfg(not(feature = "esp32c5"))]
 impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
+        // SAFETY: We only use the output signal half. The original `AnyPin` is
+        // consumed by the enclosing struct move, so there is no aliased access.
         let (_, blank) = unsafe { self.blank.split() };
         let pins = TxSixteenBits::new(
             self.addr0,
@@ -192,6 +194,8 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
 
 impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
+        // SAFETY: We only use the output signal half. The original `AnyPin` is
+        // consumed by the enclosing struct move, so there is no aliased access.
         let (_, blank) = unsafe { self.blank.split() };
         let pins = TxEightBits::new(
             self.red1,

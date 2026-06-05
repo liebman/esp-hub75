@@ -162,6 +162,8 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
     }
 
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
+        // SAFETY: We only use the output signal half. The original `AnyPin` is
+        // consumed by the enclosing struct move, so there is no aliased access.
         let (_, blank) = unsafe { self.blank.split() };
 
         i8080
@@ -191,6 +193,9 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
     }
 
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
+        // SAFETY: We only use the output signal half of each pin. The original
+        // `AnyPin` values are consumed by the enclosing struct move, so there
+        // is no aliased access.
         let (_, blank) = unsafe { self.blank.split() };
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);

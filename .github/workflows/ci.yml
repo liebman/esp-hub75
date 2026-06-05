@@ -30,6 +30,7 @@ jobs:
       matrix:
         target: [esp32, esp32s3, esp32c5, esp32c6]
         features: [log, defmt]
+        extra_features: ["", "full-chain-dma,invert-blank,invert-clock"]
         include:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
@@ -115,5 +116,5 @@ jobs:
   
       - name: Build examples
         run: |
-          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "iram,${{ matrix.target }},${{ matrix.features }}" ${{ matrix.cargo_unstable }}
+          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "iram,${{ matrix.target }},${{ matrix.features }},${{ matrix.extra_features }}" ${{ matrix.cargo_unstable }}
 
