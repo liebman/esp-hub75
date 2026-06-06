@@ -93,7 +93,7 @@ const NBARS: i32 = ROWS as i32 / 8;
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
 #[task]
-async fn display_task(hub75: Hub75<esp_hal::Async>, mut fb: &'static mut FBType) {
+async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut FBType) {
     let fps_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
         .text_color(Color::YELLOW)
@@ -165,8 +165,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async>, mut fb: &'static mut FBType)
         .draw(fb)
         .unwrap();
 
-        let old_ptr = hub75.swap(fb).await.expect("DMA transfer failed");
-        fb = unsafe { &mut *(old_ptr as *mut FBType) };
+        fb = hub75.swap(fb).await.expect("DMA transfer failed");
 
         render_count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -241,7 +240,7 @@ async fn main(_spawner: Spawner) {
         Rate::from_mhz(20),
     )
     .expect("failed to create Hub75");
-    hub75.start(&*fb0).expect("failed to start Hub75");
+    let hub75 = hub75.start(&*fb0).expect("failed to start Hub75");
 
     let cpu1_fnctn = {
         move || {

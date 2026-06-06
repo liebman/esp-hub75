@@ -101,7 +101,7 @@ fn main() -> ! {
         Rate::from_mhz(20),
     )
     .expect("failed to create Hub75");
-    _hub75.start(&*fb).expect("failed to start Hub75");
+    let _hub75 = _hub75.start(&*fb).expect("failed to start Hub75");
 
     loop {
         core::hint::spin_loop();

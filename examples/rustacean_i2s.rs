@@ -102,7 +102,7 @@ fn main() -> ! {
     .draw(fb)
     .expect("failed to draw text");
 
-    hub75.start(&*fb).expect("failed to start Hub75");
+    let _hub75 = hub75.start(&*fb).expect("failed to start Hub75");
 
     loop {
         core::hint::spin_loop();

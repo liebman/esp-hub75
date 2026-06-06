@@ -254,81 +254,69 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
 /// refresh. The peripheral's transfer-done interrupt drives the entire BCM
 /// refresh loop automatically.
 ///
+/// The `FB` type parameter tracks the framebuffer type and is set by
+/// [`Hub75::start`]. Constructors return `Hub75<DM>` (i.e. `Hub75<DM, ()>`)
+/// and `start()` consumes it, returning a `Hub75<DM, FB>` that ensures
+/// [`Hub75::swap`] always uses the same concrete framebuffer type.
+///
 /// If [`Hub75::swap`] returns an error, the driver stops and can be
-/// restarted by calling [`Hub75::start`] again (possibly with a different
-/// framebuffer).
+/// restarted by calling [`Hub75::start`] again.
 ///
 /// The `DM` type parameter selects the swap API:
-/// - [`Hub75<Blocking>`](esp_hal::Blocking): [`swap()`](Hub75::swap) spin-loops
-///   until the next frame boundary.
-/// - [`Hub75<Async>`](esp_hal::Async): [`swap()`](Hub75::swap) is an async
-///   method that yields to the executor.
-pub struct Hub75<DM: esp_hal::DriverMode> {
+/// - [`Hub75<Blocking, FB>`](esp_hal::Blocking): [`swap()`](Hub75::swap)
+///   spin-loops until the next frame boundary.
+/// - [`Hub75<Async, FB>`](esp_hal::Async): [`swap()`](Hub75::swap) is an
+///   async method that yields to the executor.
+pub struct Hub75<DM: esp_hal::DriverMode, FB = ()> {
     _dm: core::marker::PhantomData<DM>,
+    _fb: core::marker::PhantomData<fn() -> FB>,
 }
 
 // SAFETY: Hub75 is a zero-sized handle; all mutable state lives in statics
 // guarded by critical_section, so it is safe to send across threads.
-unsafe impl<DM: esp_hal::DriverMode> Send for Hub75<DM> {}
+unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
 
 impl<DM: esp_hal::DriverMode> Hub75<DM> {
     pub(crate) fn from_phantom() -> Self {
         Self {
             _dm: core::marker::PhantomData,
+            _fb: core::marker::PhantomData,
         }
     }
 
-    /// Start (or restart) display refresh with the given framebuffer.
+    /// Start display refresh with the given framebuffer.
     ///
-    /// Callable from `Idle` state (after [`Hub75::new`] / [`Hub75::new_async`])
-    /// or from `Error` state (after [`Hub75::swap`] returned an error).
-    /// Sets up the BCM plane data and kicks off the first DMA transfer.
+    /// Consumes the idle driver handle and returns a typed handle that binds
+    /// the framebuffer type `FB`. This ensures that all subsequent calls to
+    /// [`Hub75::swap`] use the same concrete framebuffer type.
     ///
     /// # Panics
     ///
     /// Panics if called while a transfer is already in flight.
-    pub fn start(&self, fb: &'static (impl FrameBuffer + 'static)) -> Result<(), Hub75Error> {
-        let planes = planes_from_fb(fb);
-        let plane_count = fb.plane_count();
-
-        critical_section::with(|cs| {
-            let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-            let state = borrow.as_mut().expect("Hub75 not initialised");
-
-            let (tx, mut buf) =
-                match core::mem::replace(&mut state.transfer, TransferPhase::Transitioning) {
-                    TransferPhase::Idle(tx, buf) | TransferPhase::Error(_, tx, buf) => (tx, buf),
-                    other => {
-                        state.transfer = other;
-                        panic!("start() called while already running");
-                    }
-                };
-
-            buf.reset_with_planes(planes, plane_count);
-            state.current_fb_ptr = fb as *const _ as *const ();
-            state.pending_planes = None;
-            state.pending_fb_ptr = core::ptr::null();
-            state.returned_fb_ptr = core::ptr::null();
-
-            #[cfg(feature = "esp32s3")]
-            let xfer_result = start_transfer(tx, buf, state.word_size);
-            #[cfg(not(feature = "esp32s3"))]
-            let xfer_result = start_transfer(tx, buf);
-
-            match xfer_result {
-                Ok(xfer) => {
-                    state.transfer = TransferPhase::InFlight(xfer);
-                    HAS_ERROR.store(false, Ordering::Release);
-                    SWAP_DONE.store(false, Ordering::Relaxed);
-                    Ok(())
-                }
-                Err((hub_err, tx, buf)) => {
-                    state.transfer = TransferPhase::Error(hub_err, tx, buf);
-                    HAS_ERROR.store(true, Ordering::Release);
-                    Err(hub_err)
-                }
-            }
+    pub fn start<FB: FrameBuffer + 'static>(
+        self,
+        fb: &'static FB,
+    ) -> Result<Hub75<DM, FB>, Hub75Error> {
+        start_internal(fb)?;
+        Ok(Hub75 {
+            _dm: core::marker::PhantomData,
+            _fb: core::marker::PhantomData,
         })
+    }
+}
+
+impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
+    /// Restart display refresh after an error.
+    ///
+    /// Callable after [`Hub75::swap`] returned an error. Sets up the BCM
+    /// plane data and kicks off the first DMA transfer with the same
+    /// framebuffer type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called while a transfer is already in flight.
+    pub fn restart(&self, fb: &'static FB) -> Result<(), Hub75Error> {
+        start_internal(fb)
     }
 
     /// Returns the number of complete BCM frames rendered since driver
@@ -338,22 +326,60 @@ impl<DM: esp_hal::DriverMode> Hub75<DM> {
     }
 }
 
-impl Hub75<Blocking> {
+fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
+    let planes = planes_from_fb(fb);
+    let plane_count = fb.plane_count();
+
+    critical_section::with(|cs| {
+        let mut borrow = ISR_STATE.borrow_ref_mut(cs);
+        let state = borrow.as_mut().expect("Hub75 not initialised");
+
+        let (tx, mut buf) =
+            match core::mem::replace(&mut state.transfer, TransferPhase::Transitioning) {
+                TransferPhase::Idle(tx, buf) | TransferPhase::Error(_, tx, buf) => (tx, buf),
+                other => {
+                    state.transfer = other;
+                    panic!("start() called while already running");
+                }
+            };
+
+        buf.reset_with_planes(planes, plane_count);
+        state.current_fb_ptr = fb as *const _ as *const ();
+        state.pending_planes = None;
+        state.pending_fb_ptr = core::ptr::null();
+        state.returned_fb_ptr = core::ptr::null();
+
+        #[cfg(feature = "esp32s3")]
+        let xfer_result = start_transfer(tx, buf, state.word_size);
+        #[cfg(not(feature = "esp32s3"))]
+        let xfer_result = start_transfer(tx, buf);
+
+        match xfer_result {
+            Ok(xfer) => {
+                state.transfer = TransferPhase::InFlight(xfer);
+                HAS_ERROR.store(false, Ordering::Release);
+                SWAP_DONE.store(false, Ordering::Relaxed);
+                Ok(())
+            }
+            Err((hub_err, tx, buf)) => {
+                state.transfer = TransferPhase::Error(hub_err, tx, buf);
+                HAS_ERROR.store(true, Ordering::Release);
+                Err(hub_err)
+            }
+        }
+    })
+}
+
+impl<FB: FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Replace the displayed framebuffer.
     ///
     /// Blocks (spin-loops) until the current BCM frame completes, then
-    /// atomically swaps in `new_fb` and returns the old framebuffer pointer.
+    /// atomically swaps in `new_fb` and returns exclusive access to the
+    /// previously displayed framebuffer.
     ///
     /// Returns `Err` if the ISR encountered a DMA error. After an error the
-    /// driver is stopped; call [`Hub75::start`] to restart with a (possibly
-    /// different) framebuffer.
-    ///
-    /// # Safety contract
-    ///
-    /// The caller **must** ensure that every call to `swap` uses the same
-    /// concrete framebuffer type that was passed to [`Hub75::start`]. The
-    /// returned raw pointer must be cast back to that same type.
-    pub fn swap(&self, new_fb: &'static impl FrameBuffer) -> Result<*const (), Hub75Error> {
+    /// driver is stopped; call [`Hub75::start`] to restart.
+    pub fn swap(&self, new_fb: &'static mut FB) -> Result<&'static mut FB, Hub75Error> {
         let new_planes = planes_from_fb(new_fb);
 
         critical_section::with(|cs| {
@@ -384,27 +410,26 @@ impl Hub75<Blocking> {
         critical_section::with(|cs| {
             let borrow = ISR_STATE.borrow_ref(cs);
             let state = borrow.as_ref().expect("Hub75 not initialised");
-            Ok(state.returned_fb_ptr)
+            // SAFETY: The typestate guarantees that the returned pointer
+            // originated from a `&'static mut FB` passed to a prior
+            // `start()` or `swap()` call with the same `FB` type. The ISR
+            // has finished using this buffer (it swapped to the new one at
+            // the frame boundary), so exclusive access is restored.
+            Ok(unsafe { &mut *(state.returned_fb_ptr as *mut FB) })
         })
     }
 }
 
-impl Hub75<esp_hal::Async> {
+impl<FB: FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Replace the displayed framebuffer.
     ///
     /// Yields to the executor until the current BCM frame completes, then
-    /// atomically swaps in `new_fb` and returns the old framebuffer pointer.
+    /// atomically swaps in `new_fb` and returns exclusive access to the
+    /// previously displayed framebuffer.
     ///
     /// Returns `Err` if the ISR encountered a DMA error. After an error the
-    /// driver is stopped; call [`Hub75::start`] to restart with a (possibly
-    /// different) framebuffer.
-    ///
-    /// # Safety contract
-    ///
-    /// The caller **must** ensure that every call to `swap` uses the same
-    /// concrete framebuffer type that was passed to [`Hub75::start`].
-    /// The returned raw pointer must be cast back to that same type.
-    pub async fn swap(&self, new_fb: &'static impl FrameBuffer) -> Result<*const (), Hub75Error> {
+    /// driver is stopped; call [`Hub75::start`] to restart.
+    pub async fn swap(&self, new_fb: &'static mut FB) -> Result<&'static mut FB, Hub75Error> {
         let new_planes = planes_from_fb(new_fb);
 
         critical_section::with(|cs| {
@@ -443,7 +468,12 @@ impl Hub75<esp_hal::Async> {
         critical_section::with(|cs| {
             let borrow = ISR_STATE.borrow_ref(cs);
             let state = borrow.as_ref().expect("Hub75 not initialised");
-            Ok(state.returned_fb_ptr)
+            // SAFETY: The typestate guarantees that the returned pointer
+            // originated from a `&'static mut FB` passed to a prior
+            // `start()` or `swap()` call with the same `FB` type. The ISR
+            // has finished using this buffer (it swapped to the new one at
+            // the frame boundary), so exclusive access is restored.
+            Ok(unsafe { &mut *(state.returned_fb_ptr as *mut FB) })
         })
     }
 }
