@@ -249,9 +249,9 @@ async fn main(spawner: Spawner) {
         peripherals.DMA_CH0,
         tx_descriptors,
         Rate::from_mhz(40),
+        &*fb0,
     )
     .expect("failed to create Hub75");
-    let hub75 = hub75.start(&*fb0).expect("failed to start Hub75");
 
     spawner.spawn(display_task(hub75, fb1).unwrap());
 

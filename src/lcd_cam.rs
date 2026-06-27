@@ -59,13 +59,14 @@ use crate::Hub75Pins8;
 // Constructor
 // ---------------------------------------------------------------------------
 
-impl<DM: esp_hal::DriverMode> Hub75<DM> {
-    fn new_internal(
+impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
+    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
-        hub75_pins: impl Hub75Pins<'static>,
+        hub75_pins: P,
         channel: impl TxChannelFor<LCD_CAM<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         let word_size = hub75_pins.word_size();
 
@@ -85,6 +86,7 @@ impl<DM: esp_hal::DriverMode> Hub75<DM> {
 
         // Enable the LCD done interrupt at the peripheral level so the ISR
         // fires on every transfer completion.
+        // SAFETY: TODO: PR to esp-hal to add a method to enable the interrupt?
         unsafe {
             let stolen = LCD_CAM::steal();
             stolen
@@ -95,16 +97,22 @@ impl<DM: esp_hal::DriverMode> Hub75<DM> {
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(i8080, buf, word_size);
+        crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
     }
 }
 
-impl Hub75<Blocking> {
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Create a new blocking HUB75 driver.
     ///
-    /// The driver is created in an idle state. Call [`Hub75::start`] with a
-    /// framebuffer to begin display refresh.
+    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
     ///
     /// # Arguments
     /// * `lcd_cam` -- The LCD_CAM peripheral instance
@@ -113,24 +121,31 @@ impl Hub75<Blocking> {
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- LCD_CAM clock rate
+    /// * `fb` -- Initial framebuffer to display
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new(
+    pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
-        hub75_pins: impl Hub75Pins<'static>,
+        hub75_pins: P,
         channel: impl TxChannelFor<LCD_CAM<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
-impl Hub75<esp_hal::Async> {
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Create a new async HUB75 driver.
     ///
-    /// The driver is created in an idle state. Call [`Hub75::start`] with a
-    /// framebuffer to begin display refresh.
+    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
     ///
     /// # Arguments
     /// * `lcd_cam` -- The LCD_CAM peripheral instance
@@ -139,16 +154,18 @@ impl Hub75<esp_hal::Async> {
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- LCD_CAM clock rate
+    /// * `fb` -- Initial framebuffer to display
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async(
+    pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
-        hub75_pins: impl Hub75Pins<'static>,
+        hub75_pins: P,
         channel: impl TxChannelFor<LCD_CAM<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
@@ -157,6 +174,8 @@ impl Hub75<esp_hal::Async> {
 // ---------------------------------------------------------------------------
 
 impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
+    type Word = u16;
+
     fn word_size(&self) -> WordSize {
         WordSize::Sixteen
     }
@@ -188,6 +207,8 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
 }
 
 impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
+    type Word = u8;
+
     fn word_size(&self) -> WordSize {
         WordSize::Eight
     }
@@ -199,6 +220,9 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
         let (_, blank) = unsafe { self.blank.split() };
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
+        // SAFETY: We only use the output signal half of each pin. The original
+        // `AnyPin` values are consumed by the enclosing struct move, so there
+        // is no aliased access.
         let (_, clock) = unsafe { self.clock.split() };
         #[cfg(feature = "invert-clock")]
         let clock = clock.with_output_inverter(true);

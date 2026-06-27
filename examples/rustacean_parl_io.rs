@@ -99,9 +99,9 @@ fn main() -> ! {
         peripherals.DMA_CH0,
         tx_descriptors,
         Rate::from_mhz(20),
+        &*fb,
     )
     .expect("failed to create Hub75");
-    let _hub75 = _hub75.start(&*fb).expect("failed to start Hub75");
 
     loop {
         core::hint::spin_loop();

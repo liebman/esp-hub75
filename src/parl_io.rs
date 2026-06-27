@@ -57,13 +57,17 @@ use crate::Hub75Pins8;
 // Constructor
 // ---------------------------------------------------------------------------
 
-impl<DM: esp_hal::DriverMode> Hub75<DM> {
-    fn new_internal<T: TxPins + ConfigurePins + 'static>(
+impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
+    fn new_internal<
+        T: TxPins + ConfigurePins + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+    >(
         parl_io: PARL_IO<'static>,
-        hub75_pins: impl Hub75Pins<'static, T>,
+        hub75_pins: P,
         channel: impl DmaChannelFor<PARL_IO<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
@@ -86,6 +90,7 @@ impl<DM: esp_hal::DriverMode> Hub75<DM> {
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, config)?;
 
+        // SAFETY: TODO: open issue or pr to esp-hal to set this when using GDMA and remove the C6 max length check
         #[cfg(feature = "esp32c5")]
         unsafe {
             use esp32c5 as pac;
@@ -96,16 +101,22 @@ impl<DM: esp_hal::DriverMode> Hub75<DM> {
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(parl_io_tx, buf);
+        crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
     }
 }
 
-impl Hub75<Blocking> {
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Create a new blocking HUB75 driver.
     ///
-    /// The driver is created in an idle state. Call [`Hub75::start`] with a
-    /// framebuffer to begin display refresh.
+    /// Configures the PARL_IO peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
     ///
     /// # Arguments
     /// * `parl_io` -- The PARL_IO peripheral instance
@@ -114,24 +125,31 @@ impl Hub75<Blocking> {
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- PARL_IO clock rate
+    /// * `fb` -- Initial framebuffer to display
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<T: TxPins + ConfigurePins + 'static>(
+    pub fn new<T: TxPins + ConfigurePins + 'static, P: Hub75Pins<'static, T, Word = FB::Word>>(
         parl_io: PARL_IO<'static>,
-        hub75_pins: impl Hub75Pins<'static, T>,
+        hub75_pins: P,
         channel: impl DmaChannelFor<PARL_IO<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency)
+        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
-impl Hub75<esp_hal::Async> {
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Create a new async HUB75 driver.
     ///
-    /// The driver is created in an idle state. Call [`Hub75::start`] with a
-    /// framebuffer to begin display refresh.
+    /// Configures the PARL_IO peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
     ///
     /// # Arguments
     /// * `parl_io` -- The PARL_IO peripheral instance
@@ -140,16 +158,21 @@ impl Hub75<esp_hal::Async> {
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- PARL_IO clock rate
+    /// * `fb` -- Initial framebuffer to display
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<T: TxPins + ConfigurePins + 'static>(
+    pub fn new_async<
+        T: TxPins + ConfigurePins + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+    >(
         parl_io: PARL_IO<'static>,
-        hub75_pins: impl Hub75Pins<'static, T>,
+        hub75_pins: P,
         channel: impl DmaChannelFor<PARL_IO<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency)
+        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
@@ -166,6 +189,8 @@ use esp_hal::parl_io::TxSixteenBits;
 
 #[cfg(not(feature = "esp32c5"))]
 impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+    type Word = u16;
+
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         // SAFETY: We only use the output signal half. The original `AnyPin` is
         // consumed by the enclosing struct move, so there is no aliased access.
@@ -193,6 +218,8 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
 }
 
 impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
+    type Word = u8;
+
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         // SAFETY: We only use the output signal half. The original `AnyPin` is
         // consumed by the enclosing struct move, so there is no aliased access.

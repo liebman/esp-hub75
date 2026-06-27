@@ -237,9 +237,9 @@ async fn main(_spawner: Spawner) {
         peripherals.DMA_CH0,
         tx_descriptors,
         Rate::from_mhz(20),
+        &*fb0,
     )
     .expect("failed to create Hub75");
-    let hub75 = hub75.start(&*fb0).expect("failed to start Hub75");
 
     let cpu1_fnctn = {
         move || {

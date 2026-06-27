@@ -78,7 +78,7 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
-const PLANES: usize = 7;
+const PLANES: usize = 6;
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;
@@ -236,9 +236,9 @@ async fn main(spawner: Spawner) {
         peripherals.DMA_CH0,
         tx_descriptors,
         Rate::from_mhz(20),
+        &*fb0,
     )
     .expect("failed to create Hub75");
-    let hub75 = hub75.start(&*fb0).expect("failed to start Hub75");
 
     spawner.spawn(display_task(hub75, fb1).unwrap());
 

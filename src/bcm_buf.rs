@@ -10,7 +10,8 @@
 //! `advance()` always signals a frame boundary — reducing interrupt count at
 //! the cost of more descriptor RAM and the ESP32-C6 65535-byte transfer limit.
 
-use core::ptr::{null, null_mut};
+use core::ptr::null;
+use core::ptr::null_mut;
 
 use esp_hal::dma::BurstConfig;
 use esp_hal::dma::DmaDescriptor;
@@ -77,8 +78,7 @@ impl BcmBuf {
     pub(crate) fn reset_with_planes(&mut self, new_planes: PlaneInfo, plane_count: usize) {
         debug_assert!(plane_count > 0 && plane_count <= MAX_PLANES);
         debug_assert!(
-            self.descriptors.len()
-                >= crate::dma_descriptor_count(plane_count, new_planes[0].1),
+            self.descriptors.len() >= crate::dma_descriptor_count(plane_count, new_planes[0].1),
             "not enough DMA descriptors: have {}, need {}",
             self.descriptors.len(),
             crate::dma_descriptor_count(plane_count, new_planes[0].1),
@@ -215,10 +215,7 @@ impl BcmBuf {
     #[cfg(feature = "full-chain-dma")]
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {
-        let total_descs = crate::dma_descriptor_count(
-            self.plane_count,
-            self.planes[0].1,
-        );
+        let total_descs = crate::dma_descriptor_count(self.plane_count, self.planes[0].1);
         let mut desc_idx = 0;
 
         for plane_idx in 0..self.plane_count {
