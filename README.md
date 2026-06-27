@@ -121,6 +121,26 @@ examples (`parl_io_latch.rs`, `parl_io_bp_latch.rs`) can be used with it.
   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
   Enabling this feature consumes roughly 5–10 KiB of IRAM.
+- `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
+  Control the number of pixel-clock cycles of blanking (OE HIGH) inserted
+  around row address changes in the plain framebuffers (`plain` and
+  `bitplane::plain`). The blanking delay gives the address lines time to
+  settle before the new row is latched and lit, preventing ghosting or
+  "bleeding" artifacts between rows. These are forwarded directly to
+  `hub75-framebuffer`.
+
+  | Feature | Blanking cycles |
+  |---------|-----------------|
+  | *(none)* | 1 (default) |
+  | `blank-delay-1` | 1 |
+  | `blank-delay-2` | 2 |
+  | `blank-delay-4` | 4 |
+  | `blank-delay-8` | 8 |
+
+  Higher values reduce ghosting at the cost of slightly less brightness (the
+  LEDs are on for less time per scan line). Start with the default and increase
+  only if you observe row-transition artifacts on your particular panel
+  hardware.
 
 ##  Known Working Panels
 

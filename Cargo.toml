@@ -36,7 +36,7 @@ esp-hal = { version = "1.1.0", default-features = false, features = [
     "requires-unstable",
 ] }
 log = { version = "0.4.29", optional = true }
-hub75-framebuffer = { version = "0.8.0" }
+hub75-framebuffer = { version = "0.8.1" }
 esp-bootloader-esp-idf = "0.5.0"
 
 [dev-dependencies]
@@ -107,6 +107,11 @@ log = [
 ]
 invert-blank = [] # only for some latched implementations
 invert-clock = []
+
+blank-delay-1 = ["hub75-framebuffer/blank-delay-1"]
+blank-delay-2 = ["hub75-framebuffer/blank-delay-2"]
+blank-delay-4 = ["hub75-framebuffer/blank-delay-4"]
+blank-delay-8 = ["hub75-framebuffer/blank-delay-8"]
 
 # this feature is required for the docs.rs build and release builds to work
 esp-hal-unstable = ["esp-hal/unstable"]
