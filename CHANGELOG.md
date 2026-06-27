@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+* `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8` features
+  to control blanking cycles around row address changes (forwarded to
+  `hub75-framebuffer`).
+
 ## [0.11.0] - 2026-05-02
 
 ### ⚠️ Breaking
