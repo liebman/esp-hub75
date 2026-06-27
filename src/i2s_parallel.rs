@@ -95,13 +95,18 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
 // Constructor
 // ---------------------------------------------------------------------------
 
-impl<DM: esp_hal::DriverMode> Hub75<DM> {
-    fn new_internal<T: TxPins<'static> + 'static, I: I2sHub75Instance + 'static>(
+impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
+    fn new_internal<
+        T: TxPins<'static> + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+        I: I2sHub75Instance + 'static,
+    >(
         i2s: I,
-        hub75_pins: impl Hub75Pins<'static, T>,
+        hub75_pins: P,
         channel: impl DmaChannelFor<AnyI2s<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
@@ -120,16 +125,22 @@ impl<DM: esp_hal::DriverMode> Hub75<DM> {
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(i2s_parallel, buf);
+        crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
     }
 }
 
-impl Hub75<Blocking> {
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Create a new blocking HUB75 driver.
     ///
-    /// The driver is created in an idle state. Call [`Hub75::start`] with a
-    /// framebuffer to begin display refresh.
+    /// Configures the I2S peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
     ///
     /// # Arguments
     /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
@@ -138,24 +149,35 @@ impl Hub75<Blocking> {
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- I2S clock rate
+    /// * `fb` -- Initial framebuffer to display
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<T: TxPins<'static> + 'static, I: I2sHub75Instance + 'static>(
+    pub fn new<
+        T: TxPins<'static> + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+        I: I2sHub75Instance + 'static,
+    >(
         i2s: I,
-        hub75_pins: impl Hub75Pins<'static, T>,
+        hub75_pins: P,
         channel: impl DmaChannelFor<AnyI2s<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency)
+        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
-impl Hub75<esp_hal::Async> {
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Create a new async HUB75 driver.
     ///
-    /// The driver is created in an idle state. Call [`Hub75::start`] with a
-    /// framebuffer to begin display refresh.
+    /// Configures the I2S peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
     ///
     /// # Arguments
     /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
@@ -164,16 +186,22 @@ impl Hub75<esp_hal::Async> {
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- I2S clock rate
+    /// * `fb` -- Initial framebuffer to display
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<T: TxPins<'static> + 'static, I: I2sHub75Instance + 'static>(
+    pub fn new_async<
+        T: TxPins<'static> + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+        I: I2sHub75Instance + 'static,
+    >(
         i2s: I,
-        hub75_pins: impl Hub75Pins<'static, T>,
+        hub75_pins: P,
         channel: impl DmaChannelFor<AnyI2s<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency)
+        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
@@ -182,6 +210,8 @@ impl Hub75<esp_hal::Async> {
 // ---------------------------------------------------------------------------
 
 impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+    type Word = u16;
+
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         // SAFETY: We only use the output signal half. The original `AnyPin` is
         // consumed by the enclosing struct move, so there is no aliased access.
@@ -209,6 +239,8 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
 }
 
 impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
+    type Word = u8;
+
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         // SAFETY: We only use the output signal half. The original `AnyPin` is
         // consumed by the enclosing struct move, so there is no aliased access.

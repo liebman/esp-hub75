@@ -64,6 +64,18 @@
 //!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
 //!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
 //!   Enabling this feature consumes roughly 5–10 KiB of IRAM.
+//! - `tail-closes-latch`: Forwards to `hub75-framebuffer` (plain framebuffers
+//!   only). Appends a single extra "tail" word at the end of each DMA buffer
+//!   that drives LATCH LOW on the final clock edge, cleanly terminating the
+//!   transfer. Without this feature the last word in each row asserts LATCH
+//!   HIGH and the GPIO pins remain in that state after DMA completes; enable
+//!   this if free-running DMA loops or peripherals that continue clocking after
+//!   the descriptor chain ends can re-latch stale data or glitch.
+//! - `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
+//!   Forwards to `hub75-framebuffer`. Control the number of pixel-clock cycles
+//!   of blanking (OE HIGH) inserted around row address changes in plain
+//!   framebuffers (`plain` and `bitplane::plain`). Higher values reduce ghosting
+//!   at the cost of slightly less brightness.
 //!
 //! ## Safety
 //!
@@ -203,6 +215,11 @@ pub struct Hub75Pins8<'d> {
 /// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
 #[cfg(feature = "esp32s3")]
 pub trait Hub75Pins<'d> {
+    /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
+    /// 16-bit). Must match
+    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word).
+    type Word;
+
     /// Returns the bus width (8-bit or 16-bit) for this pin configuration.
     fn word_size(&self) -> crate::framebuffer::WordSize;
 
@@ -224,6 +241,11 @@ pub trait Hub75Pins<'d> {
 /// * `T` - The target pin configuration type for the specific peripheral.
 #[cfg(not(feature = "esp32s3"))]
 pub trait Hub75Pins<'d, T> {
+    /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
+    /// 16-bit). Must match
+    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word).
+    type Word;
+
     /// Converts the high-level pin definition into the peripheral-specific
     /// format needed by the driver.
     ///

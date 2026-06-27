@@ -249,25 +249,28 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
 
 /// HUB75 display controller driven by an interrupt-based BCM refresh loop.
 ///
-/// Created in an idle state via [`Hub75::new`] or [`Hub75::new_async`].
-/// Call [`Hub75::start`] with a framebuffer to begin DMA-driven display
-/// refresh. The peripheral's transfer-done interrupt drives the entire BCM
-/// refresh loop automatically.
+/// Created via [`Hub75::new`] (blocking) or [`Hub75::new_async`] (async).
+/// The constructor configures the peripheral, applies pin assignments, and
+/// immediately starts DMA-driven display refresh with the provided
+/// framebuffer.
 ///
-/// The `FB` type parameter tracks the framebuffer type and is set by
-/// [`Hub75::start`]. Constructors return `Hub75<DM>` (i.e. `Hub75<DM, ()>`)
-/// and `start()` consumes it, returning a `Hub75<DM, FB>` that ensures
-/// [`Hub75::swap`] always uses the same concrete framebuffer type.
+/// The pin configuration's [`Hub75Pins::Word`](crate::Hub75Pins) type must
+/// match the framebuffer's
+/// [`FrameBuffer::Word`](crate::framebuffer::FrameBuffer::Word) — mismatches
+/// are caught at compile time.
 ///
-/// If [`Hub75::swap`] returns an error, the driver stops and can be
-/// restarted by calling [`Hub75::start`] again.
+/// # Type Parameters
+///
+/// * `DM` — Driver mode ([`Blocking`](esp_hal::Blocking) or
+///   [`Async`](esp_hal::Async)).
+/// * `FB` — The concrete framebuffer type.
 ///
 /// The `DM` type parameter selects the swap API:
-/// - [`Hub75<Blocking, FB>`](esp_hal::Blocking): [`swap()`](Hub75::swap)
-///   spin-loops until the next frame boundary.
-/// - [`Hub75<Async, FB>`](esp_hal::Async): [`swap()`](Hub75::swap) is an
-///   async method that yields to the executor.
-pub struct Hub75<DM: esp_hal::DriverMode, FB = ()> {
+/// - [`Blocking`](esp_hal::Blocking): [`swap()`](Hub75::swap) spin-loops until
+///   the next frame boundary.
+/// - [`Async`](esp_hal::Async): [`swap()`](Hub75::swap) is an async method that
+///   yields to the executor.
+pub struct Hub75<DM: esp_hal::DriverMode, FB> {
     _dm: core::marker::PhantomData<DM>,
     _fb: core::marker::PhantomData<fn() -> FB>,
 }
@@ -276,32 +279,12 @@ pub struct Hub75<DM: esp_hal::DriverMode, FB = ()> {
 // guarded by critical_section, so it is safe to send across threads.
 unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
 
-impl<DM: esp_hal::DriverMode> Hub75<DM> {
+impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
     pub(crate) fn from_phantom() -> Self {
         Self {
             _dm: core::marker::PhantomData,
             _fb: core::marker::PhantomData,
         }
-    }
-
-    /// Start display refresh with the given framebuffer.
-    ///
-    /// Consumes the idle driver handle and returns a typed handle that binds
-    /// the framebuffer type `FB`. This ensures that all subsequent calls to
-    /// [`Hub75::swap`] use the same concrete framebuffer type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called while a transfer is already in flight.
-    pub fn start<FB: FrameBuffer + 'static>(
-        self,
-        fb: &'static FB,
-    ) -> Result<Hub75<DM, FB>, Hub75Error> {
-        start_internal(fb)?;
-        Ok(Hub75 {
-            _dm: core::marker::PhantomData,
-            _fb: core::marker::PhantomData,
-        })
     }
 }
 
@@ -326,7 +309,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     }
 }
 
-fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
+pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
     let planes = planes_from_fb(fb);
     let plane_count = fb.plane_count();
 
@@ -378,7 +361,7 @@ impl<FB: FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// previously displayed framebuffer.
     ///
     /// Returns `Err` if the ISR encountered a DMA error. After an error the
-    /// driver is stopped; call [`Hub75::start`] to restart.
+    /// driver is stopped; call [`Hub75::restart`] to restart.
     pub fn swap(&self, new_fb: &'static mut FB) -> Result<&'static mut FB, Hub75Error> {
         let new_planes = planes_from_fb(new_fb);
 
@@ -428,7 +411,7 @@ impl<FB: FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// previously displayed framebuffer.
     ///
     /// Returns `Err` if the ISR encountered a DMA error. After an error the
-    /// driver is stopped; call [`Hub75::start`] to restart.
+    /// driver is stopped; call [`Hub75::restart`] to restart.
     pub async fn swap(&self, new_fb: &'static mut FB) -> Result<&'static mut FB, Hub75Error> {
         let new_planes = planes_from_fb(new_fb);
 

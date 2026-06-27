@@ -101,6 +101,7 @@ full-chain-dma = [] # full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 
 invert-blank = [] # only for some latched implementations
 invert-clock = []
 
+tail-closes-latch = ["hub75-framebuffer/tail-closes-latch"]
 blank-delay-1 = ["hub75-framebuffer/blank-delay-1"]
 blank-delay-2 = ["hub75-framebuffer/blank-delay-2"]
 blank-delay-4 = ["hub75-framebuffer/blank-delay-4"]
@@ -117,10 +118,10 @@ cargo-args = ["-Z", "build-std=core"]
 # [patch."https://github.com/liebman/hub75-framebuffer.git"]
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
 
-# [patch.crates-io]
+[patch.crates-io]
 
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
-# hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "plane-based-framebuffers" }
+hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "refactor-word-size" }
 
 # esp-backtrace    = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
 # esp-hal          = { git = "https://github.com/esp-rs/esp-hal.git", branch = "main" }
