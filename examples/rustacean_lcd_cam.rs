@@ -74,15 +74,6 @@ fn main() -> ! {
         latch: peripherals.GPIO10.degrade(),
     };
 
-    let hub75 = Hub75::new(
-        peripherals.LCD_CAM,
-        pins,
-        peripherals.DMA_CH0,
-        tx_descriptors,
-        Rate::from_mhz(20),
-    )
-    .expect("failed to create Hub75!");
-
     let fb = mk_static!(FBType, FBType::new());
 
     let rustacean = Sprite::new(Point::new(0, 0), &GRASS_DATA);
@@ -102,7 +93,15 @@ fn main() -> ! {
     .draw(fb)
     .expect("failed to draw text");
 
-    let _hub75 = hub75.start(&*fb).expect("failed to start Hub75");
+    let _hub75 = Hub75::new(
+        peripherals.LCD_CAM,
+        pins,
+        peripherals.DMA_CH0,
+        tx_descriptors,
+        Rate::from_mhz(20),
+        &*fb,
+    )
+    .expect("failed to create Hub75");
 
     loop {
         core::hint::spin_loop();

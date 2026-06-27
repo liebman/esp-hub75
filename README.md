@@ -107,11 +107,19 @@ examples (`parl_io_latch.rs`) can be used with it.
 - `esp32c6`: Enable support for the ESP32-C6
 - `defmt`: Enable logging with `defmt`
 - `log`: Enable logging with the `log` crate
-- `invert-blank`: Invert the blank signal, required for some controller boards.
+- `invert-blank`: Invert the blank signal. This only applies to 8-bit latched
+  configurations (`Hub75Pins8`); in 16-bit direct-drive mode the blank signal is
+  always active-low. Some latch controller boards include a hardware inverter on
+  the blank line — enable this feature to compensate.
 - `invert-clock`: Invert the clock signal. By default the driver outputs data
   that changes on the falling edge of CLK so that it is stable when the panel
   latches on the rising edge. Enable this feature if your panel requires the
   opposite polarity.
+- `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
+  transfer instead of one plane per interrupt. This reduces interrupt frequency
+  at the cost of more DMA descriptor RAM. Note that the ESP32-C6 PARL_IO
+  peripheral has a 65 535-byte per-transfer limit, which constrains the maximum
+  panel size and plane count when this feature is enabled.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
 - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Applies to
@@ -123,13 +131,26 @@ examples (`parl_io_latch.rs`) can be used with it.
   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
   Enabling this feature consumes roughly 5–10 KiB of IRAM.
+- `tail-closes-latch`: Forwards to `hub75-framebuffer` (plain framebuffers
+  only). Appends a single extra "tail" word at the end of each DMA buffer that
+  drives the LATCH signal LOW (de-asserted) on the final clock edge. Without
+  this feature the last word in each row asserts LATCH HIGH to latch shifted
+  data into the LED drivers, and the GPIO pins remain in that state after the
+  DMA transfer completes. Some hardware configurations (e.g. free-running DMA
+  loops or peripherals that continue clocking after the descriptor chain ends)
+  can re-latch stale data or glitch if LATCH is left asserted.
+
+  Enabling `tail-closes-latch` adds one 16-bit `Entry` (for `plain`) or one
+  entry per bit-plane (for `bitplane::plain`) that parks the bus with LATCH=0
+  and OE=BLANK, cleanly terminating the transfer. The cost is a single extra
+  word per DMA chunk, which is negligible compared to the frame data.
+
 - `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
-  Control the number of pixel-clock cycles of blanking (OE HIGH) inserted
-  around row address changes in the plain framebuffers (`plain` and
-  `bitplane::plain`). The blanking delay gives the address lines time to
-  settle before the new row is latched and lit, preventing ghosting or
-  "bleeding" artifacts between rows. These are forwarded directly to
-  `hub75-framebuffer`.
+  Forwards to `hub75-framebuffer`. Control the number of pixel-clock cycles of
+  blanking (OE HIGH) inserted around row address changes in plain framebuffers
+  (`plain` and `bitplane::plain`). The blanking delay gives the address lines
+  time to settle before the new row is latched and lit, preventing ghosting or
+  "bleeding" artifacts between rows.
 
   | Feature | Blanking cycles |
   |---------|-----------------|

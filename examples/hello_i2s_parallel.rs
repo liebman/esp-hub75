@@ -69,15 +69,6 @@ fn main() -> ! {
         latch: peripherals.GPIO26.degrade(),
     };
 
-    let hub75 = Hub75::new(
-        peripherals.I2S0,
-        pins,
-        peripherals.DMA_I2S0,
-        tx_descriptors,
-        Rate::from_mhz(20),
-    )
-    .expect("failed to create Hub75!");
-
     let fb = mk_static!(FBType, FBType::new());
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
@@ -89,7 +80,15 @@ fn main() -> ! {
         .draw(fb)
         .expect("failed to draw text");
 
-    let _hub75 = hub75.start(&*fb).expect("failed to start Hub75");
+    let _hub75 = Hub75::new(
+        peripherals.I2S0,
+        pins,
+        peripherals.DMA_I2S0,
+        tx_descriptors,
+        Rate::from_mhz(20),
+        &*fb,
+    )
+    .expect("failed to create Hub75");
 
     loop {
         core::hint::spin_loop();
