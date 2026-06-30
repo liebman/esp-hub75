@@ -1,8 +1,7 @@
-//! Example for using the LCD/CAM driver with a HUB75 LED matrix display
+//! Example rendering a Rustacean PNG image on a HUB75 LED matrix using LCD_CAM
 //!
-//! This example demonstrates how to use the LCD/CAM driver to drive a HUB75 LED
-//! matrix display. It uses the ESP32-S3's LCD/CAM peripheral in I8080 mode with
-//! ISR-driven BCM refresh.
+//! The image is pre-converted to raw RGB888 bytes and drawn via
+//! `embedded_graphics::image::ImageRaw`.
 
 #![no_std]
 #![no_main]
@@ -17,6 +16,9 @@ use embedded_graphics::prelude::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
+use embedded_sprites::image::Image;
+use embedded_sprites::include_image;
+use embedded_sprites::sprite::Sprite;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
@@ -30,7 +32,7 @@ use esp_hub75::Hub75Pins16;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-const ROWS: usize = 32;
+const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
 const PLANES: usize = 7;
@@ -45,6 +47,9 @@ macro_rules! mk_static {
         x
     }};
 }
+
+#[include_image]
+const GRASS_DATA: Image<hub75_framebuffer::Color> = "./images/rustacean-flat-happy-64x64.png";
 
 #[main]
 fn main() -> ! {
@@ -70,15 +75,23 @@ fn main() -> ! {
     };
 
     let fb = mk_static!(FBType, FBType::new());
+
+    let rustacean = Sprite::new(Point::new(0, 0), &GRASS_DATA);
+    rustacean.draw(fb).expect("failed to draw image");
+
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X7)
-        .text_color(Color::YELLOW)
+        .text_color(Color::WHITE)
         .background_color(Color::BLACK)
         .build();
-    let point = Point::new(32, 31);
-    Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
-        .draw(fb)
-        .expect("failed to draw text");
+    Text::with_alignment(
+        "Hello, Hub75",
+        Point::new(31, 55),
+        text_style,
+        Alignment::Center,
+    )
+    .draw(fb)
+    .expect("failed to draw text");
 
     let _hub75 = Hub75::new(
         peripherals.LCD_CAM,

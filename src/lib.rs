@@ -18,31 +18,23 @@
 //!
 //! ## Framebuffers
 //!
-//! The `hub75-framebuffer` crate provides two families of framebuffer: the
-//! **standard** framebuffers and the **bitplane** framebuffers. Each family
-//! has a direct-drive variant (16-bit, no external latch) and a latched
-//! variant (8-bit, requires an external address-latch circuit). Both families
+//! The `hub75-framebuffer` crate provides **bitplane** framebuffers in two
+//! variants: a direct-drive variant (16-bit, no external latch) and a latched
+//! variant (8-bit, requires an external address-latch circuit). Both variants
 //! can be sent directly to the peripheral without any extra formatting step.
-//! The difference is how they achieve Binary Code Modulation (BCM):
 //!
-//! - **Standard** framebuffers (`framebuffer::plain::DmaFrameBuffer` /
-//!   `framebuffer::latched::DmaFrameBuffer`) pre-render a complete copy of the
-//!   pixel data for every BCM bit-weight. This makes DMA output straightforward
-//!   but multiplies memory usage by the number of frames (`frame_count`).
-//! - **Bitplane** framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer`
-//!   / `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
-//!   pixel per plane. The driver uses DMA descriptors to assemble the BCM
-//!   output on the fly, avoiding the duplicated memory. The result is
-//!   significantly lower RAM usage with the same visual quality.
-//!
-//! Bitplane framebuffers are strongly recommended for most applications.
+//! Bitplane framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer` /
+//! `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
+//! pixel per plane. The driver uses DMA descriptors to assemble the BCM
+//! (Binary Code Modulation) output on the fly, keeping RAM usage low while
+//! delivering high visual quality.
 //!
 //! ## Usage
 //!
 //! Here is an example of how to initialize the driver for an ESP32-S3:
 //!
 //! ```rust,no_run
-#![doc = include_str!("../examples/hello_lcd_cam.rs")]
+#![doc = include_str!("../examples/rustacean_lcd_cam.rs")]
 //! ```
 //! 
 //! ## Crate Features
@@ -53,17 +45,37 @@
 //! - `esp32c6`: Enable support for the ESP32-C6
 //! - `defmt`: Enable logging with `defmt`
 //! - `log`: Enable logging with the `log` crate
-//! - `invert-blank`: Invert the blank signal, required for some controller boards.
+//! - `invert-blank`: Invert the blank signal. This only applies to 8-bit
+//!   latched configurations (`Hub75Pins8`); in 16-bit direct-drive mode the
+//!   blank signal is always active-low. Some latch controller boards include
+//!   a hardware inverter on the blank line — enable this feature to compensate.
 //! - `invert-clock`: Invert the clock signal. By default the driver outputs data
 //!   that changes on the falling edge of CLK so that it is stable when the panel
 //!   latches on the rising edge. Enable this feature if your panel requires the
 //!   opposite polarity.
+//! - `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
+//!   transfer instead of one plane per interrupt. This reduces interrupt
+//!   frequency at the cost of more DMA descriptor RAM. Note that the ESP32-C6
+//!   PARL_IO peripheral has a 65 535-byte per-transfer limit, which constrains
+//!   the maximum panel size and plane count when this feature is enabled.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
 //!   optimization that skips writing black pixels to the framebuffer.
 //! - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
 //!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
 //!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
 //!   Enabling this feature consumes roughly 5–10 KiB of IRAM.
+//! - `tail-closes-latch`: Forwards to `hub75-framebuffer` (plain framebuffers
+//!   only). Appends a single extra "tail" word at the end of each DMA buffer
+//!   that drives LATCH LOW on the final clock edge, cleanly terminating the
+//!   transfer. Without this feature the last word in each row asserts LATCH
+//!   HIGH and the GPIO pins remain in that state after DMA completes; enable
+//!   this if free-running DMA loops or peripherals that continue clocking after
+//!   the descriptor chain ends can re-latch stale data or glitch.
+//! - `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
+//!   Forwards to `hub75-framebuffer`. Control the number of pixel-clock cycles
+//!   of blanking (OE HIGH) inserted around row address changes in plain
+//!   framebuffers (`plain` and `bitplane::plain`). Higher values reduce ghosting
+//!   at the cost of slightly less brightness.
 //!
 //! ## Safety
 //!
@@ -76,13 +88,14 @@
 use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
-pub mod bcm_dma_buf;
+pub use static_cell;
+pub(crate) mod bcm_buf;
 #[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
 #[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
 #[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
 mod hub75;
+mod isr;
 pub use hub75::Hub75;
-pub use hub75::Hub75Transfer;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 
@@ -123,8 +136,8 @@ macro_rules! hub75_dma_descriptors {
             <$fb_type>::bcm_chunk_count(),
             <$fb_type>::bcm_chunk_bytes(),
         );
-        static __DESC_CELL: static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
-            static_cell::StaticCell::new();
+        static __DESC_CELL: $crate::static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
+            $crate::static_cell::StaticCell::new();
         __DESC_CELL
             .uninit()
             .write([esp_hal::dma::DmaDescriptor::EMPTY; __N])
@@ -202,6 +215,14 @@ pub struct Hub75Pins8<'d> {
 /// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
 #[cfg(feature = "esp32s3")]
 pub trait Hub75Pins<'d> {
+    /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
+    /// 16-bit). Must match
+    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word).
+    type Word;
+
+    /// Returns the bus width (8-bit or 16-bit) for this pin configuration.
+    fn word_size(&self) -> crate::framebuffer::WordSize;
+
     /// Apply pin configuration to the i8080 driver.
     fn apply<DM: esp_hal::DriverMode>(
         self,
@@ -220,6 +241,11 @@ pub trait Hub75Pins<'d> {
 /// * `T` - The target pin configuration type for the specific peripheral.
 #[cfg(not(feature = "esp32s3"))]
 pub trait Hub75Pins<'d, T> {
+    /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
+    /// 16-bit). Must match
+    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word).
+    type Word;
+
     /// Converts the high-level pin definition into the peripheral-specific
     /// format needed by the driver.
     ///
@@ -234,7 +260,7 @@ pub trait Hub75Pins<'d, T> {
 ///
 /// This enum consolidates errors from the underlying `esp-hal` DMA, peripheral,
 /// and buffer management modules into a single type for easier error handling.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Hub75Error {
     /// Error occurred during DMA transfer operations
@@ -250,6 +276,21 @@ pub enum Hub75Error {
     /// Configuration error for the I8080 interface (ESP32-S3 only)
     #[cfg(feature = "esp32s3")]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
+}
+
+impl core::fmt::Display for Hub75Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Dma(e) => write!(f, "DMA error: {e:?}"),
+            Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),
+            #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+            Self::ParlIo(e) => write!(f, "PARL_IO error: {e:?}"),
+            #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+            Self::ConfigError(e) => write!(f, "PARL_IO config error: {e:?}"),
+            #[cfg(feature = "esp32s3")]
+            Self::I8080(e) => write!(f, "I8080 config error: {e:?}"),
+        }
+    }
 }
 
 impl From<esp_hal::dma::DmaError> for Hub75Error {

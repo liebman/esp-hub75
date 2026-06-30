@@ -1,11 +1,40 @@
+//! HUB75 driver for LCD_CAM peripherals (ESP32-S3).
+//!
+//! This module provides an interrupt-driven display controller that
+//! continuously refreshes a HUB75 panel from a framebuffer. The LCD_CAM
+//! `lcd_trans_done` interrupt drives the entire BCM (Binary Code Modulation)
+//! refresh loop. Buffer swaps happen atomically at frame boundaries.
+//!
+//! # Blocking example
+//!
+//! ```rust,ignore
+//! let hub75 = Hub75::new(
+//!     peripherals.LCD_CAM, pins, peripherals.DMA_CH0,
+//!     tx_descriptors, Rate::from_mhz(20),
+//! ).expect("failed to create Hub75");
+//! hub75.start(&*fb).expect("failed to start Hub75");
+//!
+//! // Display refreshes automatically — main thread is free.
+//! loop { core::hint::spin_loop(); }
+//! ```
+//!
+//! # Async example
+//!
+//! ```rust,ignore
+//! let hub75 = Hub75::new_async(
+//!     peripherals.LCD_CAM, pins, peripherals.DMA_CH0,
+//!     tx_descriptors, Rate::from_mhz(20),
+//! ).expect("failed to create Hub75");
+//! hub75.start(&*fb0).expect("failed to start Hub75");
+//!
+//! // Swap buffers — yields to the executor, returns Err on DMA failure.
+//! let old_ptr = hub75.swap(&*fb1).await.expect("DMA error");
+//! ```
+
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::DmaError;
-use esp_hal::dma::DmaTxBuffer;
 use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::lcd::i8080;
-use esp_hal::lcd_cam::lcd::i8080::Command;
-use esp_hal::lcd_cam::lcd::i8080::I8080Transfer;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::ClockMode;
@@ -15,89 +44,35 @@ use esp_hal::lcd_cam::lcd::Phase;
 use esp_hal::lcd_cam::lcd::Polarity;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::peripherals::LCD_CAM;
-#[cfg(feature = "iram")]
-use esp_hal::ram;
 use esp_hal::time::Rate;
+use esp_hal::Blocking;
 
-use crate::framebuffer::FrameBuffer;
+use crate::bcm_buf::BcmBuf;
 use crate::framebuffer::WordSize;
+pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins16;
 use crate::Hub75Pins8;
 
-/// HUB75 LED matrix display driver using LCD/CAM peripheral
-///
-/// This driver uses the ESP32's LCD/CAM peripheral in I8080 mode to drive HUB75
-/// LED matrix displays. It supports both 8-bit and 16-bit configurations and
-/// can operate in either blocking or async mode.
-pub struct Hub75<'d, DM: esp_hal::DriverMode> {
-    i8080: I8080<'d, DM>,
-    tx_descriptors: &'static mut [DmaDescriptor],
-}
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
 
-impl<'d> Hub75<'d, esp_hal::Blocking> {
-    /// Creates a new blocking HUB75 driver instance
-    ///
-    /// # Arguments
-    /// * `lcd_cam` - The LCD/CAM peripheral instance
-    /// * `hub75_pins` - The HUB75 pin configuration
-    /// * `channel` - The DMA channel to use for transfers
-    /// * `tx_descriptors` - DMA descriptors for the transfer buffer
-    /// * `frequency` - The clock frequency for the display
-    ///
-    /// # Returns
-    /// A new `Hub75` instance configured for blocking operation
-    ///
-    /// # Errors
-    /// Returns an error if the peripheral cannot be configured
-    pub fn new(
-        lcd_cam: LCD_CAM<'d>,
-        hub75_pins: impl Hub75Pins<'d>,
-        channel: impl TxChannelFor<LCD_CAM<'d>>,
+impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
+    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
+        lcd_cam: LCD_CAM<'static>,
+        hub75_pins: P,
+        channel: impl TxChannelFor<LCD_CAM<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
+        fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        let lcd_cam = LcdCam::new(lcd_cam);
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
-    }
-}
+        let word_size = hub75_pins.word_size();
 
-impl<'d> Hub75<'d, esp_hal::Async> {
-    /// Creates a new async HUB75 driver instance
-    ///
-    /// # Arguments
-    /// * `lcd_cam` - The LCD/CAM peripheral instance
-    /// * `hub75_pins` - The HUB75 pin configuration
-    /// * `channel` - The DMA channel to use for transfers
-    /// * `tx_descriptors` - DMA descriptors for the transfer buffer
-    /// * `frequency` - The clock frequency for the display
-    ///
-    /// # Returns
-    /// A new `Hub75` instance configured for async operation
-    ///
-    /// # Errors
-    /// Returns an error if the peripheral cannot be configured
-    pub fn new_async(
-        lcd_cam: LCD_CAM<'d>,
-        hub75_pins: impl Hub75Pins<'d>,
-        channel: impl TxChannelFor<LCD_CAM<'d>>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
-    ) -> Result<Self, Hub75Error> {
-        let lcd_cam = LcdCam::new(lcd_cam).into_async();
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency)
-    }
-}
+        let mut lcd_cam_dev = LcdCam::new(lcd_cam);
+        lcd_cam_dev.set_interrupt_handler(crate::isr::hub75_isr);
 
-impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
-    fn new_internal(
-        lcd_cam: LcdCam<'d, DM>,
-        hub75_pins: impl Hub75Pins<'d>,
-        channel: impl TxChannelFor<LCD_CAM<'d>>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
-    ) -> Result<Self, Hub75Error> {
         #[allow(unused_mut)]
         let mut config = i8080::Config::default().with_frequency(frequency);
         #[cfg(feature = "invert-clock")]
@@ -105,193 +80,109 @@ impl<'d, DM: esp_hal::DriverMode> Hub75<'d, DM> {
             polarity: Polarity::IdleLow,
             phase: Phase::ShiftHigh,
         });
-        let i8080 = I8080::new(lcd_cam.lcd, channel, config).map_err(Hub75Error::I8080)?;
+
+        let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
         let i8080 = hub75_pins.apply(i8080);
-        Ok(Self {
-            i8080,
-            tx_descriptors,
-        })
-    }
 
-    /// Renders a frame buffer to the display.
-    ///
-    /// This method handles both contiguous (single-plane) and bitplane
-    /// (multi-plane BCM-weighted) framebuffers automatically. The DMA
-    /// descriptor chain is built internally — callers never need to manage
-    /// DMA buffer types.
-    ///
-    /// Calling render consumes the `Hub75` instance and returns a
-    /// `Hub75Transfer` instance that can be used to wait for the transfer
-    /// to complete.  After the transfer is complete, the `Hub75` will be
-    /// returned from the `wait()` method on the `Hub75Transfer` instance.
-    ///
-    /// # Arguments
-    /// * `fb` - The frame buffer to render
-    ///
-    /// # Returns
-    /// A `Hub75Transfer` instance that can be used to wait for the transfer to
-    /// complete
-    ///
-    /// # Errors
-    /// Returns a tuple of `Hub75Error` and the `Hub75` instance if the transfer
-    /// cannot be started
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn render(
-        self,
-        fb: &impl FrameBuffer,
-    ) -> Result<Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM>, (Hub75Error, Self)> {
-        let i8080 = self.i8080;
-        let tx_descriptors = self.tx_descriptors;
-        let tx_buf = crate::bcm_dma_buf::BcmTxDmaBuf::new(tx_descriptors, fb);
-        let word_size = fb.get_word_size();
-
-        let result = match word_size {
-            WordSize::Eight => i8080.send(Command::<u8>::None, 0, tx_buf),
-            WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, tx_buf),
-        };
-        let xfer = result.map_err(|(e, i8080, buf)| {
-            let tx_descriptors = buf.split();
-            (
-                e.into(),
-                Self {
-                    i8080,
-                    tx_descriptors,
-                },
-            )
-        })?;
-        Ok(Hub75Transfer {
-            xfer,
-            tx_descriptors: None,
-        })
-    }
-
-    /// Renders using a caller-provided DMA transmit buffer.
-    ///
-    /// This is an escape hatch for custom [`DmaTxBuffer`] implementations
-    /// where the caller manages the descriptor chain directly.
-    ///
-    /// # Arguments
-    /// * `word_size` - Lane width to use for LCD-CAM transfer formatting.
-    /// * `buf` - DMA buffer implementing [`DmaTxBuffer`].
-    ///
-    /// # Returns
-    /// A [`Hub75Transfer`] which can be awaited and then consumed via
-    /// [`Hub75Transfer::wait_with_buf`] to recover both the finalized buffer
-    /// and the driver instance.
-    ///
-    /// # Errors
-    /// Returns a tuple of `Hub75Error`, the recovered `Hub75` instance, and the
-    /// original buffer if the transfer cannot be started.
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn render_buf<BUF: DmaTxBuffer>(
-        self,
-        word_size: WordSize,
-        buf: BUF,
-    ) -> Result<Hub75Transfer<'d, BUF, DM>, (Hub75Error, Self, BUF)> {
-        let i8080 = self.i8080;
-        let tx_descriptors = self.tx_descriptors;
-        let result = match word_size {
-            WordSize::Eight => i8080.send(Command::<u8>::None, 0, buf),
-            WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, buf),
-        };
-        match result {
-            Ok(xfer) => Ok(Hub75Transfer {
-                xfer,
-                tx_descriptors: Some(tx_descriptors),
-            }),
-            Err((e, i8080, buf)) => Err((
-                e.into(),
-                Self {
-                    i8080,
-                    tx_descriptors,
-                },
-                buf,
-            )),
+        // Enable the LCD done interrupt at the peripheral level so the ISR
+        // fires on every transfer completion.
+        // SAFETY: TODO: PR to esp-hal to add a method to enable the interrupt?
+        unsafe {
+            let stolen = LCD_CAM::steal();
+            stolen
+                .register_block()
+                .lc_dma_int_ena()
+                .modify(|_, w| w.lcd_trans_done_int_ena().set_bit());
         }
+
+        let buf = BcmBuf::new(tx_descriptors);
+        crate::isr::init_isr_state(i8080, buf, word_size);
+        crate::isr::start_internal(fb)?;
+
+        Ok(Self::from_phantom())
     }
 }
 
-/// Represents an in-progress transfer to the HUB75 display
-///
-/// This struct is returned by `Hub75::render` and can be used to wait for the
-/// transfer to complete. It provides both blocking and async methods for
-/// waiting.
-pub struct Hub75Transfer<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> {
-    xfer: I8080Transfer<'d, BUF, DM>,
-    tx_descriptors: Option<&'static mut [DmaDescriptor]>,
-}
-
-impl<'d, BUF: DmaTxBuffer, DM: esp_hal::DriverMode> Hub75Transfer<'d, BUF, DM> {
-    /// Checks if the transfer is complete
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
+    /// Create a new blocking HUB75 driver.
     ///
-    /// # Returns
-    /// `true` if the transfer is complete and `wait()` will not block
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn is_done(&self) -> bool {
-        self.xfer.is_done()
-    }
-
-    /// Waits for transfer completion and returns the finalized buffer plus hub.
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn wait_with_buf(self) -> (Result<(), DmaError>, BUF::Final, Hub75<'d, DM>) {
-        let Hub75Transfer {
-            xfer,
-            tx_descriptors,
-        } = self;
-        let (result, i8080, final_buf) = xfer.wait();
-        let tx_descriptors = tx_descriptors
-            .expect("wait_with_buf is only supported for render_buf()-started transfers");
-        (
-            result,
-            final_buf,
-            Hub75 {
-                i8080,
-                tx_descriptors,
-            },
-        )
+    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
+    ///
+    /// # Arguments
+    /// * `lcd_cam` -- The LCD_CAM peripheral instance
+    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
+    /// * `channel` -- DMA channel
+    /// * `tx_descriptors` -- DMA descriptor storage (use
+    ///   [`hub75_dma_descriptors!`])
+    /// * `frequency` -- LCD_CAM clock rate
+    /// * `fb` -- Initial framebuffer to display
+    ///
+    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
+    pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
+        lcd_cam: LCD_CAM<'static>,
+        hub75_pins: P,
+        channel: impl TxChannelFor<LCD_CAM<'static>>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: Rate,
+        fb: &'static FB,
+    ) -> Result<Self, Hub75Error> {
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
-impl<'d, DM: esp_hal::DriverMode> Hub75Transfer<'d, crate::bcm_dma_buf::BcmTxDmaBuf, DM> {
-    /// Waits for the transfer to complete and recovers the `Hub75` instance.
+impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
+    /// Create a new async HUB75 driver.
     ///
-    /// # Returns
-    /// A tuple containing:
-    /// 1. The result of the transfer
-    /// 2. The `Hub75` instance for reuse
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn wait(self) -> (Result<(), DmaError>, Hub75<'d, DM>) {
-        let (result, i8080, bcm_buf) = self.xfer.wait();
-        let tx_descriptors = bcm_buf.split();
-        (
-            result,
-            Hub75 {
-                i8080,
-                tx_descriptors,
-            },
-        )
+    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// immediately starts DMA-driven display refresh with the provided
+    /// framebuffer.
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
+    ///
+    /// # Arguments
+    /// * `lcd_cam` -- The LCD_CAM peripheral instance
+    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
+    /// * `channel` -- DMA channel
+    /// * `tx_descriptors` -- DMA descriptor storage (use
+    ///   [`hub75_dma_descriptors!`])
+    /// * `frequency` -- LCD_CAM clock rate
+    /// * `fb` -- Initial framebuffer to display
+    ///
+    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
+    pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(
+        lcd_cam: LCD_CAM<'static>,
+        hub75_pins: P,
+        channel: impl TxChannelFor<LCD_CAM<'static>>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        frequency: Rate,
+        fb: &'static FB,
+    ) -> Result<Self, Hub75Error> {
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency, fb)
     }
 }
 
-impl<BUF: DmaTxBuffer> Hub75Transfer<'_, BUF, esp_hal::Async> {
-    /// Asynchronously waits for the transfer to complete
-    ///
-    /// # Returns
-    /// A `Result` indicating whether the transfer completed successfully
-    ///
-    /// # Note
-    /// This method does not return the `Hub75` instance. Use `wait()` after
-    /// `wait_for_done` returns to get the `Hub75` instance, it won't block at
-    /// that point.
-    #[cfg_attr(feature = "iram", ram)]
-    pub async fn wait_for_done(&mut self) -> Result<(), DmaError> {
-        self.xfer.wait_for_done().await;
-        Ok(())
-    }
-}
+// ---------------------------------------------------------------------------
+// Pin configurations
+// ---------------------------------------------------------------------------
 
 impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
+    type Word = u16;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Sixteen
+    }
+
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
+        // SAFETY: We only use the output signal half. The original `AnyPin` is
+        // consumed by the enclosing struct move, so there is no aliased access.
         let (_, blank) = unsafe { self.blank.split() };
 
         i8080
@@ -313,37 +204,30 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
             .with_data14(self.blu2)
             .with_data15(NoPin)
     }
-    // fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
-    //     let (_, blank) = unsafe { self.blank.split() };
-    //     let pins = TxSixteenBits::new(
-    //         self.addr0,
-    //         self.addr1,
-    //         self.addr2,
-    //         self.addr3,
-    //         self.addr4,
-    //         self.latch,
-    //         NoPin,
-    //         NoPin,
-    //         blank.with_output_inverter(true),
-    //         self.red1,
-    //         self.grn1,
-    //         self.blu1,
-    //         self.red2,
-    //         self.grn2,
-    //         self.blu2,
-    //         NoPin,
-    //     );
-    //     (pins, self.clock)
-    // }
 }
 
 impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
+    type Word = u8;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Eight
+    }
+
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
+        // SAFETY: We only use the output signal half of each pin. The original
+        // `AnyPin` values are consumed by the enclosing struct move, so there
+        // is no aliased access.
         let (_, blank) = unsafe { self.blank.split() };
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
+        // SAFETY: We only use the output signal half of each pin. The original
+        // `AnyPin` values are consumed by the enclosing struct move, so there
+        // is no aliased access.
+        let (_, clock) = unsafe { self.clock.split() };
+        #[cfg(feature = "invert-clock")]
+        let clock = clock.with_output_inverter(true);
         i8080
-            .with_wrx(self.clock)
+            .with_wrx(clock)
             .with_data0(self.red1)
             .with_data1(self.grn1)
             .with_data2(self.blu1)
@@ -353,21 +237,4 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
             .with_data6(self.latch)
             .with_data7(blank)
     }
-    // fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
-    //     let (_, blank) = unsafe { self.blank.split() };
-    //     let pins = TxEightBits::new(
-    //         self.red1,
-    //         self.grn1,
-    //         self.blu1,
-    //         self.red2,
-    //         self.grn2,
-    //         self.blu2,
-    //         self.latch,
-    //         #[cfg(feature = "invert-blank")]
-    //         blank.with_output_inverter(true),
-    //         #[cfg(not(feature = "invert-blank"))]
-    //         blank,
-    //     );
-    //     (pins, self.clock)
-    // }
 }
