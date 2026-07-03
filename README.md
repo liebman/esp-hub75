@@ -117,6 +117,11 @@ examples (`parl_io_latch.rs`, `parl_io_bp_latch.rs`) can be used with it.
   opposite polarity.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
+- `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Applies to
+  `plain` and `bitplane::plain` framebuffers only (not the latched variants).
+  Enabling `tail-closes-latch` adds one extra 16-bit word per DMA buffer
+  (`plain`) or one extra word per bit-plane (`bitplane::plain`) that parks the
+  bus with LATCH=0 and OE=BLANK, cleanly terminating the transfer.
 - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
