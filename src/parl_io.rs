@@ -90,7 +90,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, config)?;
 
-        // SAFETY: TODO: open issue or pr to esp-hal to set this when using GDMA and remove the C6 max length check
+        // SAFETY: TODO: open issue or pr to esp-hal to set this when using GDMA and
+        // remove the C6 max length check
         #[cfg(feature = "esp32c5")]
         unsafe {
             use esp32c5 as pac;
