@@ -24,6 +24,7 @@ use esp_hal::dma::TransferDirection;
 use esp_hal::ram;
 
 use crate::framebuffer::FrameBuffer;
+use crate::MAX_DMA_CHUNK_SIZE;
 
 pub(crate) const MAX_PLANES: usize = 8;
 
@@ -170,12 +171,12 @@ impl BcmBuf {
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {
         let (ptr, len) = self.planes[self.current_plane];
-        let desc_count = len.div_ceil(4095);
+        let desc_count = len.div_ceil(MAX_DMA_CHUNK_SIZE);
         let mut remaining = len;
         let mut offset = 0;
 
         for i in 0..desc_count {
-            let chunk = remaining.min(4095);
+            let chunk = remaining.min(MAX_DMA_CHUNK_SIZE);
             let is_last = i + 1 == desc_count;
             let next = if is_last {
                 null_mut()
@@ -226,7 +227,7 @@ impl BcmBuf {
                 let mut remaining = plane_bytes;
                 let mut offset = 0;
                 while remaining > 0 {
-                    let chunk = remaining.min(4095);
+                    let chunk = remaining.min(MAX_DMA_CHUNK_SIZE);
                     let is_last = desc_idx + 1 == total_descs;
                     let next = if is_last {
                         null_mut()
