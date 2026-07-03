@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to control blanking cycles around row address changes (forwarded to
   `hub75-framebuffer`).
 
+* feature `tail-closes-latch` (pass thru to `hub75-framebuffer`)  will include an
+  extra entry in `plain` and `bitplane/plain` implementations to close the latch
+  at the end of the the buffer (`plain`) and at the end of each plane (`bitplane/plain`)
+
+### Changed
+
+* bump `hub75-framebuffer` to `0.9.0`
+
 ## [0.11.0] - 2026-05-02
 
 ### ⚠️ Breaking

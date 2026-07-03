@@ -86,6 +86,8 @@ pub use hub75::Hub75Transfer;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
 
+pub(crate) const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
+
 /// Computes the number of DMA descriptors required for a given framebuffer
 /// configuration.
 ///
@@ -99,7 +101,7 @@ pub use hub75_framebuffer::Color;
 ///   `FBType::bcm_chunk_bytes()`)
 #[must_use]
 pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize) -> usize {
-    let descs_per_chunk = bcm_chunk_bytes.div_ceil(4095);
+    let descs_per_chunk = bcm_chunk_bytes.div_ceil(MAX_DMA_CHUNK_SIZE);
     let total_reps = (1usize << bcm_chunk_count) - 1;
     descs_per_chunk * total_reps
 }

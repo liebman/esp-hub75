@@ -99,7 +99,7 @@ unsafe impl DmaTxBuffer for BcmTxDmaBuf {
                 let mut remaining = plane_bytes;
                 let mut offset = 0;
                 while remaining > 0 {
-                    let chunk = remaining.min(4095);
+                    let chunk = remaining.min(crate::MAX_DMA_CHUNK_SIZE);
                     let desc = &mut self.descriptors[desc_idx];
                     desc.buffer = unsafe { plane_ptr.add(offset) as *mut u8 };
                     desc.set_size(chunk);
