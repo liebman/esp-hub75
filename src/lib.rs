@@ -63,9 +63,7 @@
 //! - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Appends a
 //!   tail word at the end of each DMA buffer (`plain` framebuffers) or at the end
 //!   of each bit-plane (`bitplane::plain`) that drives LATCH LOW when the transfer
-//!   completes. Enable this if free-running DMA loops or peripherals that keep
-//!   clocking after the descriptor chain ends can re-latch stale data or glitch
-//!   when LATCH is left asserted. Does not apply to latched framebuffers.
+//!   completes. Does not apply to latched framebuffers.
 //! - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
 //!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
 //!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
