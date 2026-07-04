@@ -49,7 +49,7 @@ use crate::bcm_buf::BcmBuf;
 pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
-#[cfg(not(feature = "esp32c5"))]
+#[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
 use crate::Hub75Pins8;
 
@@ -96,7 +96,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // GDMA channel rather than the peripheral's byte counter. The
         // esp-hal PARL_IO driver does not expose this register. This runs
         // during init before the ISR is active, so there is no data race.
-        #[cfg(feature = "esp32c5")]
+        #[cfg(esp32c5)]
         unsafe {
             use esp32c5 as pac;
             let pio = pac::PARL_IO::steal();
@@ -186,13 +186,13 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
 // ---------------------------------------------------------------------------
 
 use esp_hal::gpio::AnyPin;
-#[cfg(not(feature = "esp32c5"))]
+#[cfg(not(esp32c5))]
 use esp_hal::gpio::NoPin;
 use esp_hal::parl_io::TxEightBits;
-#[cfg(not(feature = "esp32c5"))]
+#[cfg(not(esp32c5))]
 use esp_hal::parl_io::TxSixteenBits;
 
-#[cfg(not(feature = "esp32c5"))]
+#[cfg(not(esp32c5))]
 impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     type Word = u16;
 

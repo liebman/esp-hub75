@@ -87,9 +87,9 @@ pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
 pub use static_cell;
 pub(crate) mod bcm_buf;
-#[cfg_attr(feature = "esp32", path = "i2s_parallel.rs")]
-#[cfg_attr(feature = "esp32s3", path = "lcd_cam.rs")]
-#[cfg_attr(any(feature = "esp32c5", feature = "esp32c6"), path = "parl_io.rs")]
+#[cfg_attr(hub75_use_i2s_parallel, path = "i2s_parallel.rs")]
+#[cfg_attr(hub75_use_lcd_cam, path = "lcd_cam.rs")]
+#[cfg_attr(hub75_use_parl_io, path = "parl_io.rs")]
 mod hub75;
 mod isr;
 pub use hub75::Hub75;
@@ -216,7 +216,7 @@ pub struct Hub75Pins8<'d> {
 /// This allows the driver to abstract over the differences in pin
 /// configurations between peripherals (I2S, LCD-CAM, PARL_IO) and between
 /// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 pub trait Hub75Pins<'d> {
     /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
     /// 16-bit). Must match
@@ -242,7 +242,7 @@ pub trait Hub75Pins<'d> {
 ///
 /// # Type Parameters
 /// * `T` - The target pin configuration type for the specific peripheral.
-#[cfg(not(feature = "esp32s3"))]
+#[cfg(not(hub75_use_lcd_cam))]
 pub trait Hub75Pins<'d, T> {
     /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
     /// 16-bit). Must match
@@ -272,14 +272,14 @@ pub enum Hub75Error {
     Dma(esp_hal::dma::DmaError),
     /// Error occurred while managing DMA buffers
     DmaBuf(esp_hal::dma::DmaBufError),
-    /// Error from the PARL_IO peripheral (ESP32-C6 only)
-    #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+    /// Error from the PARL_IO peripheral
+    #[cfg(hub75_use_parl_io)]
     ParlIo(esp_hal::parl_io::Error),
-    /// Configuration error for the PARL_IO peripheral (ESP32-C6 only)
-    #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+    /// Configuration error for the PARL_IO peripheral
+    #[cfg(hub75_use_parl_io)]
     ConfigError(esp_hal::parl_io::ConfigError),
-    /// Configuration error for the I8080 interface (ESP32-S3 only)
-    #[cfg(feature = "esp32s3")]
+    /// Configuration error for the I8080 interface (LCD_CAM)
+    #[cfg(hub75_use_lcd_cam)]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
 }
 
@@ -289,11 +289,11 @@ impl core::fmt::Display for Hub75Error {
             Self::NotInitialised => write!(f, "Hub75 not initialised"),
             Self::Dma(e) => write!(f, "DMA error: {e:?}"),
             Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),
-            #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+            #[cfg(hub75_use_parl_io)]
             Self::ParlIo(e) => write!(f, "PARL_IO error: {e:?}"),
-            #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+            #[cfg(hub75_use_parl_io)]
             Self::ConfigError(e) => write!(f, "PARL_IO config error: {e:?}"),
-            #[cfg(feature = "esp32s3")]
+            #[cfg(hub75_use_lcd_cam)]
             Self::I8080(e) => write!(f, "I8080 config error: {e:?}"),
         }
     }
@@ -311,14 +311,14 @@ impl From<esp_hal::dma::DmaBufError> for Hub75Error {
     }
 }
 
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(hub75_use_parl_io)]
 impl From<esp_hal::parl_io::Error> for Hub75Error {
     fn from(e: esp_hal::parl_io::Error) -> Self {
         Self::ParlIo(e)
     }
 }
 
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(hub75_use_parl_io)]
 impl From<esp_hal::parl_io::ConfigError> for Hub75Error {
     fn from(e: esp_hal::parl_io::ConfigError) -> Self {
         Self::ConfigError(e)
