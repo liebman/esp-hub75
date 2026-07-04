@@ -22,7 +22,7 @@ use crate::bcm_buf::planes_from_fb;
 use crate::bcm_buf::BcmBuf;
 use crate::bcm_buf::PlaneInfo;
 use crate::framebuffer::FrameBuffer;
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 use crate::framebuffer::WordSize;
 use crate::Hub75Error;
 
@@ -30,22 +30,22 @@ use crate::Hub75Error;
 // Platform-specific type aliases
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "esp32")]
+#[cfg(hub75_use_i2s_parallel)]
 pub(crate) type TxDriver = esp_hal::i2s::parallel::I2sParallel<'static, Blocking>;
 
-#[cfg(feature = "esp32")]
+#[cfg(hub75_use_i2s_parallel)]
 pub(crate) type TxTransfer = esp_hal::i2s::parallel::I2sParallelTransfer<'static, BcmBuf, Blocking>;
 
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(hub75_use_parl_io)]
 pub(crate) type TxDriver = esp_hal::parl_io::ParlIoTx<'static, Blocking>;
 
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(hub75_use_parl_io)]
 pub(crate) type TxTransfer = esp_hal::parl_io::ParlIoTxTransfer<'static, BcmBuf, Blocking>;
 
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 pub(crate) type TxDriver = esp_hal::lcd_cam::lcd::i8080::I8080<'static, Blocking>;
 
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 pub(crate) type TxTransfer = esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, BcmBuf, Blocking>;
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ pub(crate) enum TransferPhase {
 
 pub(crate) struct IsrState {
     pub(crate) transfer: TransferPhase,
-    #[cfg(feature = "esp32s3")]
+    #[cfg(hub75_use_lcd_cam)]
     pub(crate) word_size: crate::framebuffer::WordSize,
 
     pub(crate) current_fb_ptr: *const (),
@@ -92,40 +92,40 @@ fn signal_swap_done(cs: critical_section::CriticalSection) {
 // Platform-specific transfer helpers
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "esp32")]
+#[cfg(hub75_use_i2s_parallel)]
 #[cfg_attr(feature = "iram", ram)]
 fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
     tx.send(buf)
         .map_err(|(err, tx, buf)| (Hub75Error::Dma(err), tx, buf))
 }
 
-#[cfg(feature = "esp32")]
+#[cfg(hub75_use_i2s_parallel)]
 #[cfg_attr(feature = "iram", ram)]
 fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
     let (tx, buf) = xfer.wait();
     (Ok(()), tx, buf)
 }
 
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(hub75_use_parl_io)]
 #[cfg_attr(feature = "iram", ram)]
 fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
-    #[cfg(feature = "esp32c5")]
+    #[cfg(esp32c5)]
     let transfer_len = 0;
-    #[cfg(not(feature = "esp32c5"))]
+    #[cfg(not(esp32c5))]
     let transfer_len = buf.current_transfer_len();
 
     tx.write(transfer_len, buf)
         .map_err(|(err, tx, buf)| (Hub75Error::ParlIo(err), tx, buf))
 }
 
-#[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
+#[cfg(hub75_use_parl_io)]
 #[cfg_attr(feature = "iram", ram)]
 fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
     let (result, tx, buf) = xfer.wait();
     (result.map_err(Hub75Error::Dma), tx, buf)
 }
 
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 #[cfg_attr(feature = "iram", ram)]
 fn start_transfer(
     tx: TxDriver,
@@ -141,7 +141,7 @@ fn start_transfer(
     result.map_err(|(err, tx, buf)| (Hub75Error::Dma(err), tx, buf))
 }
 
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 #[cfg_attr(feature = "iram", ram)]
 fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
     let (result, tx, buf) = xfer.wait();
@@ -194,9 +194,9 @@ pub(crate) fn hub75_isr() {
             }
         }
 
-        #[cfg(feature = "esp32s3")]
+        #[cfg(hub75_use_lcd_cam)]
         let xfer_result = start_transfer(tx, buf, state.word_size);
-        #[cfg(not(feature = "esp32s3"))]
+        #[cfg(not(hub75_use_lcd_cam))]
         let xfer_result = start_transfer(tx, buf);
 
         match xfer_result {
@@ -216,7 +216,7 @@ pub(crate) fn hub75_isr() {
 // ISR state initialisation (called by platform constructors)
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "esp32s3"))]
+#[cfg(not(hub75_use_lcd_cam))]
 pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
     critical_section::with(|cs| {
         *ISR_STATE.borrow_ref_mut(cs) = Some(IsrState {
@@ -229,7 +229,7 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
     });
 }
 
-#[cfg(feature = "esp32s3")]
+#[cfg(hub75_use_lcd_cam)]
 pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
     critical_section::with(|cs| {
         *ISR_STATE.borrow_ref_mut(cs) = Some(IsrState {
@@ -345,9 +345,9 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
         state.pending_fb_ptr = core::ptr::null();
         state.returned_fb_ptr = core::ptr::null();
 
-        #[cfg(feature = "esp32s3")]
+        #[cfg(hub75_use_lcd_cam)]
         let xfer_result = start_transfer(tx, buf, state.word_size);
-        #[cfg(not(feature = "esp32s3"))]
+        #[cfg(not(hub75_use_lcd_cam))]
         let xfer_result = start_transfer(tx, buf);
 
         match xfer_result {
