@@ -40,6 +40,7 @@ pub(crate) fn planes_from_fb(fb: &impl FrameBuffer) -> PlaneInfo {
     let mut planes: PlaneInfo = [(null::<u8>(), 0usize); MAX_PLANES];
     for (i, slot) in planes.iter_mut().enumerate().take(plane_count) {
         *slot = fb.plane_ptr_len(i);
+        debug_assert!(!slot.0.is_null(), "plane {i} returned a null pointer");
     }
     planes
 }
@@ -140,8 +141,10 @@ impl BcmBuf {
     }
 }
 
-// SAFETY: BcmBuf is only accessed under critical sections or from within the
-// ISR on single-core chips. There is no concurrent access.
+// SAFETY: All access to `BcmBuf` is serialised by `critical_section::with`,
+// which on esp-hal provides a cross-core critical section (interrupt-disable
+// plus a cross-core spinlock on multi-core chips like ESP32 and ESP32-S3).
+// There is therefore no concurrent access.
 unsafe impl Send for BcmBuf {}
 
 unsafe impl DmaTxBuffer for BcmBuf {

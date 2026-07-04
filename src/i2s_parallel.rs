@@ -67,6 +67,11 @@ pub trait I2sHub75Instance: esp_hal::i2s::parallel::Instance {
 
 impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
     fn bind_and_enable_isr() {
+        // SAFETY: The I2S0 peripheral is already owned by the caller (consumed
+        // by `I2sParallel::new`). We `steal()` a second handle solely to flip
+        // the `out_total_eof` interrupt-enable bit, which the esp-hal I2S
+        // driver does not expose. This runs during init before the ISR is
+        // active, so there is no data race.
         unsafe {
             esp_hal::interrupt::bind_handler(Interrupt::I2S0, crate::isr::hub75_isr);
             let stolen = esp_hal::peripherals::I2S0::steal();
@@ -80,6 +85,9 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
 
 impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
     fn bind_and_enable_isr() {
+        // SAFETY: Same justification as I2S0 above — we only touch the
+        // `out_total_eof` interrupt-enable bit, which is not contested by
+        // the esp-hal driver, and this runs during init.
         unsafe {
             esp_hal::interrupt::bind_handler(Interrupt::I2S1, crate::isr::hub75_isr);
             let stolen = esp_hal::peripherals::I2S1::steal();

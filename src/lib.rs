@@ -68,13 +68,6 @@
 //!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
 //!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
 //!   Enabling this feature consumes roughly 5–10 KiB of IRAM.
-//! - `tail-closes-latch`: Forwards to `hub75-framebuffer` (plain framebuffers
-//!   only). Appends a single extra "tail" word at the end of each DMA buffer
-//!   that drives LATCH LOW on the final clock edge, cleanly terminating the
-//!   transfer. Without this feature the last word in each row asserts LATCH
-//!   HIGH and the GPIO pins remain in that state after DMA completes; enable
-//!   this if free-running DMA loops or peripherals that continue clocking after
-//!   the descriptor chain ends can re-latch stale data or glitch.
 //! - `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
 //!   Forwards to `hub75-framebuffer`. Control the number of pixel-clock cycles
 //!   of blanking (OE HIGH) inserted around row address changes in plain
@@ -118,6 +111,10 @@ pub(crate) const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 ///   `FBType::bcm_chunk_bytes()`)
 #[must_use]
 pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize) -> usize {
+    assert!(
+        bcm_chunk_count <= bcm_buf::MAX_PLANES,
+        "bcm_chunk_count exceeds MAX_PLANES"
+    );
     let descs_per_chunk = bcm_chunk_bytes.div_ceil(MAX_DMA_CHUNK_SIZE);
     let total_reps = (1usize << bcm_chunk_count) - 1;
     descs_per_chunk * total_reps
@@ -266,9 +263,11 @@ pub trait Hub75Pins<'d, T> {
 ///
 /// This enum consolidates errors from the underlying `esp-hal` DMA, peripheral,
 /// and buffer management modules into a single type for easier error handling.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Hub75Error {
+    /// The driver has not been initialised (no `Hub75` instance exists).
+    NotInitialised,
     /// Error occurred during DMA transfer operations
     Dma(esp_hal::dma::DmaError),
     /// Error occurred while managing DMA buffers
@@ -287,6 +286,7 @@ pub enum Hub75Error {
 impl core::fmt::Display for Hub75Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::NotInitialised => write!(f, "Hub75 not initialised"),
             Self::Dma(e) => write!(f, "DMA error: {e:?}"),
             Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),
             #[cfg(any(feature = "esp32c5", feature = "esp32c6"))]
