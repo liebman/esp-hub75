@@ -73,20 +73,24 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let mut lcd_cam_dev = LcdCam::new(lcd_cam);
         lcd_cam_dev.set_interrupt_handler(crate::isr::hub75_isr);
 
-        #[allow(unused_mut)]
-        let mut config = i8080::Config::default().with_frequency(frequency);
-        #[cfg(feature = "invert-clock")]
-        let config = config.with_clock_mode(ClockMode {
-            polarity: Polarity::IdleLow,
-            phase: Phase::ShiftHigh,
-        });
+        let config = {
+            let c = i8080::Config::default().with_frequency(frequency);
+            #[cfg(feature = "invert-clock")]
+            let c = c.with_clock_mode(ClockMode {
+                polarity: Polarity::IdleLow,
+                phase: Phase::ShiftHigh,
+            });
+            c
+        };
 
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
         let i8080 = hub75_pins.apply(i8080);
 
-        // Enable the LCD done interrupt at the peripheral level so the ISR
-        // fires on every transfer completion.
-        // SAFETY: TODO: PR to esp-hal to add a method to enable the interrupt?
+        // SAFETY: The LCD_CAM peripheral is already owned by the `I8080`
+        // driver constructed above. We `steal()` a second handle solely to
+        // set the `lcd_trans_done` interrupt-enable bit, which the esp-hal
+        // I8080 driver does not expose. This runs during init before the ISR
+        // is active, so there is no data race.
         unsafe {
             let stolen = LCD_CAM::steal();
             stolen

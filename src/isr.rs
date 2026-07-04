@@ -270,13 +270,25 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
 ///   the next frame boundary.
 /// - [`Async`](esp_hal::Async): [`swap()`](Hub75::swap) is an async method that
 ///   yields to the executor.
+///
+/// # Limitations
+///
+/// Only **one** `Hub75` instance may exist at a time. The driver uses
+/// module-level statics for the ISR state machine, so creating a second
+/// instance would overwrite the first.
+///
+/// `Hub75` does not implement [`Drop`]. The ISR-driven display refresh is
+/// designed to run for the lifetime of the program. 
 pub struct Hub75<DM: esp_hal::DriverMode, FB> {
     _dm: core::marker::PhantomData<DM>,
     _fb: core::marker::PhantomData<fn() -> FB>,
+    _not_sync: core::marker::PhantomData<*const ()>,
 }
 
 // SAFETY: Hub75 is a zero-sized handle; all mutable state lives in statics
 // guarded by critical_section, so it is safe to send across threads.
+// Hub75 is intentionally `!Sync` because concurrent `swap()` calls from
+// multiple threads would race on the shared ISR state.
 unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
 
 impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
@@ -284,6 +296,7 @@ impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
         Self {
             _dm: core::marker::PhantomData,
             _fb: core::marker::PhantomData,
+            _not_sync: core::marker::PhantomData,
         }
     }
 }
@@ -360,28 +373,51 @@ impl<FB: FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// atomically swaps in `new_fb` and returns exclusive access to the
     /// previously displayed framebuffer.
     ///
-    /// Returns `Err` if the ISR encountered a DMA error. After an error the
-    /// driver is stopped; call [`Hub75::restart`] to restart.
-    pub fn swap(&self, new_fb: &'static mut FB) -> Result<&'static mut FB, Hub75Error> {
+    /// Returns `Err((hub75_error, new_fb))` if the ISR encountered a DMA
+    /// error, giving the caller back `new_fb` so it is not leaked. After an
+    /// error the driver is stopped; call [`Hub75::restart`] to restart.
+    pub fn swap(
+        &self,
+        new_fb: &'static mut FB,
+    ) -> Result<&'static mut FB, (Hub75Error, &'static mut FB)> {
         let new_planes = planes_from_fb(new_fb);
+        let new_fb_ptr = new_fb as *mut FB;
 
-        critical_section::with(|cs| {
+        let registered = critical_section::with(|cs| {
             let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-            let state = borrow.as_mut().expect("Hub75 not initialised");
+            let state = match borrow.as_mut() {
+                Some(s) => s,
+                None => return false,
+            };
             state.pending_planes = Some(new_planes);
-            state.pending_fb_ptr = new_fb as *const _ as *const ();
+            state.pending_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Relaxed);
+            true
         });
+
+        if !registered {
+            // SAFETY: ISR state was never initialised so `new_fb_ptr` was
+            // never handed to the ISR; exclusive ownership is intact.
+            return Err((Hub75Error::NotInitialised, unsafe { &mut *new_fb_ptr }));
+        }
 
         loop {
             if HAS_ERROR.load(Ordering::Acquire) {
                 return critical_section::with(|cs| {
-                    let borrow = ISR_STATE.borrow_ref(cs);
-                    let state = borrow.as_ref().expect("Hub75 not initialised");
-                    match &state.transfer {
-                        TransferPhase::Error(err, _, _) => Err(*err),
-                        _ => Err(Hub75Error::Dma(esp_hal::dma::DmaError::DescriptorError)),
-                    }
+                    let mut borrow = ISR_STATE.borrow_ref_mut(cs);
+                    // ISR_STATE was `Some` when we registered the pending
+                    // swap above; nothing in this crate ever sets it back
+                    // to `None`, so this branch is unreachable.
+                    let state = borrow.as_mut().unwrap();
+                    state.pending_planes = None;
+                    state.pending_fb_ptr = core::ptr::null();
+                    let err = match &state.transfer {
+                        TransferPhase::Error(err, _, _) => *err,
+                        _ => Hub75Error::Dma(esp_hal::dma::DmaError::DescriptorError),
+                    };
+                    // SAFETY: The ISR errored before consuming our pending
+                    // buffer, so `new_fb_ptr` still has exclusive ownership.
+                    Err((err, unsafe { &mut *new_fb_ptr }))
                 });
             }
             if SWAP_DONE.load(Ordering::Acquire) {
@@ -392,7 +428,14 @@ impl<FB: FrameBuffer + 'static> Hub75<Blocking, FB> {
 
         critical_section::with(|cs| {
             let borrow = ISR_STATE.borrow_ref(cs);
-            let state = borrow.as_ref().expect("Hub75 not initialised");
+            // ISR_STATE was `Some` when we registered the pending swap
+            // above; nothing in this crate ever sets it back to `None`,
+            // so this is unreachable.
+            let state = borrow.as_ref().unwrap();
+            debug_assert!(
+                !state.returned_fb_ptr.is_null(),
+                "returned_fb_ptr is null after swap"
+            );
             // SAFETY: The typestate guarantees that the returned pointer
             // originated from a `&'static mut FB` passed to a prior
             // `start()` or `swap()` call with the same `FB` type. The ISR
@@ -410,18 +453,33 @@ impl<FB: FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// atomically swaps in `new_fb` and returns exclusive access to the
     /// previously displayed framebuffer.
     ///
-    /// Returns `Err` if the ISR encountered a DMA error. After an error the
-    /// driver is stopped; call [`Hub75::restart`] to restart.
-    pub async fn swap(&self, new_fb: &'static mut FB) -> Result<&'static mut FB, Hub75Error> {
+    /// Returns `Err((hub75_error, new_fb))` if the ISR encountered a DMA
+    /// error, giving the caller back `new_fb` so it is not leaked. After an
+    /// error the driver is stopped; call [`Hub75::restart`] to restart.
+    pub async fn swap(
+        &self,
+        new_fb: &'static mut FB,
+    ) -> Result<&'static mut FB, (Hub75Error, &'static mut FB)> {
         let new_planes = planes_from_fb(new_fb);
+        let new_fb_ptr = new_fb as *mut FB;
 
-        critical_section::with(|cs| {
+        let registered = critical_section::with(|cs| {
             let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-            let state = borrow.as_mut().expect("Hub75 not initialised");
+            let state = match borrow.as_mut() {
+                Some(s) => s,
+                None => return false,
+            };
             state.pending_planes = Some(new_planes);
-            state.pending_fb_ptr = new_fb as *const _ as *const ();
+            state.pending_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Relaxed);
+            true
         });
+
+        if !registered {
+            // SAFETY: ISR state was never initialised so `new_fb_ptr` was
+            // never handed to the ISR; exclusive ownership is intact.
+            return Err((Hub75Error::NotInitialised, unsafe { &mut *new_fb_ptr }));
+        }
 
         core::future::poll_fn(|cx| {
             if SWAP_DONE.load(Ordering::Acquire) || HAS_ERROR.load(Ordering::Acquire) {
@@ -439,18 +497,33 @@ impl<FB: FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
 
         if HAS_ERROR.load(Ordering::Acquire) {
             return critical_section::with(|cs| {
-                let borrow = ISR_STATE.borrow_ref(cs);
-                let state = borrow.as_ref().expect("Hub75 not initialised");
-                match &state.transfer {
-                    TransferPhase::Error(err, _, _) => Err(*err),
-                    _ => Err(Hub75Error::Dma(esp_hal::dma::DmaError::DescriptorError)),
-                }
+                let mut borrow = ISR_STATE.borrow_ref_mut(cs);
+                // ISR_STATE was `Some` when we registered the pending swap
+                // above, and nothing in this crate ever sets it back to `None`,
+                // so the unwrap cannot panic.
+                let state = borrow.as_mut().unwrap();
+                state.pending_planes = None;
+                state.pending_fb_ptr = core::ptr::null();
+                let err = match &state.transfer {
+                    TransferPhase::Error(err, _, _) => *err,
+                    _ => Hub75Error::Dma(esp_hal::dma::DmaError::DescriptorError),
+                };
+                // SAFETY: The ISR errored before consuming our pending
+                // buffer, so `new_fb_ptr` still has exclusive ownership.
+                Err((err, unsafe { &mut *new_fb_ptr }))
             });
         }
 
         critical_section::with(|cs| {
             let borrow = ISR_STATE.borrow_ref(cs);
-            let state = borrow.as_ref().expect("Hub75 not initialised");
+            // ISR_STATE was `Some` when we registered the pending swap
+            // above, and nothing in this crate ever sets it back to `None`,
+            // so the unwrap cannot panic.
+            let state = borrow.as_ref().unwrap();
+            debug_assert!(
+                !state.returned_fb_ptr.is_null(),
+                "returned_fb_ptr is null after swap"
+            );
             // SAFETY: The typestate guarantees that the returned pointer
             // originated from a `&'static mut FB` passed to a prior
             // `start()` or `swap()` call with the same `FB` type. The ISR
