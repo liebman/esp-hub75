@@ -1,54 +1,26 @@
-#[macro_export]
-macro_rules! assert_unique_used_features {
-    ($($feature:literal),+ $(,)?) => {
-        assert!(
-            (0 $(+ cfg!(feature = $feature) as usize)+ ) == 1,
-            "Exactly one of the following features must be enabled: {}",
-            [$($feature),+].join(", ")
-        );
-    };
-}
+use esp_metadata_generated::Chip;
 
 fn main() {
-    // NOTE: update when adding new device support!
-    // Ensure that exactly one chip has been specified:
-    assert_unique_used_features!("esp32", "esp32c5", "esp32c6", "esp32s3");
+    esp_metadata_generated::assert_unique_used_features!("esp32", "esp32c5", "esp32c6", "esp32s3");
 
-    let target = std::env::var("TARGET").unwrap();
+    let chip = Chip::from_cargo_feature().expect("exactly one chip feature must be enabled");
+    chip.define_cfgs();
 
-    #[cfg(feature = "esp32")]
-    {
-        assert!(
-            target == "xtensa-esp32-none-elf",
-            "feature esp32 does not match target {target}"
+    println!("cargo:rustc-check-cfg=cfg(hub75_use_parl_io)");
+    println!("cargo:rustc-check-cfg=cfg(hub75_use_lcd_cam)");
+    println!("cargo:rustc-check-cfg=cfg(hub75_use_i2s_parallel)");
+
+    if chip.contains("parl_io_driver_supported") {
+        println!("cargo:rustc-cfg=hub75_use_parl_io");
+    } else if chip.contains("soc_has_lcd_cam") {
+        println!("cargo:rustc-cfg=hub75_use_lcd_cam");
+    } else if chip.contains("esp32") {
+        println!("cargo:rustc-cfg=hub75_use_i2s_parallel");
+    } else {
+        panic!(
+            "No supported parallel output peripheral found for {}. \
+             esp-hub75 requires PARL_IO, LCD_CAM, or ESP32 I2S parallel.",
+            chip.name()
         );
-        println!("cargo:rustc-cfg=esp32");
-    }
-
-    #[cfg(feature = "esp32s3")]
-    {
-        assert!(
-            target == "xtensa-esp32s3-none-elf",
-            "feature esp32s3 does not match target {target}"
-        );
-        println!("cargo:rustc-cfg=esp32s3");
-    }
-
-    #[cfg(feature = "esp32c5")]
-    {
-        assert!(
-            target == "riscv32imac-unknown-none-elf",
-            "feature esp32c5 does not match target {target}"
-        );
-        println!("cargo:rustc-cfg=esp32c5");
-    }
-
-    #[cfg(feature = "esp32c6")]
-    {
-        assert!(
-            target == "riscv32imac-unknown-none-elf",
-            "feature esp32c6 does not match target {target}"
-        );
-        println!("cargo:rustc-cfg=esp32c6");
     }
 }

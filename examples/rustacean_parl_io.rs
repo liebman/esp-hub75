@@ -1,8 +1,7 @@
-//! Example for using the PARL_IO driver with a HUB75 LED matrix display
+//! Example rendering a Rustacean PNG image on a HUB75 LED matrix using PARL_IO
 //!
-//! This example demonstrates how to use the PARL_IO driver to drive a HUB75 LED
-//! matrix display. It uses the ESP32's Parallel I/O peripheral to send data to
-//! the display.
+//! The image is pre-converted to raw RGB888 bytes and drawn via
+//! `embedded_graphics::image::ImageRaw`.
 
 #![no_std]
 #![no_main]
@@ -17,6 +16,9 @@ use embedded_graphics::prelude::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
+use embedded_sprites::image::Image;
+use embedded_sprites::include_image;
+use embedded_sprites::sprite::Sprite;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
@@ -30,15 +32,24 @@ use esp_hub75::Hub75Pins16;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write($val);
+        x
+    }};
+}
+
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
-#[cfg(feature = "esp32c5")]
 const PLANES: usize = 7;
-#[cfg(not(feature = "esp32c5"))]
-const PLANES: usize = 4;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
+
+#[include_image]
+const GRASS_DATA: Image<hub75_framebuffer::Color> = "./images/rustacean-orig-noshadow-64x64.png";
 
 #[main]
 fn main() -> ! {
@@ -63,32 +74,36 @@ fn main() -> ! {
         latch: peripherals.GPIO6.degrade(),
     };
 
-    let mut hub75 = Hub75::new_async(
+    let fb = mk_static!(FBType, FBType::new());
+
+    let rustacean = Sprite::new(Point::new(0, 0), &GRASS_DATA);
+    rustacean.draw(fb).expect("failed to draw image");
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_5X7)
+        .text_color(Color::WHITE)
+        .background_color(Color::BLACK)
+        .build();
+    Text::with_alignment(
+        "Hello, Hub75",
+        Point::new(31, 55),
+        text_style,
+        Alignment::Center,
+    )
+    .draw(fb)
+    .expect("failed to draw text");
+
+    let _hub75 = Hub75::new(
         peripherals.PARL_IO,
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
         Rate::from_mhz(20),
+        &*fb,
     )
-    .expect("failed to create Hub75!");
+    .expect("failed to create Hub75");
 
-    let mut fb = FBType::new();
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_5X7)
-        .text_color(Color::YELLOW)
-        .background_color(Color::BLACK)
-        .build();
-    let point = Point::new(32, 31);
-    Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
-        .draw(&mut fb)
-        .expect("failed to draw text");
     loop {
-        let xfer = hub75
-            .render(&fb)
-            .map_err(|(e, _hub75)| e)
-            .expect("failed to start render!");
-        let (result, new_hub75) = xfer.wait();
-        hub75 = new_hub75;
-        result.expect("transfer failed");
+        core::hint::spin_loop();
     }
 }
