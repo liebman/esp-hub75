@@ -1,12 +1,9 @@
 use esp_metadata_generated::Chip;
 
 fn main() {
-    esp_metadata_generated::assert_unique_used_features!(
-        "esp32", "esp32c5", "esp32c6", "esp32s3"
-    );
+    esp_metadata_generated::assert_unique_used_features!("esp32", "esp32c5", "esp32c6", "esp32s3");
 
-    let chip =
-        Chip::from_cargo_feature().expect("exactly one chip feature must be enabled");
+    let chip = Chip::from_cargo_feature().expect("exactly one chip feature must be enabled");
     chip.define_cfgs();
 
     println!("cargo:rustc-check-cfg=cfg(hub75_use_parl_io)");
