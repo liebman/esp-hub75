@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking — Major refactor [#49](https://github.com/liebman/esp-hub75/pull/49)
+
+* **`swap()` API with background ISR-driven refresh.** An internal interrupt
+  handler now continuously refreshes the display. The old `render()` /
+  `Hub75Transfer::wait()` loop is replaced by `swap()` (blocking & async).
+  `new()` / `new_async()` take an initial `&'static FB` and start refreshing
+  immediately.
+
+  ```rust
+  // Before: manual loop
+  let mut hub75 = Hub75::new_async(parl_io, pins, channel, tx_descriptors, freq)?;
+  loop {
+      let mut xfer = hub75.render(fb)?;
+      xfer.wait_for_done().await?;
+      let (res, h) = xfer.wait(); hub75 = h;
+  }
+
+  // After: ISR refreshes continuously
+  let hub75 = Hub75::new_async(parl_io, pins, channel, tx_descriptors, freq, &*fb0)?;
+  loop {
+      // ...
+      // render updated buffer into fb1 before swap!
+      // ...
+      fb1 = hub75.swap(fb1).await?;
+  }
+  ```
+
+* **`Hub75Pins` trait gains associated `Word` type** — word-size mismatch with
+  `FrameBuffer::Word` is now a compile-time error.
+
+### Added
+
+* `full-chain-dma` feature — single DMA transfer per full BCM chain.
+* New examples: `esp32-trinity` (ESP-Trinity board), `rustacean_i2s`,
+  `rustacean_lcd_cam`, `rustacean_parl_io`.
+
+### Removed
+
+* `Hub75Transfer`, `render()`, `render_buf()`.
+* Several old examples replaced by new ones above.
+
 ## [0.12.0] - 2026-07-19
 
 ### Added
