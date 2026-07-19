@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+## [0.12.0] - 2026-07-19
+
 ### Added
 
 * `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8` features
@@ -193,7 +195,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * initial version
 
 <!-- next-url -->
-[Unreleased]: https://github.com/liebman/esp-hub75/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/liebman/esp-hub75/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/liebman/esp-hub75/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/liebman/esp-hub75/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/liebman/esp-hub75/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/liebman/esp-hub75/compare/v0.8.0...v0.9.0
