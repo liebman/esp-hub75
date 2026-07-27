@@ -86,7 +86,7 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
-const PLANES: usize = 6;
+const PLANES: usize = 5;
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;
@@ -243,7 +243,7 @@ async fn main(_spawner: Spawner) {
         pins,
         peripherals.DMA_I2S0,
         tx_descriptors,
-        Rate::from_mhz(19),
+        Rate::from_mhz(10),
         &*fb0,
     )
     .expect("failed to create Hub75");
