@@ -145,25 +145,17 @@ examples (`parl_io_latch.rs`) can be used with it.
   and OE=BLANK, cleanly terminating the transfer. The cost is a single extra
   word per DMA chunk, which is negligible compared to the frame data.
 
-- `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
-  Forwards to `hub75-framebuffer`. Control the number of pixel-clock cycles of
-  blanking (OE HIGH) inserted around row address changes in plain framebuffers
-  (`plain` and `bitplane::plain`). The blanking delay gives the address lines
-  time to settle before the new row is latched and lit, preventing ghosting or
-  "bleeding" artifacts between rows.
-
-  | Feature | Blanking cycles |
-  |---------|-----------------|
-  | *(none)* | 1 (default) |
-  | `blank-delay-1` | 1 |
-  | `blank-delay-2` | 2 |
-  | `blank-delay-4` | 4 |
-  | `blank-delay-8` | 8 |
-
-  Higher values reduce ghosting at the cost of slightly less brightness (the
-  LEDs are on for less time per scan line). Start with the default and increase
-  only if you observe row-transition artifacts on your particular panel
-  hardware.
+- `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
+  `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
+  (OE HIGH) inserted around row address changes. The lead blank controls
+  blanking *before* the address change, and the trail blank controls blanking
+  *after*. Higher values reduce ghosting at the cost of slightly less
+  brightness.
+- `inter-row-blank-4/8/16/32`: Forwards to `hub75-framebuffer`. Insert
+  additional dead clock cycles at the end of each row. In plain framebuffers
+  the gap defers the address change to the first pixel of the next row, giving
+  slow panels more time to finish blanking. In latched framebuffers the gap
+  adds extra blanked cycles after the address change.
 
 ##  Known Working Panels
 

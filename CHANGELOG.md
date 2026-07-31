@@ -42,7 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * `full-chain-dma` feature — single DMA transfer per full BCM chain.
-* New examples: `rustacean_i2s`, `rustacean_lcd_cam`, `rustacean_parl_io`.
+* `inter-row-blank-4`, `inter-row-blank-8`, `inter-row-blank-16`, and `inter-row-blank-32` features that insert additional dead clock
+  cycles between the latch and the address change at the end of each row. Forwarded to `hub75-framebuffer`; in plain framebuffers
+  the gap defers the address change to the first pixel of the next row, giving slow panels more time to finish blanking.
+* New examples: `rustacean_i2s`, `rustacean_lcd_cam`, `rustacean_parl_io`, `esp32-trinity-tiled`.
+
 
 ### Removed
 

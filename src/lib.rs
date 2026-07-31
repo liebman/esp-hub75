@@ -68,11 +68,17 @@
 //!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
 //!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
 //!   Enabling this feature consumes roughly 5–10 KiB of IRAM.
-//! - `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
-//!   Forwards to `hub75-framebuffer`. Control the number of pixel-clock cycles
-//!   of blanking (OE HIGH) inserted around row address changes in plain
-//!   framebuffers (`plain` and `bitplane::plain`). Higher values reduce ghosting
-//!   at the cost of slightly less brightness.
+//! - `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
+//!   `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
+//!   (OE HIGH) inserted around row address changes. The lead blank controls
+//!   blanking *before* the address change, and the trail blank controls blanking
+//!   *after*. Higher values reduce ghosting at the cost of slightly less
+//!   brightness.
+//! - `inter-row-blank-4/8/16/32`: Forwards to `hub75-framebuffer`. Insert
+//!   additional dead clock cycles at the end of each row. In plain framebuffers
+//!   the gap defers the address change to the first pixel of the next row,
+//!   giving slow panels more time to finish blanking. In latched framebuffers
+//!   the gap adds extra blanked cycles after the address change.
 //!
 //! ## Safety
 //!
