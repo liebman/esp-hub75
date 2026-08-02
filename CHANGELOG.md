@@ -11,14 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Breaking — Major refactor [#49](https://github.com/liebman/esp-hub75/pull/49)
 
-* **`swap()` API with background ISR-driven refresh.** An internal interrupt
-  handler now continuously refreshes the display. The old `render()` /
-  `Hub75Transfer::wait()` loop is replaced by `swap()` (blocking & async).
-  `new()` / `new_async()` take an initial `&'static FB` and start refreshing
-  immediately.
+* **ISR-driven continuous refresh replaces user render loop.** Previously the
+  user had to run a dedicated task calling `hub75.render(fb)` in a tight loop —
+  each call sent one frame via DMA, returned a `Hub75Transfer` (consuming
+  `Hub75`), and the display was only alive while the loop ran. Now `new()` /
+  `new_async()` take an initial `&'static FB` and start an internal ISR that
+  refreshes the display continuously. To update the image, call `hub75.swap(fb)`
+  which returns a `Hub75Swap` transfer object; wait on it to reclaim the old
+  buffer.
 
   ```rust
-  // Before: manual loop
+  // Before: dedicated render task looping forever
   let mut hub75 = Hub75::new_async(parl_io, pins, channel, tx_descriptors, freq)?;
   loop {
       let mut xfer = hub75.render(fb)?;
@@ -26,13 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       let (res, h) = xfer.wait(); hub75 = h;
   }
 
-  // After: ISR refreshes continuously
+  // After: ISR refreshes continuously; swap buffers when ready
   let hub75 = Hub75::new_async(parl_io, pins, channel, tx_descriptors, freq, &*fb0)?;
   loop {
-      // ...
-      // render updated buffer into fb1 before swap!
-      // ...
-      fb1 = hub75.swap(fb1).await?;
+      // ... draw into fb1 ...
+      let mut xfer = hub75.swap(fb1);
+      xfer.wait_for_done().await;
+      fb1 = xfer.wait()?;
   }
   ```
 
@@ -41,7 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `Hub75Swap<FB>` transfer object returned by `swap()` — allows callers to
+  do other work between initiating the swap and waiting for completion.
 * `full-chain-dma` feature — single DMA transfer per full BCM chain.
+* `circular-dma` feature — circular DMA descriptor chain for ESP32 and
+  ESP32-S3. The DMA engine starts once and loops forever; buffer swaps are
+  instant pointer-delta updates with no DMA stop/restart. Compile-time error
+  if enabled on ESP32-C5/C6 (PARL_IO does not support circular chains).
+* `frame_count()` method on `Hub75` to query the number of completed BCM
+  frames since driver creation.
 * `inter-row-blank-4`, `inter-row-blank-8`, `inter-row-blank-16`, and `inter-row-blank-32` features that insert additional dead clock
   cycles between the latch and the address change at the end of each row. Forwarded to `hub75-framebuffer`; in plain framebuffers
   the gap defers the address change to the first pixel of the next row, giving slow panels more time to finish blanking.

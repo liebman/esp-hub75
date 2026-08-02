@@ -278,7 +278,9 @@ async fn display_task(hub75: Hub75<esp_hal::Async, DisplayFB>, mut fb: &'static 
         .draw(fb)
         .unwrap();
 
-        fb = hub75.swap(fb).await.expect("DMA transfer failed");
+        let mut xfer = hub75.swap(fb);
+        xfer.wait_for_done().await;
+        fb = xfer.wait().expect("DMA transfer failed");
 
         render_count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -293,7 +295,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, DisplayFB>, mut fb: &'static 
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     static _stack_end_cpu0: u32;
     static _stack_start_cpu0: u32;
 }
@@ -383,9 +385,7 @@ async fn main(_spawner: Spawner) {
     );
 
     loop {
-        if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= u32::MAX {
-            SIMPLE_COUNTER.store(0, Ordering::Relaxed);
-        }
+        SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed);
         Timer::after(Duration::from_millis(100)).await;
     }
 }

@@ -120,31 +120,25 @@ examples (`parl_io_latch.rs`) can be used with it.
   at the cost of more DMA descriptor RAM. Note that the ESP32-C6 PARL_IO
   peripheral has a 65 535-byte per-transfer limit, which constrains the maximum
   panel size and plane count when this feature is enabled.
+- `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
+  The DMA engine starts once and loops forever; buffer swaps are instant
+  pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
+  always active in this mode, providing both `frame_count()` and the
+  completion signal for `Hub75Swap::wait()` / `Hub75Swap::wait_for_done()`.
+  Only supported on ESP32 and ESP32-S3 — enabling this on ESP32-C5/C6 is a
+  compile-time error because the PARL_IO peripheral does not support circular
+  chains.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
 - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Applies to
   `plain` and `bitplane::plain` framebuffers only (not the latched variants).
-  Enabling `tail-closes-latch` adds one extra 16-bit word per DMA buffer
-  (`plain`) or one extra word per bit-plane (`bitplane::plain`) that parks the
-  bus with LATCH=0 and OE=BLANK, cleanly terminating the transfer.
+  Appends a single extra "tail" word at the end of each DMA buffer (`plain`)
+  or at the end of each bit-plane (`bitplane::plain`) that parks the bus with
+  LATCH=0 and OE=BLANK, cleanly terminating the transfer.
 - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
   Enabling this feature consumes roughly 5–10 KiB of IRAM.
-- `tail-closes-latch`: Forwards to `hub75-framebuffer` (plain framebuffers
-  only). Appends a single extra "tail" word at the end of each DMA buffer that
-  drives the LATCH signal LOW (de-asserted) on the final clock edge. Without
-  this feature the last word in each row asserts LATCH HIGH to latch shifted
-  data into the LED drivers, and the GPIO pins remain in that state after the
-  DMA transfer completes. Some hardware configurations (e.g. free-running DMA
-  loops or peripherals that continue clocking after the descriptor chain ends)
-  can re-latch stale data or glitch if LATCH is left asserted.
-
-  Enabling `tail-closes-latch` adds one 16-bit `Entry` (for `plain`) or one
-  entry per bit-plane (for `bitplane::plain`) that parks the bus with LATCH=0
-  and OE=BLANK, cleanly terminating the transfer. The cost is a single extra
-  word per DMA chunk, which is negligible compared to the frame data.
-
 - `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
   `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
   (OE HIGH) inserted around row address changes. The lead blank controls

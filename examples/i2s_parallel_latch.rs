@@ -165,7 +165,9 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         .draw(fb)
         .unwrap();
 
-        fb = hub75.swap(fb).await.expect("DMA transfer failed");
+        let mut xfer = hub75.swap(fb);
+        xfer.wait_for_done().await;
+        fb = xfer.wait().expect("DMA transfer failed");
 
         render_count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -180,7 +182,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     static _stack_end_cpu0: u32;
     static _stack_start_cpu0: u32;
 }
@@ -189,6 +191,7 @@ extern "C" {
 async fn main(_spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     info!("Main starting!");
     info!("main: stack size:  {}", unsafe {
         core::ptr::addr_of!(_stack_start_cpu0).offset_from(core::ptr::addr_of!(_stack_end_cpu0))
@@ -197,8 +200,6 @@ async fn main(_spawner: Spawner) {
     info!("COLS: {}", COLS);
     info!("PLANES: {}", PLANES);
     info!("FB size: {}", core::mem::size_of::<FBType>());
-    info!("init peripherals");
-    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let software_interrupt = sw_ints.software_interrupt2;
 

@@ -161,7 +161,9 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         .draw(fb)
         .unwrap();
 
-        fb = hub75.swap(fb).await.expect("DMA transfer failed");
+        let mut xfer = hub75.swap(fb);
+        xfer.wait_for_done().await;
+        fb = xfer.wait().expect("DMA transfer failed");
 
         render_count += 1;
         const FPS_INTERVAL: Duration = Duration::from_secs(1);
@@ -176,7 +178,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     static _stack_end_cpu0: u32;
     static _stack_start_cpu0: u32;
 }
@@ -230,10 +232,10 @@ async fn main(spawner: Spawner) {
         red1: peripherals.GPIO9.degrade(),
         grn1: peripherals.GPIO8.degrade(),
         blu1: peripherals.GPIO7.degrade(),
-        red2: peripherals.GPIO0.degrade(),
+        red2: peripherals.GPIO6.degrade(),
         grn2: peripherals.GPIO10.degrade(),
         blu2: peripherals.GPIO1.degrade(),
-        blank: peripherals.GPIO23.degrade(),
+        blank: peripherals.GPIO27.degrade(),
         clock: peripherals.GPIO5.degrade(),
         latch: peripherals.GPIO26.degrade(),
     };
@@ -248,7 +250,7 @@ async fn main(spawner: Spawner) {
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
-        Rate::from_mhz(40),
+        Rate::from_mhz(20),
         &*fb0,
     )
     .expect("failed to create Hub75");

@@ -5,7 +5,7 @@ repository = "https://github.com/liebman/esp-hub75"
 documentation = "https://docs.rs/esp-hub75"
 keywords = ["esp32", "led-matrix", "hub75", "embedded", "driver"]
 categories = ["embedded", "hardware-support", "no-std"]
-edition = "2021"
+edition = "2024"
 version = "0.13.0"
 authors = ["liebman <liebman@zod.com>"]
 license = "MIT OR Apache-2.0"
@@ -29,8 +29,7 @@ esp-hal = { version = "1.1.0", default-features = false, features = [
     "requires-unstable",
 ] }
 log = { version = "0.4.30", optional = true }
-# hub75-framebuffer = { version = "0.10.0" }
-hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "inter-row-blank" }
+hub75-framebuffer = { version = "0.11.0" }
 static_cell = { version = "2.1.1" }
 
 [build-dependencies]
@@ -105,7 +104,11 @@ log = [
     "esp-println/log-04",
     "esp-println/colors",
 ]
-full-chain-dma = [] # full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 plane limit)
+full-chain-dma = [
+] # full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 plane limit)
+circular-dma = [
+    "full-chain-dma",
+] # circular descriptor chain, immediate pointer-swap in swap()
 invert-blank = [] # only for some latched implementations
 invert-clock = []
 

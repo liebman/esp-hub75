@@ -10,9 +10,8 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20),
+//!     tx_descriptors, Rate::from_mhz(20), &*fb,
 //! ).expect("failed to create Hub75");
-//! hub75.start(&*fb).expect("failed to start Hub75");
 //!
 //! // Display refreshes automatically — main thread is free.
 //! loop { core::hint::spin_loop(); }
@@ -23,12 +22,11 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20),
+//!     tx_descriptors, Rate::from_mhz(20), &*fb0,
 //! ).expect("failed to create Hub75");
-//! hub75.start(&*fb0).expect("failed to start Hub75");
 //!
 //! // Swap buffers — yields to the executor, returns Err on DMA failure.
-//! let old_ptr = hub75.swap(&*fb1).await.expect("DMA error");
+//! let old_fb = hub75.swap(fb1).wait().expect("DMA error");
 //! ```
 
 use esp_hal::dma::DmaChannelFor;
@@ -45,7 +43,7 @@ use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
 use esp_hal::Blocking;
 
-use crate::bcm_buf::BcmBuf;
+use crate::bcm::linear::BcmBuf;
 pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;

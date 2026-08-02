@@ -58,6 +58,14 @@
 //!   frequency at the cost of more DMA descriptor RAM. Note that the ESP32-C6
 //!   PARL_IO peripheral has a 65 535-byte per-transfer limit, which constrains
 //!   the maximum panel size and plane count when this feature is enabled.
+//! - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
+//!   The DMA engine starts once and loops forever; buffer swaps are instant
+//!   pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
+//!   always active in this mode, providing both `frame_count()` and the
+//!   completion signal for [`Hub75Swap::wait()`] /
+//!   [`Hub75Swap::wait_for_done()`]. Only supported on ESP32 and ESP32-S3 —
+//!   enabling this on ESP32-C5/C6 is a compile-time error because the PARL_IO
+//!   peripheral does not support circular chains.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
 //!   optimization that skips writing black pixels to the framebuffer.
 //! - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Appends a
@@ -92,15 +100,23 @@ use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
 pub use static_cell;
-pub(crate) mod bcm_buf;
+pub(crate) mod bcm;
+
 #[cfg_attr(hub75_use_i2s_parallel, path = "i2s_parallel.rs")]
 #[cfg_attr(hub75_use_lcd_cam, path = "lcd_cam.rs")]
 #[cfg_attr(hub75_use_parl_io, path = "parl_io.rs")]
 mod hub75;
 mod isr;
 pub use hub75::Hub75;
+pub use isr::Hub75Swap;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
+
+#[cfg(all(feature = "circular-dma", any(esp32c5, esp32c6)))]
+compile_error!(
+    "circular-dma is not supported on ESP32-C5/C6: the PARL_IO peripheral \
+     stops after the first transfer even with a circular descriptor chain."
+);
 
 pub(crate) const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 
@@ -118,7 +134,7 @@ pub(crate) const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 #[must_use]
 pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize) -> usize {
     assert!(
-        bcm_chunk_count <= bcm_buf::MAX_PLANES,
+        bcm_chunk_count <= bcm::MAX_PLANES,
         "bcm_chunk_count exceeds MAX_PLANES"
     );
     let descs_per_chunk = bcm_chunk_bytes.div_ceil(MAX_DMA_CHUNK_SIZE);
@@ -263,6 +279,53 @@ pub trait Hub75Pins<'d, T> {
     /// 1. The converted pin configuration for the specific peripheral.
     /// 2. The clock pin used for synchronization.
     fn convert_pins(self) -> (T, AnyPin<'d>);
+}
+
+// ---------------------------------------------------------------------------
+// GDMA channel number trait (ESP32-S3 / C6 / C5)
+// ---------------------------------------------------------------------------
+
+/// Maps a DMA channel singleton to its numeric index so that the driver can
+/// configure GDMA interrupts without scanning registers at runtime.
+///
+/// This trait is implemented automatically for every `DMA_CHn` type exported
+/// by `esp-hal`. Users never need to name it directly — it is satisfied
+/// implicitly when passing a DMA channel peripheral to [`Hub75::new`].
+#[cfg(any(esp32s3, esp32c6, esp32c5))]
+pub trait GdmaChannelNum {
+    /// Returns the zero-based GDMA channel index (0, 1, 2, …).
+    fn channel_num(&self) -> u8;
+}
+
+#[cfg(any(esp32s3, esp32c6, esp32c5))]
+impl GdmaChannelNum for esp_hal::peripherals::DMA_CH0<'_> {
+    fn channel_num(&self) -> u8 {
+        0
+    }
+}
+#[cfg(any(esp32s3, esp32c6, esp32c5))]
+impl GdmaChannelNum for esp_hal::peripherals::DMA_CH1<'_> {
+    fn channel_num(&self) -> u8 {
+        1
+    }
+}
+#[cfg(any(esp32s3, esp32c6, esp32c5))]
+impl GdmaChannelNum for esp_hal::peripherals::DMA_CH2<'_> {
+    fn channel_num(&self) -> u8 {
+        2
+    }
+}
+#[cfg(esp32s3)]
+impl GdmaChannelNum for esp_hal::peripherals::DMA_CH3<'_> {
+    fn channel_num(&self) -> u8 {
+        3
+    }
+}
+#[cfg(esp32s3)]
+impl GdmaChannelNum for esp_hal::peripherals::DMA_CH4<'_> {
+    fn channel_num(&self) -> u8 {
+        4
+    }
 }
 
 /// Represents errors that can occur during HUB75 driver operations.
