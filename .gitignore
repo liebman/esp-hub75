@@ -9,3 +9,5 @@
 /rust-toolchain.toml
 /target
 /.cursorrules
+/build-all.sh
+/clippy-all.sh

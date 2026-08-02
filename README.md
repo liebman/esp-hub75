@@ -78,29 +78,26 @@ variants.
 
 ### ESP32-S3 (LCD_CAM Interface)
 
-- [`examples/hello_lcd_cam`](examples/hello_lcd_cam.rs) - Displays "Hello, World!".
-- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Shows a color gradient and stats.
-- [`examples/lcd_cam_tiled.rs`](examples/lcd_cam_tiled.rs) - uses 4 64x32 panels
-  in a 2x2 configuration to show a color gradient and stats
+- [`examples/hello_lcd_cam.rs`](examples/hello_lcd_cam.rs) - Displays "Hello, World!" using blocking `start()`.
+- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Async `start()`/`swap()` with color gradient and stats.
+- [`examples/lcd_cam_latch.rs`](examples/lcd_cam_latch.rs) - Latched (8-bit) variant with color gradient and stats.
+- [`examples/rustacean_lcd_cam.rs`](examples/rustacean_lcd_cam.rs) - Renders a Rustacean image.
 
 ### ESP32-C6 / ESP32-C5 (PARL_IO Interface)
 
-- [`examples/hello_parl_io.rs`](examples/hello_parl_io.rs) - Displays "Hello, World!".
-- [`examples/parl_io.rs`](examples/parl_io.rs) - Shows a color gradient and stats.
+- [`examples/parl_io.rs`](examples/parl_io.rs) - Async `start()`/`swap()` with color gradient and stats.
+- [`examples/parl_io_latch.rs`](examples/parl_io_latch.rs) - Latched (8-bit) variant.
+- [`examples/rustacean_parl_io.rs`](examples/rustacean_parl_io.rs) - Renders a Rustacean image.
 
 **Note**: The ESP32-C5 does not support 16-bit mode, so only the latched
-examples (`parl_io_latch.rs`, `parl_io_bp_latch.rs`) can be used with it.
+examples (`parl_io_latch.rs`) can be used with it.
 
 ### ESP32 (I2S Parallel Interface)
 
-- [`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays
-  "Hello, World!".
-- [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Shows a color gradient
-  and stats.
-- [`examples/i2s_parallel_latch.rs`](examples/i2s_parallel_latch.rs) - Shows a
-  color gradient and stats.
-- [`examples/i2s_parallel_dimming.rs`](examples/i2s_parallel_dimming.rs) - Shows
-  a color gradient and stats.
+- [`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" using blocking `start()`.
+- [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Async `start()`/`swap()` with color gradient and stats.
+- [`examples/i2s_parallel_latch.rs`](examples/i2s_parallel_latch.rs) - Latched (8-bit) variant.
+- [`examples/rustacean_i2s.rs`](examples/rustacean_i2s.rs) - Renders a Rustacean image.
 
 ## Crate Features
 
@@ -110,42 +107,49 @@ examples (`parl_io_latch.rs`, `parl_io_bp_latch.rs`) can be used with it.
 - `esp32c6`: Enable support for the ESP32-C6
 - `defmt`: Enable logging with `defmt`
 - `log`: Enable logging with the `log` crate
-- `invert-blank`: Invert the blank signal, required for some controller boards.
+- `invert-blank`: Invert the blank signal. This only applies to 8-bit latched
+  configurations (`Hub75Pins8`); in 16-bit direct-drive mode the blank signal is
+  always active-low. Some latch controller boards include a hardware inverter on
+  the blank line — enable this feature to compensate.
 - `invert-clock`: Invert the clock signal. By default the driver outputs data
   that changes on the falling edge of CLK so that it is stable when the panel
   latches on the rising edge. Enable this feature if your panel requires the
   opposite polarity.
+- `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
+  transfer instead of one plane per interrupt. This reduces interrupt frequency
+  at the cost of more DMA descriptor RAM. Note that the ESP32-C6 PARL_IO
+  peripheral has a 65 535-byte per-transfer limit, which constrains the maximum
+  panel size and plane count when this feature is enabled.
+- `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
+  The DMA engine starts once and loops forever; buffer swaps are instant
+  pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
+  always active in this mode, providing both `frame_count()` and the
+  completion signal for `Hub75Swap::wait()` / `Hub75Swap::wait_for_done()`.
+  Only supported on ESP32 and ESP32-S3 — enabling this on ESP32-C5/C6 is a
+  compile-time error because the PARL_IO peripheral does not support circular
+  chains.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
 - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Applies to
   `plain` and `bitplane::plain` framebuffers only (not the latched variants).
-  Enabling `tail-closes-latch` adds one extra 16-bit word per DMA buffer
-  (`plain`) or one extra word per bit-plane (`bitplane::plain`) that parks the
-  bus with LATCH=0 and OE=BLANK, cleanly terminating the transfer.
+  Appends a single extra "tail" word at the end of each DMA buffer (`plain`)
+  or at the end of each bit-plane (`bitplane::plain`) that parks the bus with
+  LATCH=0 and OE=BLANK, cleanly terminating the transfer.
 - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
   Enabling this feature consumes roughly 5–10 KiB of IRAM.
-- `blank-delay-1` / `blank-delay-2` / `blank-delay-4` / `blank-delay-8`:
-  Control the number of pixel-clock cycles of blanking (OE HIGH) inserted
-  around row address changes in the plain framebuffers (`plain` and
-  `bitplane::plain`). The blanking delay gives the address lines time to
-  settle before the new row is latched and lit, preventing ghosting or
-  "bleeding" artifacts between rows. These are forwarded directly to
-  `hub75-framebuffer`.
-
-  | Feature | Blanking cycles |
-  |---------|-----------------|
-  | *(none)* | 1 (default) |
-  | `blank-delay-1` | 1 |
-  | `blank-delay-2` | 2 |
-  | `blank-delay-4` | 4 |
-  | `blank-delay-8` | 8 |
-
-  Higher values reduce ghosting at the cost of slightly less brightness (the
-  LEDs are on for less time per scan line). Start with the default and increase
-  only if you observe row-transition artifacts on your particular panel
-  hardware.
+- `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
+  `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
+  (OE HIGH) inserted around row address changes. The lead blank controls
+  blanking *before* the address change, and the trail blank controls blanking
+  *after*. Higher values reduce ghosting at the cost of slightly less
+  brightness.
+- `inter-row-blank-4/8/16/32`: Forwards to `hub75-framebuffer`. Insert
+  additional dead clock cycles at the end of each row. In plain framebuffers
+  the gap defers the address change to the first pixel of the next row, giving
+  slow panels more time to finish blanking. In latched framebuffers the gap
+  adds extra blanked cycles after the address change.
 
 ##  Known Working Panels
 
