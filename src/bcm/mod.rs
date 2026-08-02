@@ -62,9 +62,10 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 #[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
 /// Fill a full-chain BCM descriptor sequence.
 ///
-/// The caller provides a closure that determines the `next` pointer and
-/// `suc_eof` flag for the last descriptor in the chain — this is what
-/// distinguishes linear (null / true) from circular (ring_start / true).
+/// The caller provides the `next` pointer for the last descriptor in the
+/// chain — `null_mut()` for linear mode (last `next` = null),
+/// `ring_start` (points back to `desc[0]`) for circular mode.
+/// The last descriptor always has `suc_eof = 1`.
 pub(super) fn fill_full_chain(
     descriptors: &mut [DmaDescriptor],
     planes: &PlaneInfo,
