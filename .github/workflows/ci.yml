@@ -30,7 +30,12 @@ jobs:
       matrix:
         target: [esp32, esp32s3, esp32c5, esp32c6]
         features: [log, defmt]
-        extra_features: ["", "full-chain-dma,invert-blank,invert-clock"]
+        extra_features: ["", "full-chain-dma,invert-blank,invert-clock", "circular-dma"]
+        exclude:
+          - target: esp32c5
+            extra_features: "circular-dma"
+          - target: esp32c6
+            extra_features: "circular-dma"
         include:
           - target: esp32
             rust_target: xtensa-esp32-none-elf
