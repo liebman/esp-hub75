@@ -29,32 +29,32 @@
 //! let old_fb = hub75.swap(fb1).wait().expect("DMA error");
 //! ```
 
+use esp_hal::Blocking;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
-use esp_hal::lcd_cam::lcd::i8080;
-use esp_hal::lcd_cam::lcd::i8080::I8080;
+use esp_hal::lcd_cam::LcdCam;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::ClockMode;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::Phase;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::Polarity;
-use esp_hal::lcd_cam::LcdCam;
+use esp_hal::lcd_cam::lcd::i8080;
+use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
-use esp_hal::Blocking;
 
-#[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
-#[cfg(feature = "circular-dma")]
-use crate::bcm::circular::CircularBcmBuf;
-use crate::framebuffer::WordSize;
-pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
-use crate::Hub75Pins16;
 use crate::Hub75Pins8;
+use crate::Hub75Pins16;
+#[cfg(feature = "circular-dma")]
+use crate::bcm::circular::CircularBcmBuf;
+#[cfg(not(feature = "circular-dma"))]
+use crate::bcm::linear::BcmBuf;
+use crate::framebuffer::WordSize;
+pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -174,8 +174,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 // consumed by the I8080 driver.
 
 #[cfg(feature = "circular-dma")]
-static GDMA_CHANNEL_NUM: core::sync::atomic::AtomicU8 =
-    core::sync::atomic::AtomicU8::new(0);
+static GDMA_CHANNEL_NUM: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 #[cfg(feature = "circular-dma")]
 fn clear_gdma_out_eof() {

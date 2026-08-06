@@ -29,28 +29,28 @@
 //! let old_fb = hub75.swap(fb1).wait().expect("DMA error");
 //! ```
 
+use esp_hal::Blocking;
 use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
+use esp_hal::i2s::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
-use esp_hal::i2s::AnyI2s;
 use esp_hal::peripherals::Interrupt;
 use esp_hal::time::Rate;
-use esp_hal::Blocking;
 
-#[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
-#[cfg(feature = "circular-dma")]
-use crate::bcm::circular::CircularBcmBuf;
-pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
-use crate::Hub75Pins16;
 use crate::Hub75Pins8;
+use crate::Hub75Pins16;
+#[cfg(feature = "circular-dma")]
+use crate::bcm::circular::CircularBcmBuf;
+#[cfg(not(feature = "circular-dma"))]
+use crate::bcm::linear::BcmBuf;
+pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // I2S instance trait — maps concrete peripherals to their interrupt and
@@ -85,10 +85,7 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
         }
         #[cfg(feature = "circular-dma")]
         unsafe {
-            esp_hal::interrupt::bind_handler(
-                Interrupt::I2S0,
-                crate::isr::hub75_frame_count_isr,
-            );
+            esp_hal::interrupt::bind_handler(Interrupt::I2S0, crate::isr::hub75_frame_count_isr);
             let stolen = esp_hal::peripherals::I2S0::steal();
             let reg = stolen.register_block();
             // `out_eof` fires whenever a descriptor with suc_eof=1 is
@@ -124,10 +121,7 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
         }
         #[cfg(feature = "circular-dma")]
         unsafe {
-            esp_hal::interrupt::bind_handler(
-                Interrupt::I2S1,
-                crate::isr::hub75_frame_count_isr,
-            );
+            esp_hal::interrupt::bind_handler(Interrupt::I2S1, crate::isr::hub75_frame_count_isr);
             let stolen = esp_hal::peripherals::I2S1::steal();
             let reg = stolen.register_block();
             reg.int_ena().modify(|_, w| w.out_eof().set_bit());

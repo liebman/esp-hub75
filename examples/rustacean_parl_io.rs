@@ -9,13 +9,13 @@
 
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
+use embedded_graphics::Drawable;
 use embedded_graphics::geometry::Point;
-use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
+use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::prelude::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
-use embedded_graphics::Drawable;
 use embedded_sprites::image::Image;
 use embedded_sprites::include_image;
 use embedded_sprites::sprite::Sprite;
@@ -24,11 +24,11 @@ use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
 use esp_hal::main;
 use esp_hal::time::Rate;
-use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
-use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
+use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
+use esp_hub75::framebuffer::compute_rows;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

@@ -35,29 +35,29 @@ use core::sync::atomic::Ordering;
 use defmt::info;
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
-use embassy_executor::task;
 use embassy_executor::Spawner;
+use embassy_executor::task;
 use embassy_time::Duration;
 use embassy_time::Instant;
 use embassy_time::Timer;
+use embedded_graphics::Drawable;
 use embedded_graphics::geometry::Point;
-use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
+use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::pixelcolor::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
-use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
 use esp_hal::system::Stack;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
-use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
+use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
+use esp_hub75::framebuffer::compute_rows;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
@@ -177,7 +177,6 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
             start = Instant::now();
         }
     }
-}
 
 unsafe extern "C" {
     static _stack_end_cpu0: u32;
@@ -215,6 +214,11 @@ async fn main(_spawner: Spawner) {
     info!("fb1: {:?}", fb1);
 
     let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
+    info!(
+        "DMA descriptors: {} ({} bytes)",
+        tx_descriptors.len(),
+        tx_descriptors.len() * core::mem::size_of::<esp_hal::dma::DmaDescriptor>()
+    );
 
     let pins = Hub75Pins16 {
         red1: peripherals.GPIO38.degrade(),

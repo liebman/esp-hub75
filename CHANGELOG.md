@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+* `lead-blank-32` and `trail-blank-32` features extending blanking delay options to 32 pixel-clock cycles.
+
 ## [0.14.0] - 2026-08-02
 
 ### ⚠️ Breaking — Major refactor [#49](https://github.com/liebman/esp-hub75/pull/49)

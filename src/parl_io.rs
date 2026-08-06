@@ -29,6 +29,7 @@
 //! let old_fb = hub75.swap(fb1).wait().expect("DMA error");
 //! ```
 
+use esp_hal::Blocking;
 use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::parl_io::BitPackOrder;
@@ -41,15 +42,14 @@ use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
-use esp_hal::Blocking;
 
-use crate::bcm::linear::BcmBuf;
-pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
+use crate::Hub75Pins8;
 #[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
-use crate::Hub75Pins8;
+use crate::bcm::linear::BcmBuf;
+pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // Constructor

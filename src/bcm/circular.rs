@@ -30,10 +30,8 @@ impl CircularBcmBuf {
         descriptors: &'static mut [DmaDescriptor],
         fb: &'static impl FrameBuffer,
     ) -> Self {
-        let planes = super::planes_from_fb(fb);
-        let plane_count = fb.plane_count();
-
-        let total_descs = crate::dma_descriptor_count(plane_count, planes[0].1);
+        let cache = super::segments_from_fb(fb);
+        let total_descs = cache.descriptor_count();
         debug_assert!(
             descriptors.len() >= total_descs,
             "not enough DMA descriptors: have {}, need {}",
@@ -44,8 +42,7 @@ impl CircularBcmBuf {
         let ring_start = descriptors.as_mut_ptr();
         super::fill_full_chain(
             &mut descriptors[..total_descs],
-            &planes,
-            plane_count,
+            &cache,
             total_descs,
             ring_start,
         );

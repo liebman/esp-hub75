@@ -29,7 +29,9 @@ esp-hal = { version = "1.1.0", default-features = false, features = [
     "requires-unstable",
 ] }
 log = { version = "0.4.30", optional = true }
-hub75-framebuffer = { version = "0.11.0" }
+# hub75-framebuffer = { version = "0.11.0" }
+hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "row-bcm" }
+
 static_cell = { version = "2.1.1" }
 
 [build-dependencies]
@@ -118,11 +120,13 @@ lead-blank-2 = ["hub75-framebuffer/lead-blank-2"]
 lead-blank-4 = ["hub75-framebuffer/lead-blank-4"]
 lead-blank-8 = ["hub75-framebuffer/lead-blank-8"]
 lead-blank-16 = ["hub75-framebuffer/lead-blank-16"]
+lead-blank-32 = ["hub75-framebuffer/lead-blank-32"]
 trail-blank-1 = ["hub75-framebuffer/trail-blank-1"]
 trail-blank-2 = ["hub75-framebuffer/trail-blank-2"]
 trail-blank-4 = ["hub75-framebuffer/trail-blank-4"]
 trail-blank-8 = ["hub75-framebuffer/trail-blank-8"]
 trail-blank-16 = ["hub75-framebuffer/trail-blank-16"]
+trail-blank-32 = ["hub75-framebuffer/trail-blank-32"]
 
 inter-row-blank-4 = ["hub75-framebuffer/inter-row-blank-4"]
 inter-row-blank-8 = ["hub75-framebuffer/inter-row-blank-8"]

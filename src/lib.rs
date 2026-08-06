@@ -108,9 +108,9 @@ pub(crate) mod bcm;
 mod hub75;
 mod isr;
 pub use hub75::Hub75;
-pub use isr::Hub75Swap;
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
+pub use isr::Hub75Swap;
 
 #[cfg(all(feature = "circular-dma", any(esp32c5, esp32c6)))]
 compile_error!(
@@ -118,25 +118,28 @@ compile_error!(
      stops after the first transfer even with a circular descriptor chain."
 );
 
-pub(crate) const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
+/// Maximum DMA transfer size in bytes (platform-specific).
+///
+/// Used by [`hub75_dma_descriptors!`] and framebuffer
+/// `dma_descriptor_count()` const fns to compute the required number of
+/// DMA descriptors.
+pub const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 
 /// Computes the number of DMA descriptors required for a given framebuffer
 /// configuration.
 ///
-/// Users should prefer the [`hub75_dma_descriptors!`] macro which calls this
-/// automatically. This function is public for advanced use cases.
+/// # Deprecated
 ///
-/// # Arguments
-/// * `bcm_chunk_count` - Number of BCM chunks (from
-///   `FBType::bcm_chunk_count()`)
-/// * `bcm_chunk_bytes` - Byte size of one BCM chunk (from
-///   `FBType::bcm_chunk_bytes()`)
+/// This function assumes uniform chunk sizes and implicit BCM weighting,
+/// which doesn't hold for row-major framebuffers. Prefer using
+/// `<FBType>::dma_descriptor_count(MAX_DMA_CHUNK_SIZE)` directly, or the
+/// [`hub75_dma_descriptors!`] macro.
 #[must_use]
+#[deprecated(
+    since = "0.7.0",
+    note = "use <FBType>::dma_descriptor_count(esp_hub75::MAX_DMA_CHUNK_SIZE) instead"
+)]
 pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize) -> usize {
-    assert!(
-        bcm_chunk_count <= bcm::MAX_PLANES,
-        "bcm_chunk_count exceeds MAX_PLANES"
-    );
     let descs_per_chunk = bcm_chunk_bytes.div_ceil(MAX_DMA_CHUNK_SIZE);
     let total_reps = (1usize << bcm_chunk_count) - 1;
     descs_per_chunk * total_reps
@@ -145,6 +148,7 @@ pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize
 /// Allocates static DMA descriptors sized for the given framebuffer type.
 ///
 /// This macro computes the required number of DMA descriptors at compile time
+/// using the framebuffer type's `dma_descriptor_count()` associated function,
 /// and allocates them in a static cell. It returns `&'static mut
 /// [DmaDescriptor]` suitable for passing to [`Hub75::new`] or
 /// [`Hub75::new_async`].
@@ -157,10 +161,7 @@ pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize
 #[macro_export]
 macro_rules! hub75_dma_descriptors {
     ($fb_type:ty) => {{
-        const __N: usize = $crate::dma_descriptor_count(
-            <$fb_type>::bcm_chunk_count(),
-            <$fb_type>::bcm_chunk_bytes(),
-        );
+        const __N: usize = <$fb_type>::dma_descriptor_count($crate::MAX_DMA_CHUNK_SIZE);
         static __DESC_CELL: $crate::static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
             $crate::static_cell::StaticCell::new();
         __DESC_CELL

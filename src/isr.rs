@@ -12,23 +12,23 @@ use core::sync::atomic::Ordering;
 use core::task::Waker;
 
 use critical_section::Mutex;
+use esp_hal::Blocking;
 use esp_hal::handler;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
-use esp_hal::Blocking;
 
+use crate::Hub75Error;
+#[cfg(not(feature = "circular-dma"))]
+use crate::bcm::SegmentCache;
+#[cfg(feature = "circular-dma")]
+use crate::bcm::circular::CircularBcmBuf;
 #[cfg(not(feature = "circular-dma"))]
 use crate::bcm::linear::BcmBuf;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::planes_from_fb;
-#[cfg(not(feature = "circular-dma"))]
-use crate::bcm::PlaneInfo;
-#[cfg(feature = "circular-dma")]
-use crate::bcm::circular::CircularBcmBuf;
+use crate::bcm::segments_from_fb;
 use crate::framebuffer::FrameBuffer;
 #[cfg(all(hub75_use_lcd_cam, not(feature = "circular-dma")))]
 use crate::framebuffer::WordSize;
-use crate::Hub75Error;
 
 // ---------------------------------------------------------------------------
 // Platform-specific type aliases
@@ -51,15 +51,13 @@ pub(crate) type TxDriver = esp_hal::parl_io::ParlIoTx<'static, Blocking>;
 pub(crate) type TxTransfer = esp_hal::parl_io::ParlIoTxTransfer<'static, BcmBuf, Blocking>;
 
 #[cfg(all(hub75_use_parl_io, feature = "circular-dma"))]
-pub(crate) type TxTransfer =
-    esp_hal::parl_io::ParlIoTxTransfer<'static, CircularBcmBuf, Blocking>;
+pub(crate) type TxTransfer = esp_hal::parl_io::ParlIoTxTransfer<'static, CircularBcmBuf, Blocking>;
 
 #[cfg(all(hub75_use_lcd_cam, not(feature = "circular-dma")))]
 pub(crate) type TxDriver = esp_hal::lcd_cam::lcd::i8080::I8080<'static, Blocking>;
 
 #[cfg(all(hub75_use_lcd_cam, not(feature = "circular-dma")))]
-pub(crate) type TxTransfer =
-    esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, BcmBuf, Blocking>;
+pub(crate) type TxTransfer = esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, BcmBuf, Blocking>;
 
 #[cfg(all(hub75_use_lcd_cam, feature = "circular-dma"))]
 pub(crate) type TxTransfer =
@@ -84,7 +82,7 @@ pub(crate) struct IsrState {
     pub(crate) word_size: crate::framebuffer::WordSize,
 
     pub(crate) current_fb_ptr: *const (),
-    pub(crate) pending_planes: Option<PlaneInfo>,
+    pub(crate) pending_segments: Option<SegmentCache>,
     pub(crate) pending_fb_ptr: *const (),
 }
 
@@ -108,8 +106,8 @@ static ISR_STATE: SharedIsrState = Mutex::new(RefCell::new(None));
 
 #[cfg(feature = "circular-dma")]
 pub(crate) struct CircularState {
-    #[allow(dead_code)] // kept alive to prevent DMA from stopping
-    pub(crate) transfer: Option<TxTransfer>,
+    // kept alive to prevent DMA from stopping
+    pub(crate) _transfer: Option<TxTransfer>,
     pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
     pub(crate) desc_count: usize,
     pub(crate) current_fb_ptr: *const (),
@@ -250,10 +248,10 @@ pub(crate) fn hub75_isr() {
         if frame_boundary {
             FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
 
-            if let Some(pending) = state.pending_planes.take() {
+            if let Some(pending) = state.pending_segments.take() {
                 state.current_fb_ptr = state.pending_fb_ptr;
                 state.pending_fb_ptr = core::ptr::null();
-                buf.update_planes(pending);
+                buf.update_segments(pending);
                 signal_swap_done(cs);
             }
         }
@@ -303,7 +301,7 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
         *ISR_STATE.borrow_ref_mut(cs) = Some(IsrState {
             transfer: TransferPhase::Idle(tx, buf),
             current_fb_ptr: core::ptr::null(),
-            pending_planes: None,
+            pending_segments: None,
             pending_fb_ptr: core::ptr::null(),
         });
     });
@@ -316,14 +314,15 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
             transfer: TransferPhase::Idle(tx, buf),
             word_size,
             current_fb_ptr: core::ptr::null(),
-            pending_planes: None,
+            pending_segments: None,
             pending_fb_ptr: core::ptr::null(),
         });
     });
 }
 
 // ---------------------------------------------------------------------------
-// Circular-DMA state storage (called by platform constructors after starting DMA)
+// Circular-DMA state storage (called by platform constructors after starting
+// DMA)
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "circular-dma")]
@@ -335,7 +334,7 @@ pub(crate) fn store_circular_state(
 ) {
     critical_section::with(|cs| {
         *CIRCULAR_STATE.borrow_ref_mut(cs) = Some(CircularState {
-            transfer: Some(xfer),
+            _transfer: Some(xfer),
             descriptors: desc_ptr,
             desc_count,
             current_fb_ptr: fb_ptr,
@@ -416,7 +415,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// Restart display refresh after an error.
     ///
     /// Callable after [`Hub75::swap`] returned an error. Sets up the BCM
-    /// plane data and kicks off the first DMA transfer with the same
+    /// segment data and kicks off the first DMA transfer with the same
     /// framebuffer type.
     ///
     /// This method is only available when `circular-dma` is **not** enabled.
@@ -440,8 +439,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
 
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
-    let planes = planes_from_fb(fb);
-    let plane_count = fb.plane_count();
+    let cache = segments_from_fb(fb);
 
     critical_section::with(|cs| {
         let mut borrow = ISR_STATE.borrow_ref_mut(cs);
@@ -456,9 +454,9 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
                 }
             };
 
-        buf.reset_with_planes(planes, plane_count);
+        buf.reset_with_segments(cache);
         state.current_fb_ptr = fb as *const _ as *const ();
-        state.pending_planes = None;
+        state.pending_segments = None;
         state.pending_fb_ptr = core::ptr::null();
 
         #[cfg(hub75_use_lcd_cam)]
@@ -497,7 +495,8 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
 /// In non-circular mode, "safe" means the ISR has hit a frame boundary and
 /// completed the swap. In circular-DMA mode, "safe" means at least one
 /// `suc_eof` interrupt has fired after the pointer update, guaranteeing the
-/// DMA has completed a full pass and is reading exclusively from the new buffer.
+/// DMA has completed a full pass and is reading exclusively from the new
+/// buffer.
 pub struct Hub75Swap<FB: 'static> {
     old_fb_ptr: *mut FB,
     #[cfg(not(feature = "circular-dma"))]
@@ -541,7 +540,7 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
                 return critical_section::with(|cs| {
                     let mut borrow = ISR_STATE.borrow_ref_mut(cs);
                     let state = borrow.as_mut().unwrap();
-                    state.pending_planes = None;
+                    state.pending_segments = None;
                     state.pending_fb_ptr = core::ptr::null();
                     let err = match &state.transfer {
                         TransferPhase::Error(err, _, _) => *err,
@@ -639,14 +638,14 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// Panics if the driver has not been initialised (no `Hub75` instance
     /// was created).
     pub fn swap(&self, new_fb: &'static mut FB) -> Hub75Swap<FB> {
-        let new_planes = planes_from_fb(new_fb);
+        let new_cache = segments_from_fb(new_fb);
         let new_fb_ptr = new_fb as *mut FB;
 
         let old_fb_ptr = critical_section::with(|cs| {
             let mut borrow = ISR_STATE.borrow_ref_mut(cs);
             let state = borrow.as_mut().expect("Hub75 not initialised");
             let old = state.current_fb_ptr;
-            state.pending_planes = Some(new_planes);
+            state.pending_segments = Some(new_cache);
             state.pending_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Relaxed);
             old
@@ -687,17 +686,16 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             // array that outlives everything. The DMA engine reads descriptor
             // fields concurrently while we update `buffer` pointers here.
             // This is safe because:
-            //  1. Each `buffer` field is a naturally-aligned 32-bit pointer.
-            //     On Xtensa (ESP32/S3) aligned 32-bit stores are atomic with
-            //     respect to the DMA bus master, so the DMA never observes a
-            //     half-written pointer value.
-            //  2. `circular-dma` is blocked at compile time on RISC-V targets
-            //     (ESP32-C5/C6) where PARL_IO does not support circular chains.
-            //  3. The pointer delta is valid because all plane data resides
-            //     within a single contiguous `FB` allocation — both old and
-            //     new framebuffers have identical internal layout.
-            //  4. The worst-case visual artifact is one partially-mixed frame
-            //     (tearing), which is acceptable for a display use-case.
+            //  1. Each `buffer` field is a naturally-aligned 32-bit pointer. On Xtensa
+            //     (ESP32/S3) aligned 32-bit stores are atomic with respect to the DMA bus
+            //     master, so the DMA never observes a half-written pointer value.
+            //  2. `circular-dma` is blocked at compile time on RISC-V targets (ESP32-C5/C6)
+            //     where PARL_IO does not support circular chains.
+            //  3. The pointer delta is valid because all plane data resides within a single
+            //     contiguous `FB` allocation — both old and new framebuffers have identical
+            //     internal layout.
+            //  4. The worst-case visual artifact is one partially-mixed frame (tearing),
+            //     which is acceptable for a display use-case.
             unsafe {
                 for i in 0..state.desc_count {
                     let desc = &mut *state.descriptors.add(i);
