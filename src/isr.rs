@@ -451,9 +451,12 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// In circular-DMA mode the DMA engine never stops, so there is no
     /// restart path.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called while a transfer is already in flight.
+    /// Returns [`Hub75Error::AlreadyRunning`](crate::Hub75Error::AlreadyRunning)
+    /// if called while a transfer is already in flight. Call
+    /// [`Hub75Swap::wait`](crate::Hub75Swap::wait) on the outstanding swap
+    /// first.
     #[cfg(not(feature = "circular-dma"))]
     pub fn restart(&self, fb: &'static FB) -> Result<(), Hub75Error> {
         start_internal(fb)
@@ -479,9 +482,16 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
                 TransferPhase::Idle(tx, buf) | TransferPhase::Error(_, tx, buf) => (tx, buf),
                 other => {
                     state.transfer = other;
-                    panic!("start() called while already running");
+                    return Err(Hub75Error::AlreadyRunning);
                 }
             };
+
+        // Resolve any stale Hub75Swap that was waiting on a previous error
+        // state before it was consumed. Without this, a swap left un-waited
+        // when restart() is called would spin forever because HAS_ERROR and
+        // SWAP_DONE get cleared below, and no new pending_segments exist to
+        // drive a fresh completion signal.
+        signal_swap_done(cs);
 
         buf.reset_with_segments(cache);
         state.current_fb_ptr = fb as *const _ as *const ();

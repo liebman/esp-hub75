@@ -395,6 +395,10 @@ pub enum Hub75Error {
     /// Configuration error for the I8080 interface (LCD_CAM)
     #[cfg(hub75_use_lcd_cam)]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
+    /// The driver is already running. `restart()` or `start()` was called while
+    /// a transfer was in-flight. Wait for the transfer to complete before
+    /// restarting.
+    AlreadyRunning,
 }
 
 impl core::fmt::Display for Hub75Error {
@@ -411,6 +415,10 @@ impl core::fmt::Display for Hub75Error {
             Self::ConfigError(e) => write!(f, "PARL_IO config error: {e:?}"),
             #[cfg(hub75_use_lcd_cam)]
             Self::I8080(e) => write!(f, "I8080 config error: {e:?}"),
+            Self::AlreadyRunning => write!(
+                f,
+                "driver is already running — call wait() on outstanding swap before restarting"
+            ),
         }
     }
 }
