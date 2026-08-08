@@ -67,6 +67,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
+
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
         let mut parl_io_dev = ParlIo::new(parl_io, channel)?;

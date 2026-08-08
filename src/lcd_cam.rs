@@ -70,6 +70,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
+
         let word_size = hub75_pins.word_size();
 
         let mut lcd_cam_dev = LcdCam::new(lcd_cam);
@@ -119,6 +121,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
         let word_size = hub75_pins.word_size();
 
         let ch_num = channel.channel_num();

@@ -134,6 +134,10 @@ static CIRCULAR_STATE: SharedCircularState = Mutex::new(RefCell::new(None));
 static SWAP_DONE: AtomicBool = AtomicBool::new(false);
 #[cfg(not(feature = "circular-dma"))]
 static HAS_ERROR: AtomicBool = AtomicBool::new(false);
+/// Set to true once a Hub75 instance has been created. Prevents a second
+/// constructor from overwriting the ISR state statics. Hub75 has no Drop
+/// (run-forever design), so this is never reset.
+static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -357,6 +361,21 @@ pub(crate) fn store_clear_interrupt(clear: fn()) {
     critical_section::with(|cs| {
         *CLEAR_INTERRUPT.borrow_ref_mut(cs) = Some(clear);
     });
+}
+
+/// Attempt to claim the singleton driver slot.
+///
+/// Returns `Ok(())` if this is the first initialisation, or
+/// `Err(Hub75Error::AlreadyInitialised)` if a driver already exists.
+/// Called at the top of every constructor's `new_internal` before any
+/// hardware configuration so that a second call fails cleanly without
+/// overwriting static state.
+pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
+    if DRIVER_TAKEN.swap(true, Ordering::AcqRel) {
+        Err(Hub75Error::AlreadyInitialised)
+    } else {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------

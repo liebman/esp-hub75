@@ -159,6 +159,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
+
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
         // By default data changes on the falling edge of CLK so it is stable
@@ -196,6 +198,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
         // By default data changes on the falling edge of CLK so it is stable

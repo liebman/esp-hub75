@@ -373,6 +373,10 @@ impl GdmaChannelNum for esp_hal::peripherals::DMA_CH4<'_> {
 pub enum Hub75Error {
     /// The driver has not been initialised (no `Hub75` instance exists).
     NotInitialised,
+    /// The driver has already been initialised. Only one `Hub75` instance
+    /// may exist at a time. The driver runs for the program lifetime and
+    /// cannot be released — creating a second instance is not supported.
+    AlreadyInitialised,
     /// Error occurred during DMA transfer operations
     Dma(esp_hal::dma::DmaError),
     /// Error occurred while managing DMA buffers
@@ -397,6 +401,7 @@ impl core::fmt::Display for Hub75Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NotInitialised => write!(f, "Hub75 not initialised"),
+            Self::AlreadyInitialised => write!(f, "Hub75 driver already initialised"),
             Self::SwapInFlight => write!(f, "framebuffer swap already in flight"),
             Self::Dma(e) => write!(f, "DMA error: {e:?}"),
             Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),
