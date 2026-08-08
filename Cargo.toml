@@ -30,7 +30,7 @@ esp-hal = { version = "1.1.0", default-features = false, features = [
 ] }
 log = { version = "0.4.30", optional = true }
 # hub75-framebuffer = { version = "0.11.0" }
-hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", rev = "a14a01f6bdd3102debfbab331d85c610a669c6f4" }
+hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", rev = "6fe42be80d768aeafca248140b0290a8966cc886" }
 
 static_cell = { version = "2.1.1" }
 

@@ -36,7 +36,7 @@
 //! ```rust,no_run
 #![doc = include_str!("../examples/rustacean_lcd_cam.rs")]
 //! ```
-//!
+//! 
 //! ## Crate Features
 //!
 //! - `esp32`: Enable support for the ESP32

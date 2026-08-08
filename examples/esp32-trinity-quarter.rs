@@ -122,11 +122,15 @@ const NBARS: i32 = ROWS as i32 / 8;
 // Raw inner framebuffer (used with hub75_dma_descriptors! macro)
 type InnerFB = DmaFrameBuffer<NROWS, FB_COLS, PLANES>;
 
-// Pixel remapper for the quarter-scan (1/16-scan) panel layout (the default is SectionsSwapped if not specified)
+// Pixel remapper for the quarter-scan (1/16-scan) panel layout (the default is
+// SectionsSwapped if not specified)
 type Remapper = QuarterScan<ROWS, COLS>;
-// type Remapper = QuarterScan<ROWS, COLS, esp_hub75::framebuffer::tiling::quarter_scan::Linear>;
-// type Remapper = QuarterScan<ROWS, COLS, esp_hub75::framebuffer::tiling::quarter_scan::HalvesSwapped>;
-// type Remapper = QuarterScan<ROWS, COLS, esp_hub75::framebuffer::tiling::quarter_scan::Alternating>;
+// type Remapper = QuarterScan<ROWS, COLS,
+// esp_hub75::framebuffer::tiling::quarter_scan::Linear>; type Remapper =
+// QuarterScan<ROWS, COLS,
+// esp_hub75::framebuffer::tiling::quarter_scan::HalvesSwapped>; type Remapper =
+// QuarterScan<ROWS, COLS,
+// esp_hub75::framebuffer::tiling::quarter_scan::Alternating>;
 
 // Remapped framebuffer presenting a plain 64x64 virtual canvas.
 // This is what we draw to and pass to Hub75.
