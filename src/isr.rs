@@ -744,6 +744,13 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
                     desc.buffer = desc.buffer.wrapping_byte_offset(delta);
                 }
             }
+            // Drain any pending EOF that was latched before the pointer update.
+            // An ISR triggered on a pre-update EOF would incorrectly attribute
+            // the boundary to the new buffer and prematurely release the old
+            // framebuffer while DMA may still be reading from it.
+            if let Some(clear) = CLEAR_INTERRUPT.borrow_ref(cs).as_ref() {
+                (clear)();
+            }
             let old_ptr = state.current_fb_ptr;
             state.current_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Release);
