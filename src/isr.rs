@@ -111,6 +111,9 @@ pub(crate) struct CircularState {
     pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
     pub(crate) desc_count: usize,
     pub(crate) current_fb_ptr: *const (),
+    /// Set by `swap()` and cleared by the frame-boundary ISR; prevents
+    /// a second `swap()` while one is still in-flight.
+    pub(crate) swap_in_flight: bool,
 }
 
 #[cfg(feature = "circular-dma")]
@@ -287,6 +290,12 @@ pub(crate) fn hub75_frame_count_isr() {
             (clear)();
         }
         FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+        // A frame boundary has passed — the DMA has completed one full pass
+        // and is reading exclusively from the new buffer. Clear the flag so
+        // the next `swap()` is permitted.
+        if let Some(state) = CIRCULAR_STATE.borrow_ref_mut(cs).as_mut() {
+            state.swap_in_flight = false;
+        }
         signal_swap_done(cs);
     });
 }
@@ -338,6 +347,7 @@ pub(crate) fn store_circular_state(
             descriptors: desc_ptr,
             desc_count,
             current_fb_ptr: fb_ptr,
+            swap_in_flight: false,
         });
     });
 }
@@ -504,8 +514,10 @@ pub struct Hub75Swap<FB: 'static> {
 }
 
 // SAFETY: The raw pointer always originates from a `&'static mut FB`. Only
-// one `Hub75Swap` exists at a time (enforced by the single-instance Hub75
-// constraint and the fact that `swap()` takes `&self` on a `!Sync` type).
+// one `Hub75Swap` exists at a time — `Hub75::swap()` returns
+// `Err(Hub75Error::SwapInFlight, _)` if called while a previous swap is still
+// in-flight. `Hub75` is `!Sync`, so concurrent `swap()` calls from multiple
+// threads are prevented at compile time.
 unsafe impl<FB: 'static> Send for Hub75Swap<FB> {}
 
 impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
@@ -633,27 +645,43 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// then [`.wait()`](Hub75Swap::wait), or just `.wait()` directly for
     /// blocking.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
+    /// if a previous [`Hub75Swap`] is still outstanding. Only one swap may be
+    /// in-flight at a time — call `.wait()` (or `.wait_for_done().await` then
+    /// `.wait()`) on the previous [`Hub75Swap`] before calling `swap()` again.
+    ///
     /// # Panics
     ///
     /// Panics if the driver has not been initialised (no `Hub75` instance
     /// was created).
-    pub fn swap(&self, new_fb: &'static mut FB) -> Hub75Swap<FB> {
+    pub fn swap(
+        &self,
+        new_fb: &'static mut FB,
+    ) -> Result<Hub75Swap<FB>, (Hub75Error, &'static mut FB)> {
         let new_cache = segments_from_fb(new_fb);
         let new_fb_ptr = new_fb as *mut FB;
 
         let old_fb_ptr = critical_section::with(|cs| {
             let mut borrow = ISR_STATE.borrow_ref_mut(cs);
             let state = borrow.as_mut().expect("Hub75 not initialised");
+            if state.pending_segments.is_some() {
+                return Err(new_fb_ptr as *const ());
+            }
             let old = state.current_fb_ptr;
             state.pending_segments = Some(new_cache);
             state.pending_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Relaxed);
-            old
+            Ok(old)
         });
 
-        Hub75Swap {
-            old_fb_ptr: old_fb_ptr as *mut FB,
-            new_fb_ptr,
+        match old_fb_ptr {
+            Ok(old) => Ok(Hub75Swap {
+                old_fb_ptr: old as *mut FB,
+                new_fb_ptr,
+            }),
+            Err(_) => Err((Hub75Error::SwapInFlight, new_fb)),
         }
     }
 }
@@ -672,15 +700,29 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// descriptor. Call [`.wait_for_done()`](Hub75Swap::wait_for_done) then
     /// [`.wait()`](Hub75Swap::wait), or just `.wait()` directly for blocking.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
+    /// if a previous [`Hub75Swap`] is still outstanding. Only one swap may be
+    /// in-flight at a time — call `.wait()` (or `.wait_for_done().await` then
+    /// `.wait()`) on the previous [`Hub75Swap`] before calling `swap()` again.
+    ///
     /// # Panics
     ///
     /// Panics if the driver has not been initialised (no `Hub75` instance
     /// was created).
-    pub fn swap(&self, new_fb: &'static mut FB) -> Hub75Swap<FB> {
+    pub fn swap(
+        &self,
+        new_fb: &'static mut FB,
+    ) -> Result<Hub75Swap<FB>, (Hub75Error, &'static mut FB)> {
         let new_fb_ptr = new_fb as *mut FB;
         let old_fb_ptr = critical_section::with(|cs| {
             let mut borrow = CIRCULAR_STATE.borrow_ref_mut(cs);
             let state = borrow.as_mut().expect("Hub75 not initialised");
+            if state.swap_in_flight {
+                return Err(new_fb_ptr as *const ());
+            }
+            state.swap_in_flight = true;
             let delta = new_fb_ptr as isize - state.current_fb_ptr as isize;
             // SAFETY: `descriptors` points to a `&'static mut` descriptor
             // array that outlives everything. The DMA engine reads descriptor
@@ -705,10 +747,14 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             let old_ptr = state.current_fb_ptr;
             state.current_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Release);
-            old_ptr
+            Ok(old_ptr)
         });
-        Hub75Swap {
-            old_fb_ptr: old_fb_ptr as *mut FB,
+
+        match old_fb_ptr {
+            Ok(old) => Ok(Hub75Swap {
+                old_fb_ptr: old as *mut FB,
+            }),
+            Err(_) => Err((Hub75Error::SwapInFlight, new_fb)),
         }
     }
 }

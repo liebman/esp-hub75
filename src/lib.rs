@@ -377,6 +377,11 @@ pub enum Hub75Error {
     Dma(esp_hal::dma::DmaError),
     /// Error occurred while managing DMA buffers
     DmaBuf(esp_hal::dma::DmaBufError),
+    /// A framebuffer swap is already in flight — only one
+    /// [`Hub75Swap`](crate::Hub75Swap) may be outstanding at a time. Call
+    /// `.wait()` (or `.wait_for_done().await` then `.wait()`) on the
+    /// previous swap before calling `swap()` again.
+    SwapInFlight,
     /// Error from the PARL_IO peripheral
     #[cfg(hub75_use_parl_io)]
     ParlIo(esp_hal::parl_io::Error),
@@ -392,6 +397,7 @@ impl core::fmt::Display for Hub75Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NotInitialised => write!(f, "Hub75 not initialised"),
+            Self::SwapInFlight => write!(f, "framebuffer swap already in flight"),
             Self::Dma(e) => write!(f, "DMA error: {e:?}"),
             Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),
             #[cfg(hub75_use_parl_io)]

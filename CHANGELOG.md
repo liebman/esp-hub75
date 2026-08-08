@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each call sent one frame via DMA, returned a `Hub75Transfer` (consuming
   `Hub75`), and the display was only alive while the loop ran. Now `new()` /
   `new_async()` take an initial `&'static FB` and start an internal ISR that
-  refreshes the display continuously. To update the image, call `hub75.swap(fb)`
+  refreshes the display continuously. To update the image, call `hub75.swap(fb)?`
   which returns a `Hub75Swap` transfer object; wait on it to reclaim the old
   buffer.
 
@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let hub75 = Hub75::new_async(parl_io, pins, channel, tx_descriptors, freq, &*fb0)?;
   loop {
       // ... draw into fb1 ...
-      let mut xfer = hub75.swap(fb1);
+      let mut xfer = hub75.swap(fb1)?;
       xfer.wait_for_done().await;
       fb1 = xfer.wait()?;
   }

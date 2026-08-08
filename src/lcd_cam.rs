@@ -26,7 +26,7 @@
 //! ).expect("failed to create Hub75");
 //!
 //! // Swap buffers — yields to the executor, returns Err on DMA failure.
-//! let old_fb = hub75.swap(fb1).wait().expect("DMA error");
+//! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
 use esp_hal::Blocking;

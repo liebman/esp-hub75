@@ -165,7 +165,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         .draw(fb)
         .unwrap();
 
-        let mut xfer = hub75.swap(fb);
+        let mut xfer = hub75.swap(fb).expect("swap already in flight");
         xfer.wait_for_done().await;
         fb = xfer.wait().expect("DMA transfer failed");
 
