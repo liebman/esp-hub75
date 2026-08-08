@@ -87,7 +87,9 @@
 //!   the gap defers the address change to the first pixel of the next row,
 //!   giving slow panels more time to finish blanking. In latched framebuffers
 //!   the gap adds extra blanked cycles after the address change.
-//!
+//! - `reverse-row-order`: Forwards to `hub75-framebuffer`. Stores the rows of the
+//!   framebuffer in reverse scan order so that the DMA stream renders the last
+//!   panel row first and row 0 last.
 //! ## Safety
 //!
 //! This crate uses `unsafe` code to interface with hardware peripherals, but it

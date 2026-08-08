@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `reverse-row-order` feature (forwards to `hub75-framebuffer`) storing the
+  rows of every framebuffer layout in reverse scan order, so the DMA stream
+  renders the last panel row first and row 0 last. Logical coordinates are
+  unchanged — only the scan order changes.
 * `lead-blank-32` and `trail-blank-32` features extending blanking delay options to 32 pixel-clock cycles.
 * New generic const fn `esp_hub75::dma_descriptor_count::<FB>(max_chunk)`
   computes the required DMA descriptor count from the framebuffer type's
