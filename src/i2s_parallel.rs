@@ -88,8 +88,19 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
             esp_hal::interrupt::bind_handler(Interrupt::I2S0, crate::isr::hub75_frame_count_isr);
             let stolen = esp_hal::peripherals::I2S0::steal();
             let reg = stolen.register_block();
-            // `out_eof` fires whenever a descriptor with suc_eof=1 is
-            // encountered, even when next points back to the ring start.
+            // Use `out_eof` (per-descriptor EOF) rather than
+            // `out_total_eof` because, in a circular DMA chain, the
+            // transfer never ends — `out_total_eof` never fires. The
+            // per-descriptor `out_eof` fires whenever a descriptor with
+            // `suc_eof=1` is encountered, even when `next` points back
+            // to the ring start. This has been hardware-tested and
+            // confirmed working on ESP32 classic (I2S LCD mode).
+            //
+            // TODO: esp-hal's I2S parallel driver only uses
+            // `out_total_eof` internally; exposing a way to use
+            // per-descriptor `out_eof` for circular chains (or at least
+            // documenting the register-level workaround) would let us
+            // drop this PAC-level register manipulation.
             reg.int_ena().modify(|_, w| w.out_eof().set_bit());
         }
     }
@@ -124,6 +135,19 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
             esp_hal::interrupt::bind_handler(Interrupt::I2S1, crate::isr::hub75_frame_count_isr);
             let stolen = esp_hal::peripherals::I2S1::steal();
             let reg = stolen.register_block();
+            // Use `out_eof` (per-descriptor EOF) rather than
+            // `out_total_eof` because, in a circular DMA chain, the
+            // transfer never ends — `out_total_eof` never fires. The
+            // per-descriptor `out_eof` fires whenever a descriptor with
+            // `suc_eof=1` is encountered, even when `next` points back
+            // to the ring start. This has been hardware-tested and
+            // confirmed working on ESP32 classic (I2S LCD mode).
+            //
+            // TODO: esp-hal's I2S parallel driver only uses
+            // `out_total_eof` internally; exposing a way to use
+            // per-descriptor `out_eof` for circular chains (or at least
+            // documenting the register-level workaround) would let us
+            // drop this PAC-level register manipulation.
             reg.int_ena().modify(|_, w| w.out_eof().set_bit());
         }
     }
