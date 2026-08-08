@@ -13,6 +13,8 @@ use esp_hal::dma::EmptyBuf;
 use esp_hal::dma::Owner;
 use esp_hal::dma::Preparation;
 use esp_hal::dma::TransferDirection;
+#[cfg(feature = "iram")]
+use esp_hal::ram;
 
 #[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
 use crate::MAX_DMA_CHUNK_SIZE;
@@ -62,6 +64,7 @@ impl SegmentCache {
 
     /// Total DMA descriptors required by this segment sequence.
     #[cfg(feature = "full-chain-dma")]
+    #[cfg_attr(feature = "iram", ram)]
     pub fn descriptor_count(&self) -> usize {
         let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
         let mut total = 0;
@@ -102,6 +105,7 @@ impl SegmentCache {
 
     /// DMA descriptors required for a single group starting at `group_idx`.
     #[cfg(not(feature = "full-chain-dma"))]
+    #[cfg_attr(feature = "iram", ram)]
     pub fn group_descriptor_count(&self, group_idx: usize) -> usize {
         let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
         let start = group_idx * self.segments_per_group;
@@ -119,6 +123,7 @@ impl SegmentCache {
 
     /// Total bytes in a single group (all segments × their reps).
     #[cfg(all(esp32c6, not(feature = "full-chain-dma")))]
+    #[cfg_attr(feature = "iram", ram)]
     pub fn group_byte_count(&self, group_idx: usize) -> usize {
         let start = group_idx * self.segments_per_group;
         let end = start + self.segments_per_group;
@@ -166,6 +171,7 @@ pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
 /// Build a `Preparation` pointing to the first descriptor in a chain.
 ///
 /// Shared by both linear and circular buffer implementations.
+#[cfg_attr(feature = "iram", ram)]
 pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation {
     // `EmptyBuf` provides a `Preparation` with safe defaults; we override
     // the fields relevant to our descriptor chain. If `Preparation` gains
@@ -187,6 +193,7 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 /// chain — `null_mut()` for linear mode (last `next` = null),
 /// `ring_start` (points back to `desc[0]`) for circular mode.
 /// The last descriptor always has `suc_eof = 1`.
+#[cfg_attr(feature = "iram", ram)]
 pub(super) fn fill_full_chain(
     descriptors: &mut [DmaDescriptor],
     cache: &SegmentCache,
