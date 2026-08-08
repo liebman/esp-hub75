@@ -86,7 +86,7 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
-const PLANES: usize = 5;
+const PLANES: usize = 6;
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;

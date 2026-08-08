@@ -26,8 +26,9 @@ pub(crate) mod linear;
 
 /// Maximum number of BCM segments that can be cached for ISR use.
 ///
-/// Sized for worst case: 32 row-pairs × (8 planes + 1 gap) = 288 segments.
-pub(crate) const MAX_SEGMENTS: usize = 288;
+/// Sized for worst case: 32 row-pairs × (8 planes + 1 inter-row gap + 1
+/// end-of-row trailer) = 320 segments.
+pub(crate) const MAX_SEGMENTS: usize = 320;
 
 const EMPTY_SEGMENT: BcmSegment = BcmSegment {
     ptr: null(),
@@ -60,6 +61,7 @@ impl SegmentCache {
     }
 
     /// Total DMA descriptors required by this segment sequence.
+    #[cfg(feature = "full-chain-dma")]
     pub fn descriptor_count(&self) -> usize {
         let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
         let mut total = 0;
@@ -74,13 +76,32 @@ impl SegmentCache {
     }
 
     /// Number of DMA transfer groups in this sequence.
-    #[cfg(not(feature = "circular-dma"))]
+    #[cfg(not(feature = "full-chain-dma"))]
     pub fn group_count(&self) -> usize {
         self.count / self.segments_per_group
     }
 
+    /// Maximum number of DMA descriptors required by any single group.
+    ///
+    /// Used by the default group-based mode, which rebuilds the descriptor
+    /// table for each group transfer and therefore never needs more than
+    /// the largest group's worth of descriptors.
+    #[cfg(not(feature = "full-chain-dma"))]
+    pub fn max_group_descriptor_count(&self) -> usize {
+        let mut max = 0;
+        let mut group = 0;
+        while group < self.group_count() {
+            let count = self.group_descriptor_count(group);
+            if count > max {
+                max = count;
+            }
+            group += 1;
+        }
+        max
+    }
+
     /// DMA descriptors required for a single group starting at `group_idx`.
-    #[cfg(not(feature = "circular-dma"))]
+    #[cfg(not(feature = "full-chain-dma"))]
     pub fn group_descriptor_count(&self, group_idx: usize) -> usize {
         let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
         let start = group_idx * self.segments_per_group;
@@ -97,7 +118,7 @@ impl SegmentCache {
     }
 
     /// Total bytes in a single group (all segments × their reps).
-    #[cfg(not(feature = "circular-dma"))]
+    #[cfg(all(esp32c6, not(feature = "full-chain-dma")))]
     pub fn group_byte_count(&self, group_idx: usize) -> usize {
         let start = group_idx * self.segments_per_group;
         let end = start + self.segments_per_group;
@@ -112,7 +133,15 @@ impl SegmentCache {
 }
 
 /// Extract BCM segments from a framebuffer into a [`SegmentCache`].
-pub(crate) fn segments_from_fb(fb: &impl FrameBuffer) -> SegmentCache {
+pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
+    // Compile-time check that the segment cache can hold the framebuffer's
+    // full scan sequence (evaluated per monomorphization).
+    const {
+        assert!(
+            FB::BCM_SEGMENT_COUNT <= MAX_SEGMENTS,
+            "framebuffer BCM segment count exceeds MAX_SEGMENTS"
+        );
+    }
     let count = fb.bcm_segment_count();
     let spg = fb.bcm_segments_per_group();
     assert!(

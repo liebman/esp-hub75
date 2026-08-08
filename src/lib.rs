@@ -36,7 +36,7 @@
 //! ```rust,no_run
 #![doc = include_str!("../examples/rustacean_lcd_cam.rs")]
 //! ```
-//! 
+//!
 //! ## Crate Features
 //!
 //! - `esp32`: Enable support for the ESP32
@@ -118,40 +118,73 @@ compile_error!(
      stops after the first transfer even with a circular descriptor chain."
 );
 
-/// Maximum DMA transfer size in bytes (platform-specific).
+/// Maximum number of bytes a single DMA descriptor can transfer on this
+/// platform.
 ///
-/// Used by [`hub75_dma_descriptors!`] and framebuffer
-/// `dma_descriptor_count()` const fns to compute the required number of
-/// DMA descriptors.
+/// Used by [`dma_descriptor_count`] and [`hub75_dma_descriptors!`] to
+/// compute the required number of DMA descriptors.
 pub const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 
-/// Computes the number of DMA descriptors required for a given framebuffer
-/// configuration.
+/// Computes the number of DMA descriptors this driver needs for a
+/// framebuffer of type `FB`.
 ///
-/// # Deprecated
+/// `max_chunk` is the maximum number of bytes a single DMA descriptor can
+/// transfer (see [`MAX_DMA_CHUNK_SIZE`]).
 ///
-/// This function assumes uniform chunk sizes and implicit BCM weighting,
-/// which doesn't hold for row-major framebuffers. Prefer using
-/// `<FBType>::dma_descriptor_count(MAX_DMA_CHUNK_SIZE)` directly, or the
-/// [`hub75_dma_descriptors!`] macro.
+/// The count is derived from the framebuffer's static BCM segment shapes
+/// ([`framebuffer::FrameBuffer::BCM_SEGMENT_SHAPES`]): a segment of `len`
+/// bytes streamed `reps` times needs `ceil(len / max_chunk) * reps`
+/// descriptors. What exactly is returned depends on the driver's DMA mode:
+///
+/// - **`full-chain-dma` (implied by `circular-dma`):** the whole BCM scan
+///   sequence is chained into a single transfer, so this is the total over all
+///   segments of all periods.
+/// - **Default (group-based):** each transfer covers one group of
+///   [`framebuffer::FrameBuffer::BCM_SEGMENTS_PER_GROUP`] segments and the
+///   descriptor table is rebuilt between transfers, so this is the maximum over
+///   the groups of one period — considerably smaller than the total for
+///   row-major framebuffers.
+///
+/// This is a `const fn` of the framebuffer *type* — no framebuffer instance
+/// is needed — so descriptor tables can be allocated statically, e.g. via
+/// [`hub75_dma_descriptors!`].
 #[must_use]
-#[deprecated(
-    since = "0.7.0",
-    note = "use <FBType>::dma_descriptor_count(esp_hub75::MAX_DMA_CHUNK_SIZE) instead"
-)]
-pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize) -> usize {
-    let descs_per_chunk = bcm_chunk_bytes.div_ceil(MAX_DMA_CHUNK_SIZE);
-    let total_reps = (1usize << bcm_chunk_count) - 1;
-    descs_per_chunk * total_reps
+pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize) -> usize {
+    let shapes = FB::BCM_SEGMENT_SHAPES;
+    let period = FB::BCM_SEQUENCE_LEN;
+    #[cfg(feature = "full-chain-dma")]
+    let spg = period; // the whole period is chained into one transfer
+    #[cfg(not(feature = "full-chain-dma"))]
+    let spg = FB::BCM_SEGMENTS_PER_GROUP;
+    let mut max_group = 0usize;
+    let mut base = 0usize;
+    while base < period {
+        let mut group = 0usize;
+        let mut j = 0usize;
+        while j < spg {
+            let (len, reps) = shapes[base + j];
+            group += len.div_ceil(max_chunk) * reps;
+            j += 1;
+        }
+        if group > max_group {
+            max_group = group;
+        }
+        base += spg;
+    }
+    #[cfg(feature = "full-chain-dma")]
+    {
+        // all periods are identical and chained together
+        max_group *= FB::BCM_SEQUENCE_COUNT;
+    }
+    max_group
 }
 
 /// Allocates static DMA descriptors sized for the given framebuffer type.
 ///
-/// This macro computes the required number of DMA descriptors at compile time
-/// using the framebuffer type's `dma_descriptor_count()` associated function,
-/// and allocates them in a static cell. It returns `&'static mut
-/// [DmaDescriptor]` suitable for passing to [`Hub75::new`] or
-/// [`Hub75::new_async`].
+/// This macro computes the required number of DMA descriptors at compile
+/// time with [`dma_descriptor_count`] and allocates them in a static cell.
+/// It returns `&'static mut [DmaDescriptor]` suitable for passing to
+/// [`Hub75::new`] or [`Hub75::new_async`].
 ///
 /// # Example
 /// ```rust,ignore
@@ -161,7 +194,7 @@ pub const fn dma_descriptor_count(bcm_chunk_count: usize, bcm_chunk_bytes: usize
 #[macro_export]
 macro_rules! hub75_dma_descriptors {
     ($fb_type:ty) => {{
-        const __N: usize = <$fb_type>::dma_descriptor_count($crate::MAX_DMA_CHUNK_SIZE);
+        const __N: usize = $crate::dma_descriptor_count::<$fb_type>($crate::MAX_DMA_CHUNK_SIZE);
         static __DESC_CELL: $crate::static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
             $crate::static_cell::StaticCell::new();
         __DESC_CELL

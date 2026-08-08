@@ -9,9 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking
+
+* Removed the deprecated free function
+  `dma_descriptor_count(bcm_chunk_count, bcm_chunk_bytes)` (deprecated since
+  0.7.0). Use the new generic const fn
+  `esp_hub75::dma_descriptor_count::<FB>(MAX_DMA_CHUNK_SIZE)` or the
+  `hub75_dma_descriptors!` macro instead.
+* Requires a `hub75-framebuffer` release exposing
+  `FrameBuffer::BCM_SEGMENT_SHAPES`/`BCM_SEQUENCE_LEN`/`BCM_SEQUENCE_COUNT`.
+
 ### Added
 
 * `lead-blank-32` and `trail-blank-32` features extending blanking delay options to 32 pixel-clock cycles.
+* New generic const fn `esp_hub75::dma_descriptor_count::<FB>(max_chunk)`
+  computes the required DMA descriptor count from the framebuffer type's
+  static `FrameBuffer::BCM_SEGMENT_SHAPES` — no framebuffer instance
+  needed, so descriptor tables stay statically allocated.
+* `hub75_dma_descriptors!` now works with any `FrameBuffer` type,
+  including `tiling::RemappedFrameBuffer` (previously only framebuffer
+  types with an inherent `dma_descriptor_count()` could be used).
+* Compile-time check that a framebuffer's BCM segment count fits the
+  driver's segment cache (`MAX_SEGMENTS`).
+
+### Changed
+
+* DMA descriptor sizing moved out of `hub75-framebuffer` into this crate:
+  the framebuffer crate now exposes only the platform-neutral BCM scan
+  sequence; all ESP DMA descriptor logic lives here.
+* `hub75_dma_descriptors!` no longer over-allocates in the default
+  group-based DMA mode: it now allocates only the largest single transfer
+  group's descriptors instead of the whole frame's chain (e.g. 33 instead
+  of 1056 descriptors for a 64×64 row-major 6-plane configuration, saving
+  ~12 KiB of RAM). `full-chain-dma`/`circular-dma` still allocate the full
+  chain as required.
+* `MAX_SEGMENTS` raised from 288 to 320 to cover the true worst case
+  (32 row-pairs × (8 planes + inter-row gap + trailer)).
 
 ## [0.14.0] - 2026-08-02
 

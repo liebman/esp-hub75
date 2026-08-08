@@ -177,6 +177,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
             start = Instant::now();
         }
     }
+}
 
 unsafe extern "C" {
     static _stack_end_cpu0: u32;

@@ -49,11 +49,18 @@ impl BcmBuf {
     /// Set segment data, resetting the BCM state machine.
     pub(crate) fn reset_with_segments(&mut self, new_cache: SegmentCache) {
         debug_assert!(new_cache.count > 0 && new_cache.count <= super::MAX_SEGMENTS);
+        // Group-based mode rebuilds the descriptor table for every transfer
+        // and only ever needs the largest group's descriptors; full-chain
+        // mode links the entire BCM sequence at once.
+        #[cfg(feature = "full-chain-dma")]
+        let needed = new_cache.descriptor_count();
+        #[cfg(not(feature = "full-chain-dma"))]
+        let needed = new_cache.max_group_descriptor_count();
         debug_assert!(
-            self.descriptors.len() >= new_cache.descriptor_count(),
+            self.descriptors.len() >= needed,
             "not enough DMA descriptors: have {}, need {}",
             self.descriptors.len(),
-            new_cache.descriptor_count(),
+            needed,
         );
         self.cache = new_cache;
         #[cfg(not(feature = "full-chain-dma"))]
