@@ -3,6 +3,8 @@
 //! Common types and helpers shared by the linear and circular buffer
 //! implementations.
 
+#[cfg(not(feature = "circular-dma"))]
+use core::cell::UnsafeCell;
 use core::ptr::null;
 
 use esp_hal::dma::BurstConfig;
@@ -38,19 +40,43 @@ const EMPTY_SEGMENT: BcmSegment = BcmSegment {
     reps: 0,
 };
 
+/// Single segment cache for ISR use (linear mode only).
+///
+/// One static slot holds the full segment sequence. `swap()` stores a
+/// pointer delta (old FB → new FB) and the ISR applies it at the frame
+/// boundary — same approach as circular-DMA mode. No copies, no slots.
+#[cfg(not(feature = "circular-dma"))]
+struct CacheCell(UnsafeCell<SegmentCache>);
+
+#[cfg(not(feature = "circular-dma"))]
+// SAFETY: All access is serialised by `critical_section::with`. The cache
+// is written only by `start_internal()` (init/restart path) and the ISR
+// (delta application at frame boundaries); `swap()` never touches it.
+unsafe impl Sync for CacheCell {}
+
+#[cfg(not(feature = "circular-dma"))]
+static SEGMENT_CACHE: CacheCell = CacheCell(UnsafeCell::new(SegmentCache::new()));
+
+/// Return a raw pointer to the static segment cache.
+///
+/// Used by [`BcmBuf`][super::linear::BcmBuf] and `start_internal()`.
+#[cfg(not(feature = "circular-dma"))]
+pub(crate) fn cache_ptr() -> *const SegmentCache {
+    SEGMENT_CACHE.0.get()
+}
+
 /// Cached BCM segment data for ISR use.
 ///
 /// Stores the full segment sequence extracted from a `FrameBuffer` so the
 /// ISR can drive DMA without calling trait methods (the framebuffer type is
 /// erased in the ISR statics).
-#[derive(Clone)]
 pub(crate) struct SegmentCache {
-    pub segments: [BcmSegment; MAX_SEGMENTS],
-    pub count: usize,
+    pub(crate) segments: [BcmSegment; MAX_SEGMENTS],
+    pub(crate) count: usize,
     /// Consecutive segments that form one DMA transfer group.
     /// The ISR builds a descriptor chain for a whole group and fires
     /// only at group boundaries.
-    pub segments_per_group: usize,
+    pub(crate) segments_per_group: usize,
 }
 
 impl SegmentCache {
@@ -137,8 +163,11 @@ impl SegmentCache {
     }
 }
 
-/// Extract BCM segments from a framebuffer into a [`SegmentCache`].
-pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
+/// Extract BCM segments from a framebuffer into an existing [`SegmentCache`].
+///
+/// Builds directly into `cache`, writing only the first `count` entries.
+/// Callers that need a stack build should use [`segments_from_fb`].
+pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
     // Compile-time check that the segment cache can hold the framebuffer's
     // full scan sequence (evaluated per monomorphization).
     const {
@@ -157,14 +186,37 @@ pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
         spg > 0 && count % spg == 0,
         "bcm_segment_count {count} not divisible by segments_per_group {spg}"
     );
-    let mut cache = SegmentCache::new();
     cache.count = count;
     cache.segments_per_group = spg;
     for i in 0..count {
         let seg = fb.bcm_segment(i);
         debug_assert!(!seg.ptr.is_null(), "segment {i} returned a null pointer");
+        // Verify that the runtime segment agrees with the static shape array
+        // (catches `FrameBuffer` implementations whose `bcm_segment()` and
+        // `BCM_SEGMENT_SHAPES` are out of sync before a descriptor overflow).
+        debug_assert!(
+            {
+                let (shape_len, shape_reps) = FB::BCM_SEGMENT_SHAPES[i % FB::BCM_SEQUENCE_LEN];
+                seg.len == shape_len && seg.reps == shape_reps
+            },
+            "bcm_segment({i}) len={} reps={} disagrees with BCM_SEGMENT_SHAPES {shape:?}",
+            seg.len,
+            seg.reps,
+            shape = FB::BCM_SEGMENT_SHAPES[i % FB::BCM_SEQUENCE_LEN],
+        );
         cache.segments[i] = seg;
     }
+}
+
+/// Convenience wrapper that returns a fresh [`SegmentCache`] by value.
+///
+/// Prefer [`segments_from_fb_into`] in performance-sensitive paths — this
+/// construction requires ~3.9 KB of stack headroom. Only used by
+/// circular-DMA init.
+#[cfg(feature = "circular-dma")]
+pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
+    let mut cache = SegmentCache::new();
+    segments_from_fb_into(fb, &mut cache);
     cache
 }
 

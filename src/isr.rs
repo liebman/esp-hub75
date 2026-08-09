@@ -19,13 +19,13 @@ use esp_hal::ram;
 
 use crate::Hub75Error;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::SegmentCache;
+use crate::bcm::cache_ptr;
 #[cfg(feature = "circular-dma")]
 use crate::bcm::circular::CircularBcmBuf;
 #[cfg(not(feature = "circular-dma"))]
 use crate::bcm::linear::BcmBuf;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::segments_from_fb;
+use crate::bcm::segments_from_fb_into;
 use crate::framebuffer::FrameBuffer;
 #[cfg(all(hub75_use_lcd_cam, not(feature = "circular-dma")))]
 use crate::framebuffer::WordSize;
@@ -82,7 +82,10 @@ pub(crate) struct IsrState {
     pub(crate) word_size: crate::framebuffer::WordSize,
 
     pub(crate) current_fb_ptr: *const (),
-    pub(crate) pending_segments: Option<SegmentCache>,
+    /// Byte offset from the current to the pending framebuffer, set by
+    /// `swap()`. The ISR applies this delta to every cached segment
+    /// pointer at the frame boundary, then clears it to `None`.
+    pub(crate) pending_delta: Option<isize>,
     pub(crate) pending_fb_ptr: *const (),
 }
 
@@ -255,10 +258,10 @@ pub(crate) fn hub75_isr() {
         if frame_boundary {
             FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
 
-            if let Some(pending) = state.pending_segments.take() {
+            if let Some(delta) = state.pending_delta.take() {
                 state.current_fb_ptr = state.pending_fb_ptr;
                 state.pending_fb_ptr = core::ptr::null();
-                buf.update_segments(pending);
+                buf.apply_delta(delta);
                 signal_swap_done(cs);
             }
         }
@@ -314,7 +317,7 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
         *ISR_STATE.borrow_ref_mut(cs) = Some(IsrState {
             transfer: TransferPhase::Idle(tx, buf),
             current_fb_ptr: core::ptr::null(),
-            pending_segments: None,
+            pending_delta: None,
             pending_fb_ptr: core::ptr::null(),
         });
     });
@@ -327,7 +330,7 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
             transfer: TransferPhase::Idle(tx, buf),
             word_size,
             current_fb_ptr: core::ptr::null(),
-            pending_segments: None,
+            pending_delta: None,
             pending_fb_ptr: core::ptr::null(),
         });
     });
@@ -471,8 +474,6 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
 
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
-    let cache = segments_from_fb(fb);
-
     critical_section::with(|cs| {
         let mut borrow = ISR_STATE.borrow_ref_mut(cs);
         let state = borrow.as_mut().expect("Hub75 not initialised");
@@ -489,13 +490,15 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
         // Resolve any stale Hub75Swap that was waiting on a previous error
         // state before it was consumed. Without this, a swap left un-waited
         // when restart() is called would spin forever because HAS_ERROR and
-        // SWAP_DONE get cleared below, and no new pending_segments exist to
+        // SWAP_DONE get cleared below, and no new pending_delta exists to
         // drive a fresh completion signal.
         signal_swap_done(cs);
 
-        buf.reset_with_segments(cache);
+        // Build the cache in-place (restart/re-init path).
+        segments_from_fb_into(fb, unsafe { &mut *cache_ptr().cast_mut() });
+        buf.reset_with_cache();
         state.current_fb_ptr = fb as *const _ as *const ();
-        state.pending_segments = None;
+        state.pending_delta = None;
         state.pending_fb_ptr = core::ptr::null();
 
         #[cfg(hub75_use_lcd_cam)]
@@ -581,7 +584,7 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
                 return critical_section::with(|cs| {
                     let mut borrow = ISR_STATE.borrow_ref_mut(cs);
                     let state = borrow.as_mut().unwrap();
-                    state.pending_segments = None;
+                    state.pending_delta = None;
                     state.pending_fb_ptr = core::ptr::null();
                     let err = match &state.transfer {
                         TransferPhase::Error(err, _, _) => *err,
@@ -689,17 +692,32 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
         &self,
         new_fb: &'static mut FB,
     ) -> Result<Hub75Swap<FB>, (Hub75Error, &'static mut FB)> {
-        let new_cache = segments_from_fb(new_fb);
+        // Pre-validate the framebuffer contract so any panic happens outside
+        // the critical section (with interrupts enabled).
+        let count = new_fb.bcm_segment_count();
+        let spg = new_fb.bcm_segments_per_group();
+        assert!(
+            count <= crate::bcm::MAX_SEGMENTS,
+            "bcm_segment_count {count} exceeds MAX_SEGMENTS"
+        );
+        assert!(
+            spg > 0 && count % spg == 0,
+            "bcm_segment_count {count} not divisible by segments_per_group {spg}"
+        );
         let new_fb_ptr = new_fb as *mut FB;
 
         let old_fb_ptr = critical_section::with(|cs| {
             let mut borrow = ISR_STATE.borrow_ref_mut(cs);
             let state = borrow.as_mut().expect("Hub75 not initialised");
-            if state.pending_segments.is_some() {
+            if state.pending_delta.is_some() {
                 return Err(new_fb_ptr as *const ());
             }
             let old = state.current_fb_ptr;
-            state.pending_segments = Some(new_cache);
+            // Both framebuffers are the same type with identical internal
+            // layout — the same invariant circular-DMA mode relies on.
+            // The delta shifts every cached segment pointer to the new FB.
+            let delta = new_fb_ptr as isize - old as isize;
+            state.pending_delta = Some(delta);
             state.pending_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Relaxed);
             Ok(old)
