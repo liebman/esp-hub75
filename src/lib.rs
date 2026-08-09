@@ -152,8 +152,25 @@ pub const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 /// This is a `const fn` of the framebuffer *type* — no framebuffer instance
 /// is needed — so descriptor tables can be allocated statically, e.g. via
 /// [`hub75_dma_descriptors!`].
+///
+/// # Panics
+///
+/// * In const evaluation (compile-time) if `max_chunk` is zero.
+/// * At compile time if
+///   [`BCM_SEQUENCE_LEN`](framebuffer::FrameBuffer::BCM_SEQUENCE_LEN)
+///   is not divisible by
+///   [`BCM_SEGMENTS_PER_GROUP`](framebuffer::FrameBuffer::BCM_SEGMENTS_PER_GROUP).
+///   Well-formed [`FrameBuffer`](framebuffer::FrameBuffer) implementations
+///   always satisfy this invariant.
 #[must_use]
 pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize) -> usize {
+    assert!(max_chunk > 0, "max_chunk must be greater than zero");
+    const {
+        assert!(
+            FB::BCM_SEQUENCE_LEN % FB::BCM_SEGMENTS_PER_GROUP == 0,
+            "BCM_SEQUENCE_LEN must be divisible by BCM_SEGMENTS_PER_GROUP"
+        );
+    }
     let shapes = FB::BCM_SEGMENT_SHAPES;
     let period = FB::BCM_SEQUENCE_LEN;
     #[cfg(feature = "full-chain-dma")]
