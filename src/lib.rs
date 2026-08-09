@@ -10,9 +10,9 @@
 //! designed to work with a variety of ESP32 models, using the most efficient
 //! peripheral available on each chip:
 //!
-//! - **ESP32-S3**: Uses the LCD_CAM peripheral
-//! - **ESP32-C6**: Uses the PARL_IO peripheral
-//! - **ESP32-C5**: Uses the PARL_IO peripheral (8-bit mode only; requires a
+//! - **ESP32-S3**: Uses the `LCD_CAM` peripheral
+//! - **ESP32-C6**: Uses the `PARL_IO` peripheral
+//! - **ESP32-C5**: Uses the `PARL_IO` peripheral (8-bit mode only; requires a
 //!   latch circuit and `Hub75Pins8`)
 //! - **ESP32**: Uses the I2S peripheral in parallel mode
 //!
@@ -56,7 +56,7 @@
 //! - `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
 //!   transfer instead of one plane per interrupt. This reduces interrupt
 //!   frequency at the cost of more DMA descriptor RAM. Note that the ESP32-C6
-//!   PARL_IO peripheral has a 65 535-byte per-transfer limit, which constrains
+//!   `PARL_IO` peripheral has a 65 535-byte per-transfer limit, which constrains
 //!   the maximum panel size and plane count when this feature is enabled.
 //! - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
 //!   The DMA engine starts once and loops forever; buffer swaps are instant
@@ -64,7 +64,7 @@
 //!   always active in this mode, providing both `frame_count()` and the
 //!   completion signal for [`Hub75Swap::wait()`] /
 //!   [`Hub75Swap::wait_for_done()`]. Only supported on ESP32 and ESP32-S3 —
-//!   enabling this on ESP32-C5/C6 is a compile-time error because the PARL_IO
+//!   enabling this on ESP32-C5/C6 is a compile-time error because the `PARL_IO`
 //!   peripheral does not support circular chains.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
 //!   optimization that skips writing black pixels to the framebuffer.
@@ -97,6 +97,8 @@
 
 #![no_std]
 #![warn(missing_docs)]
+#![warn(clippy::all)]
+#![warn(clippy::pedantic)]
 
 use esp_hal::gpio::AnyPin;
 pub use hub75_framebuffer as framebuffer;
@@ -272,7 +274,7 @@ pub struct Hub75Pins8<'d> {
 /// A trait for applying a set of HUB75 pins onto the specific ESP32 peripheral
 ///
 /// This allows the driver to abstract over the differences in pin
-/// configurations between peripherals (I2S, LCD-CAM, PARL_IO) and between
+/// configurations between peripherals (I2S, LCD-CAM, `PARL_IO`) and between
 /// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
 #[cfg(hub75_use_lcd_cam)]
 pub trait Hub75Pins<'d> {
@@ -295,7 +297,7 @@ pub trait Hub75Pins<'d> {
 /// specific ESP32 peripheral.
 ///
 /// This allows the driver to abstract over the differences in pin
-/// configurations between peripherals (I2S, LCD-CAM, PARL_IO) and between
+/// configurations between peripherals (I2S, LCD-CAM, `PARL_IO`) and between
 /// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
 ///
 /// # Type Parameters
@@ -386,13 +388,13 @@ pub enum Hub75Error {
     /// `.wait()` (or `.wait_for_done().await` then `.wait()`) on the
     /// previous swap before calling `swap()` again.
     SwapInFlight,
-    /// Error from the PARL_IO peripheral
+    /// Error from the `PARL_IO` peripheral
     #[cfg(hub75_use_parl_io)]
     ParlIo(esp_hal::parl_io::Error),
-    /// Configuration error for the PARL_IO peripheral
+    /// Configuration error for the `PARL_IO` peripheral
     #[cfg(hub75_use_parl_io)]
     ConfigError(esp_hal::parl_io::ConfigError),
-    /// Configuration error for the I8080 interface (LCD_CAM)
+    /// Configuration error for the I8080 interface (`LCD_CAM`)
     #[cfg(hub75_use_lcd_cam)]
     I8080(esp_hal::lcd_cam::lcd::i8080::ConfigError),
     /// The driver is already running. `restart()` or `start()` was called while

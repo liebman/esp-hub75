@@ -1,7 +1,7 @@
-//! HUB75 driver for LCD_CAM peripherals (ESP32-S3).
+//! HUB75 driver for `LCD_CAM` peripherals (ESP32-S3).
 //!
 //! This module provides an interrupt-driven display controller that
-//! continuously refreshes a HUB75 panel from a framebuffer. The LCD_CAM
+//! continuously refreshes a HUB75 panel from a framebuffer. The `LCD_CAM`
 //! `lcd_trans_done` interrupt drives the entire BCM (Binary Code Modulation)
 //! refresh loop. Buffer swaps happen atomically at frame boundaries.
 //!
@@ -41,6 +41,8 @@ use esp_hal::lcd_cam::lcd::Phase;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::Polarity;
 use esp_hal::lcd_cam::lcd::i8080;
+#[cfg(feature = "circular-dma")]
+use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
@@ -146,9 +148,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
-        let fb_ptr = fb as *const _ as *const ();
+        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
-        use esp_hal::lcd_cam::lcd::i8080::Command;
         let xfer = match word_size {
             WordSize::Eight => i8080.send(Command::<u8>::None, 0, buf),
             WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, buf),
@@ -231,7 +232,7 @@ fn setup_gdma_frame_count_isr(ch_num: u8) {
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Create a new blocking HUB75 driver.
     ///
-    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
     /// framebuffer.
     ///
@@ -240,13 +241,19 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// is a compile-time error.
     ///
     /// # Arguments
-    /// * `lcd_cam` -- The LCD_CAM peripheral instance
+    /// * `lcd_cam` -- The `LCD_CAM` peripheral instance
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- LCD_CAM clock rate
+    /// * `frequency` -- `LCD_CAM` clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`],
+    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`](crate::Hub75Error::I8080)
+    /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
@@ -264,7 +271,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Create a new async HUB75 driver.
     ///
-    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
     /// framebuffer.
     ///
@@ -273,13 +280,19 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// is a compile-time error.
     ///
     /// # Arguments
-    /// * `lcd_cam` -- The LCD_CAM peripheral instance
+    /// * `lcd_cam` -- The `LCD_CAM` peripheral instance
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- LCD_CAM clock rate
+    /// * `frequency` -- `LCD_CAM` clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`],
+    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`](crate::Hub75Error::I8080)
+    /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(

@@ -56,7 +56,7 @@ impl CircularBcmBuf {
     /// Raw pointer to the descriptor array (for ISR access after `send()`
     /// consumes this buffer).
     pub(crate) fn descriptors_ptr(&self) -> *mut DmaDescriptor {
-        self.descriptors.as_ptr() as *mut DmaDescriptor
+        self.descriptors.as_ptr().cast_mut()
     }
 
     /// Number of active descriptors in the chain.

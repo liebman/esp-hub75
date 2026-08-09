@@ -78,6 +78,7 @@ impl BcmBuf {
 
     /// Advance the BCM state machine after a transfer completes.
     /// Returns `true` when a full BCM frame boundary is reached.
+    #[allow(clippy::unused_self)]
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn advance(&mut self) -> bool {
         #[cfg(feature = "full-chain-dma")]
@@ -193,7 +194,7 @@ impl BcmBuf {
                     let desc = &mut self.descriptors[desc_idx];
                     // SAFETY: `seg.ptr` originates from a live framebuffer
                     // and `offset` stays within the segment's byte length.
-                    desc.buffer = unsafe { seg.ptr.add(offset) as *mut u8 };
+                    desc.buffer = unsafe { seg.ptr.add(offset).cast_mut() };
                     desc.set_size(chunk);
                     desc.set_length(chunk);
                     desc.set_owner(Owner::Dma);

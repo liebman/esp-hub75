@@ -169,7 +169,7 @@ impl SegmentCache {
 /// custom `BcmBuf` / `CircularBcmBuf` paths do not perform. Zero-cost in
 /// release builds.
 pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
-    let addr = fb as *const _ as *const () as usize;
+    let addr = core::ptr::from_ref(fb).cast::<()>() as usize;
     let dram = esp_metadata_generated::memory_range!("DRAM");
     debug_assert!(
         dram.contains(&addr),
@@ -198,7 +198,7 @@ pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut Segmen
         "bcm_segment_count {count} exceeds MAX_SEGMENTS"
     );
     assert!(
-        spg > 0 && count % spg == 0,
+        spg > 0 && count.is_multiple_of(spg),
         "bcm_segment_count {count} not divisible by segments_per_group {spg}"
     );
     cache.count = count;
@@ -287,7 +287,7 @@ pub(super) fn fill_full_chain(
                 let desc = &mut descriptors[desc_idx];
                 // SAFETY: `seg.ptr` originates from a live framebuffer
                 // and `offset` stays within the segment's byte length.
-                desc.buffer = unsafe { seg.ptr.add(offset) as *mut u8 };
+                desc.buffer = unsafe { seg.ptr.add(offset).cast_mut() };
                 desc.set_size(chunk);
                 desc.set_length(chunk);
                 desc.set_owner(Owner::Dma);

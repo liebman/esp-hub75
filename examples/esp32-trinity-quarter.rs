@@ -292,7 +292,7 @@ async fn main(_spawner: Spawner) {
     info!(
         "DMA descriptors: {} ({} bytes)",
         tx_descriptors.len(),
-        tx_descriptors.len() * core::mem::size_of::<esp_hal::dma::DmaDescriptor>()
+        core::mem::size_of_val(tx_descriptors)
     );
 
     let pins = Hub75Pins16 {

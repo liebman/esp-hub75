@@ -1,7 +1,7 @@
-//! HUB75 driver for PARL_IO peripherals (ESP32-C5 / ESP32-C6).
+//! HUB75 driver for `PARL_IO` peripherals (ESP32-C5 / ESP32-C6).
 //!
 //! This module provides an interrupt-driven display controller that
-//! continuously refreshes a HUB75 panel from a framebuffer. The PARL_IO
+//! continuously refreshes a HUB75 panel from a framebuffer. The `PARL_IO`
 //! `TxEof` interrupt drives the entire BCM (Binary Code Modulation) refresh
 //! loop. Buffer swaps happen atomically at frame boundaries.
 //!
@@ -115,7 +115,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Create a new blocking HUB75 driver.
     ///
-    /// Configures the PARL_IO peripheral, applies pin assignments, and
+    /// Configures the `PARL_IO` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
     /// framebuffer.
     ///
@@ -124,13 +124,20 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// is a compile-time error.
     ///
     /// # Arguments
-    /// * `parl_io` -- The PARL_IO peripheral instance
+    /// * `parl_io` -- The `PARL_IO` peripheral instance
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- PARL_IO clock rate
+    /// * `frequency` -- `PARL_IO` clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
+    /// [`Hub75Error::Dma`](crate::Hub75Error::Dma) /
+    /// [`Hub75Error::ParlIo`](crate::Hub75Error::ParlIo) if the initial
+    /// DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new<T: TxPins + ConfigurePins + 'static, P: Hub75Pins<'static, T, Word = FB::Word>>(
@@ -148,7 +155,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Create a new async HUB75 driver.
     ///
-    /// Configures the PARL_IO peripheral, applies pin assignments, and
+    /// Configures the `PARL_IO` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
     /// framebuffer.
     ///
@@ -157,13 +164,20 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// is a compile-time error.
     ///
     /// # Arguments
-    /// * `parl_io` -- The PARL_IO peripheral instance
+    /// * `parl_io` -- The `PARL_IO` peripheral instance
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- PARL_IO clock rate
+    /// * `frequency` -- `PARL_IO` clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
+    /// [`Hub75Error::Dma`](crate::Hub75Error::Dma) /
+    /// [`Hub75Error::ParlIo`](crate::Hub75Error::ParlIo) if the initial
+    /// DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new_async<

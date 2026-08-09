@@ -243,7 +243,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
-        let fb_ptr = fb as *const _ as *const ();
+        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
         let xfer = i2s_parallel
             .send(buf)
@@ -271,11 +271,16 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// # Arguments
     /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel (DMA_I2S0 or DMA_I2S1)
+    /// * `channel` -- DMA channel (`DMA_I2S0` or `DMA_I2S1`)
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- I2S clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
+    /// [`Hub75Error::Dma`] if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new<
@@ -308,11 +313,16 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// # Arguments
     /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel (DMA_I2S0 or DMA_I2S1)
+    /// * `channel` -- DMA channel (`DMA_I2S0` or `DMA_I2S1`)
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
     /// * `frequency` -- I2S clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
+    /// [`Hub75Error::Dma`] if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new_async<
