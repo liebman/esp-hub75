@@ -67,7 +67,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl TxChannelFor<LCD_CAM<'static>> + crate::GdmaChannelNum,
+        channel: impl TxChannelFor<LCD_CAM<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
