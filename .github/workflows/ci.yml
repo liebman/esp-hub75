@@ -128,3 +128,111 @@ jobs:
         run: |
           cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "iram,${{ matrix.target }},${{ matrix.features }},${{ matrix.extra_features }}" ${{ matrix.cargo_unstable }}
 
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [esp32, esp32s3, esp32c5, esp32c6]
+        features: [log, defmt]
+        extra_features: ["", "full-chain-dma,invert-blank,invert-clock", "circular-dma"]
+        exclude:
+          - target: esp32c5
+            extra_features: "circular-dma"
+          - target: esp32c6
+            extra_features: "circular-dma"
+        include:
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: esp
+            example: i2s_parallel
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: i2s_parallel_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: hello_i2s_parallel
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: esp32-trinity
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32
+            rust_target: xtensa-esp32-none-elf
+            toolchain: +esp
+            example: rustacean_i2s
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: lcd_cam
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: lcd_cam_latch
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: hello_lcd_cam
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32s3
+            rust_target: xtensa-esp32s3-none-elf
+            toolchain: +esp
+            example: rustacean_lcd_cam
+            cargo_unstable: "-Zbuild-std=core,alloc"
+          - target: esp32c5
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_latch
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: parl_io_latch
+            cargo_unstable: ""
+          - target: esp32c6
+            rust_target: riscv32imac-unknown-none-elf
+            toolchain: ""
+            example: rustacean_parl_io
+            cargo_unstable: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install the Rust toolchain for Xtensa devices:
+      - name: Install Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.6
+        with:
+          version: 1.88.0.0
+
+      # Install the Rust stable toolchain for RISC-V devices:
+      - name: Install RISC-V toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          target: riscv32imc-unknown-none-elf,riscv32imac-unknown-none-elf
+          toolchain: stable
+          components: rust-src, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "clippy-${{ matrix.target }}"
+          cache-all-crates: true
+
+      - name: Run clippy
+        run: |
+          cargo ${{ matrix.toolchain }} clippy --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "iram,${{ matrix.target }},${{ matrix.features }},${{ matrix.extra_features }}" ${{ matrix.cargo_unstable }} -- -D warnings
+

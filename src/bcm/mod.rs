@@ -204,22 +204,22 @@ pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut Segmen
     cache.count = count;
     cache.segments_per_group = spg;
     for i in 0..count {
-        let seg = fb.bcm_segment(i);
-        debug_assert!(!seg.ptr.is_null(), "segment {i} returned a null pointer");
+        let segment = fb.bcm_segment(i);
+        debug_assert!(!segment.ptr.is_null(), "segment {i} returned a null pointer");
         // Verify that the runtime segment agrees with the static shape array
         // (catches `FrameBuffer` implementations whose `bcm_segment()` and
         // `BCM_SEGMENT_SHAPES` are out of sync before a descriptor overflow).
         debug_assert!(
             {
                 let (shape_len, shape_reps) = FB::BCM_SEGMENT_SHAPES[i % FB::BCM_SEQUENCE_LEN];
-                seg.len == shape_len && seg.reps == shape_reps
+                segment.len == shape_len && segment.reps == shape_reps
             },
             "bcm_segment({i}) len={} reps={} disagrees with BCM_SEGMENT_SHAPES {shape:?}",
-            seg.len,
-            seg.reps,
+            segment.len,
+            segment.reps,
             shape = FB::BCM_SEGMENT_SHAPES[i % FB::BCM_SEQUENCE_LEN],
         );
-        cache.segments[i] = seg;
+        cache.segments[i] = segment;
     }
 }
 
