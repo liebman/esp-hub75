@@ -543,6 +543,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
 /// `suc_eof` interrupt has fired after the pointer update, guaranteeing the
 /// DMA has completed a full pass and is reading exclusively from the new
 /// buffer.
+#[must_use = "call .wait() to reclaim the old framebuffer, or the buffer is leaked"]
 pub struct Hub75Swap<FB: 'static> {
     old_fb_ptr: *mut FB,
     #[cfg(not(feature = "circular-dma"))]

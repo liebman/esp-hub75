@@ -179,9 +179,9 @@ impl BcmBuf {
         let mut desc_idx = 0;
 
         for seg_idx in start..end {
-            let seg = &cache.segments[seg_idx];
-            for _ in 0..seg.reps {
-                let mut remaining = seg.len;
+            let segment = &cache.segments[seg_idx];
+            for _ in 0..segment.reps {
+                let mut remaining = segment.len;
                 let mut offset = 0;
                 while remaining > 0 {
                     let chunk = remaining.min(MAX_DMA_CHUNK_SIZE);
@@ -194,7 +194,7 @@ impl BcmBuf {
                     let desc = &mut self.descriptors[desc_idx];
                     // SAFETY: `seg.ptr` originates from a live framebuffer
                     // and `offset` stays within the segment's byte length.
-                    desc.buffer = unsafe { seg.ptr.add(offset).cast_mut() };
+                    desc.buffer = unsafe { segment.ptr.add(offset).cast_mut() };
                     desc.set_size(chunk);
                     desc.set_length(chunk);
                     desc.set_owner(Owner::Dma);
