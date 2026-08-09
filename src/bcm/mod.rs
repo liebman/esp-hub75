@@ -163,6 +163,21 @@ impl SegmentCache {
     }
 }
 
+/// Debug-assert that a framebuffer resides in internal DRAM, not PSRAM.
+///
+/// PSRAM requires explicit cache writeback before DMA reads, which the
+/// custom `BcmBuf` / `CircularBcmBuf` paths do not perform. Zero-cost in
+/// release builds.
+pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
+    let addr = fb as *const _ as *const () as usize;
+    let dram = esp_metadata_generated::memory_range!("DRAM");
+    debug_assert!(
+        dram.contains(&addr),
+        "framebuffer at {addr:#010X} is not in internal DRAM ({dram:#010X?}); \
+         PSRAM is not supported for DMA framebuffers"
+    );
+}
+
 /// Extract BCM segments from a framebuffer into an existing [`SegmentCache`].
 ///
 /// Builds directly into `cache`, writing only the first `count` entries.

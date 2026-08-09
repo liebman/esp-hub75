@@ -419,6 +419,11 @@ pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
 /// module-level statics for the ISR state machine, so creating a second
 /// instance would overwrite the first.
 ///
+/// **Framebuffer data must reside in internal DRAM, not PSRAM.** PSRAM
+/// requires cache writeback before DMA reads, which is not performed for the
+/// custom DMA buffer paths used by this driver. A debug-only assertion
+/// validates this at initialization time.
+///
 /// `Hub75` does not implement [`Drop`]. The ISR-driven display refresh is
 /// designed to run for the lifetime of the program.
 pub struct Hub75<DM: esp_hal::DriverMode, FB> {
@@ -474,6 +479,8 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
 
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
+    crate::bcm::validate_fb_internal_ram(fb);
+
     critical_section::with(|cs| {
         let mut borrow = ISR_STATE.borrow_ref_mut(cs);
         let state = borrow.as_mut().expect("Hub75 not initialised");

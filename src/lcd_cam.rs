@@ -122,6 +122,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
+        crate::bcm::validate_fb_internal_ram(fb);
+
         let word_size = hub75_pins.word_size();
 
         let ch_num = channel.channel_num();

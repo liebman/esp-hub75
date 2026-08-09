@@ -223,6 +223,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
+        crate::bcm::validate_fb_internal_ram(fb);
+
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
         // By default data changes on the falling edge of CLK so it is stable
