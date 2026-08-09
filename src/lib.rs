@@ -127,6 +127,7 @@ compile_error!(
 ///
 /// Used by [`dma_descriptor_count`] and [`hub75_dma_descriptors!`] to
 /// compute the required number of DMA descriptors.
+#[doc(hidden)]
 pub const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 
 /// Computes the number of DMA descriptors this driver needs for a
