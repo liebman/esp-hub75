@@ -240,7 +240,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // silently with no interrupts.
         I::bind_and_enable_isr();
 
-        let buf = CircularBcmBuf::new(tx_descriptors, fb);
+        let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
         let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
