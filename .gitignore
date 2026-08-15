@@ -1,4 +1,3 @@
-/.cargo
 /.devcontainer
 /Cargo.lock
 /bootloader.bin
@@ -9,5 +8,3 @@
 /rust-toolchain.toml
 /target
 /.cursorrules
-/build-all.sh
-/clippy-all.sh

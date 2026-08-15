@@ -1,14 +1,10 @@
 //! # ESP-HUB75
 //!
-//! A `no-std` Rust driver for HUB75-style LED matrix panels on ESP32-series
-//! microcontrollers. HUB75 is a standard interface for driving large, bright,
-//! and colorful RGB LED displays, commonly used in digital signage and art
-//! installations.
+//! A `no-std` driver for HUB75-style LED matrix panels on ESP32-series
+//! microcontrollers.
 //!
-//! This library provides a high-performance implementation that uses Direct
-//! Memory Access (DMA) to drive the display with minimal CPU overhead. It is
-//! designed to work with a variety of ESP32 models, using the most efficient
-//! peripheral available on each chip:
+//! The panel is refreshed over DMA with almost no CPU involvement, using
+//! whichever peripheral fits each chip best:
 //!
 //! - **ESP32-S3**: Uses the `LCD_CAM` peripheral
 //! - **ESP32-C6**: Uses the `PARL_IO` peripheral
@@ -18,25 +14,111 @@
 //!
 //! ## Framebuffers
 //!
-//! The `hub75-framebuffer` crate provides **bitplane** framebuffers in two
-//! variants: a direct-drive variant (16-bit, no external latch) and a latched
-//! variant (8-bit, requires an external address-latch circuit). Both variants
-//! can be sent directly to the peripheral without any extra formatting step.
+//! Use the **bitplane** framebuffers from the `hub75-framebuffer` crate.
+//! They come in two variants: direct-drive (16-bit, no external latch) and
+//! latched (8-bit, needs an external address-latch circuit). Both can be
+//! handed to the peripheral as-is; there is no extra formatting step.
 //!
 //! Bitplane framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer` /
 //! `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
-//! pixel per plane. The driver uses DMA descriptors to assemble the BCM
-//! (Binary Code Modulation) output on the fly, keeping RAM usage low while
-//! delivering high visual quality.
+//! pixel per plane. The driver assembles the BCM (Binary Code Modulation)
+//! output on the fly with DMA descriptors, so RAM use stays low without
+//! losing visual quality.
 //!
 //! ## Usage
 //!
-//! Here is an example of how to initialize the driver for an ESP32-S3:
+//! Example for ESP32-C6:
 //!
 //! ```rust,no_run
-#![doc = include_str!("../examples/rustacean_lcd_cam.rs")]
+//! #![no_std]
+//! #![no_main]
+//!
+//! use embedded_graphics::Drawable;
+//! use embedded_graphics::geometry::Point;
+//! use embedded_graphics::mono_font::MonoTextStyleBuilder;
+//! use embedded_graphics::mono_font::ascii::FONT_5X7;
+//! use embedded_graphics::prelude::RgbColor;
+//! use embedded_graphics::text::Alignment;
+//! use embedded_graphics::text::Text;
+//! use esp_backtrace as _;
+//! use esp_hal::clock::CpuClock;
+//! use esp_hal::gpio::Pin;
+//! use esp_hal::main;
+//! use esp_hal::time::Rate;
+//! use esp_hub75::Color;
+//! use esp_hub75::Hub75;
+//! use esp_hub75::Hub75Pins16;
+//! use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
+//! use esp_hub75::framebuffer::compute_rows;
+//!
+//! esp_bootloader_esp_idf::esp_app_desc!();
+//!
+//! const ROWS: usize = 64;
+//! const COLS: usize = 64;
+//! const NROWS: usize = compute_rows(ROWS);
+//! const PLANES: usize = 4;
+//!
+//! type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
+//!
+//! macro_rules! mk_static {
+//!     ($t:ty,$val:expr) => {{
+//!         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+//!         #[deny(unused_attributes)]
+//!         let x = STATIC_CELL.uninit().write($val);
+//!         x
+//!     }};
+//! }
+//!
+//! #[main]
+//! fn main() -> ! {
+//!     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
+//!
+//!     let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
+//!
+//!     let pins = Hub75Pins16 {
+//!         red1: peripherals.GPIO19.degrade(),
+//!         grn1: peripherals.GPIO20.degrade(),
+//!         blu1: peripherals.GPIO21.degrade(),
+//!         red2: peripherals.GPIO22.degrade(),
+//!         grn2: peripherals.GPIO23.degrade(),
+//!         blu2: peripherals.GPIO15.degrade(),
+//!         addr0: peripherals.GPIO10.degrade(),
+//!         addr1: peripherals.GPIO8.degrade(),
+//!         addr2: peripherals.GPIO1.degrade(),
+//!         addr3: peripherals.GPIO0.degrade(),
+//!         addr4: peripherals.GPIO11.degrade(),
+//!         blank: peripherals.GPIO5.degrade(),
+//!         clock: peripherals.GPIO7.degrade(),
+//!         latch: peripherals.GPIO6.degrade(),
+//!     };
+//!
+//!     let fb = mk_static!(FBType, FBType::new());
+//!     let text_style = MonoTextStyleBuilder::new()
+//!         .font(&FONT_5X7)
+//!         .text_color(Color::YELLOW)
+//!         .background_color(Color::BLACK)
+//!         .build();
+//!     let point = Point::new(32, 32);
+//!     Text::with_alignment("Hello, World!", point, text_style, Alignment::Center)
+//!         .draw(fb)
+//!         .expect("failed to draw text");
+//!
+//!     let _hub75 = Hub75::new(
+//!         peripherals.PARL_IO,
+//!         pins,
+//!         peripherals.DMA_CH0,
+//!         tx_descriptors,
+//!         Rate::from_mhz(20),
+//!         &*fb,
+//!     )
+//!     .expect("failed to create Hub75");
+//!
+//!     loop {
+//!         core::hint::spin_loop();
+//!     }
+//! }
 //! ```
-//! 
+//!
 //! ## Crate Features
 //!
 //! - `esp32`: Enable support for the ESP32
@@ -47,49 +129,51 @@
 //! - `log`: Enable logging with the `log` crate
 //! - `invert-blank`: Invert the blank signal. This only applies to 8-bit
 //!   latched configurations (`Hub75Pins8`); in 16-bit direct-drive mode the
-//!   blank signal is always active-low. Some latch controller boards include
-//!   a hardware inverter on the blank line — enable this feature to compensate.
-//! - `invert-clock`: Invert the clock signal. By default the driver outputs data
-//!   that changes on the falling edge of CLK so that it is stable when the panel
-//!   latches on the rising edge. Enable this feature if your panel requires the
-//!   opposite polarity.
+//!   blank signal is always active-low. Some latch controller boards include a
+//!   hardware inverter on the blank line; enable this feature to compensate.
+//! - `invert-clock`: Invert the clock signal. By default the driver outputs
+//!   data that changes on the falling edge of CLK so that it is stable when the
+//!   panel latches on the rising edge. Enable this feature if your panel
+//!   requires the opposite polarity.
 //! - `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
 //!   transfer instead of one plane per interrupt. This reduces interrupt
 //!   frequency at the cost of more DMA descriptor RAM. Note that the ESP32-C6
-//!   `PARL_IO` peripheral has a 65 535-byte per-transfer limit, which constrains
-//!   the maximum panel size and plane count when this feature is enabled.
+//!   `PARL_IO` peripheral has a 65 535-byte per-transfer limit, which
+//!   constrains the maximum panel size and plane count when this feature is
+//!   enabled.
 //! - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
 //!   The DMA engine starts once and loops forever; buffer swaps are instant
 //!   pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
 //!   always active in this mode, providing both `frame_count()` and the
 //!   completion signal for [`Hub75Swap::wait()`] /
-//!   [`Hub75Swap::wait_for_done()`]. Only supported on ESP32 and ESP32-S3 —
-//!   enabling this on ESP32-C5/C6 is a compile-time error because the `PARL_IO`
-//!   peripheral does not support circular chains.
-//! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
-//!   optimization that skips writing black pixels to the framebuffer.
+//!   [`Hub75Swap::wait_for_done()`]. Only supported on ESP32 and ESP32-S3; on
+//!   ESP32-C5/C6 this is a compile-time error because `PARL_IO` cannot do
+//!   circular chains.
+//! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling
+//!   an optimization that skips writing black pixels to the framebuffer.
 //! - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Appends a
-//!   tail word at the end of each DMA buffer (`plain` framebuffers) or at the end
-//!   of each bit-plane (`bitplane::plain`) that drives LATCH LOW when the transfer
-//!   completes. Does not apply to latched framebuffers.
-//! - `iram`: Place the driver’s hot-path (render / DMA wait functions) in
+//!   tail word at the end of each DMA buffer (`plain` framebuffers) or at the
+//!   end of each bit-plane (`bitplane::plain`) that drives LATCH LOW when the
+//!   transfer completes. Does not apply to latched framebuffers.
+//! - `iram`: Place the driver's hot path (render / DMA wait functions) in
 //!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
-//!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
-//!   Enabling this feature consumes roughly 5–10 KiB of IRAM.
+//!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker. Costs
+//!   roughly 5-10 KiB of IRAM.
 //! - `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
 //!   `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
 //!   (OE HIGH) inserted around row address changes. The lead blank controls
-//!   blanking *before* the address change, and the trail blank controls blanking
-//!   *after*. Higher values reduce ghosting at the cost of slightly less
-//!   brightness.
+//!   blanking *before* the address change, and the trail blank controls
+//!   blanking *after*. Higher values reduce ghosting at the cost of slightly
+//!   less brightness.
 //! - `inter-row-blank-4/8/16/32`: Forwards to `hub75-framebuffer`. Insert
 //!   additional dead clock cycles at the end of each row. In plain framebuffers
 //!   the gap defers the address change to the first pixel of the next row,
 //!   giving slow panels more time to finish blanking. In latched framebuffers
 //!   the gap adds extra blanked cycles after the address change.
-//! - `reverse-row-order`: Forwards to `hub75-framebuffer`. Stores the rows of the
-//!   framebuffer in reverse scan order so that the DMA stream renders the last
-//!   panel row first and row 0 last.
+//! - `reverse-row-order`: Forwards to `hub75-framebuffer`. Stores the rows of
+//!   the framebuffer in reverse scan order so that the DMA stream renders the
+//!   last panel row first and row 0 last.
+//!
 //! ## Safety
 //!
 //! This crate uses `unsafe` code to interface with hardware peripherals, but it
@@ -147,19 +231,19 @@ pub const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 /// - **Default (group-based):** each transfer covers one group of
 ///   [`framebuffer::FrameBuffer::BCM_SEGMENTS_PER_GROUP`] segments and the
 ///   descriptor table is rebuilt between transfers, so this is the maximum over
-///   the groups of one period — considerably smaller than the total for
+///   the groups of one period, considerably smaller than the total for
 ///   row-major framebuffers.
 ///
-/// This is a `const fn` of the framebuffer *type* — no framebuffer instance
-/// is needed — so descriptor tables can be allocated statically, e.g. via
+/// This is a `const fn` of the framebuffer *type* (no instance needed), so
+/// descriptor tables can be allocated statically, e.g. via
 /// [`hub75_dma_descriptors!`].
 ///
 /// # Panics
 ///
 /// * In const evaluation (compile-time) if `max_chunk` is zero.
 /// * At compile time if
-///   [`BCM_SEQUENCE_LEN`](framebuffer::FrameBuffer::BCM_SEQUENCE_LEN)
-///   is not divisible by
+///   [`BCM_SEQUENCE_LEN`](framebuffer::FrameBuffer::BCM_SEQUENCE_LEN) is not
+///   divisible by
 ///   [`BCM_SEGMENTS_PER_GROUP`](framebuffer::FrameBuffer::BCM_SEGMENTS_PER_GROUP).
 ///   Well-formed [`FrameBuffer`](framebuffer::FrameBuffer) implementations
 ///   always satisfy this invariant.
@@ -289,11 +373,11 @@ pub struct Hub75Pins8<'d> {
     pub latch: AnyPin<'d>,
 }
 
-/// A trait for applying a set of HUB75 pins onto the specific ESP32 peripheral
+/// Applies a set of HUB75 pins to the specific ESP32 peripheral.
 ///
-/// This allows the driver to abstract over the differences in pin
-/// configurations between peripherals (I2S, LCD-CAM, `PARL_IO`) and between
-/// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
+/// This hides the differences in pin configuration between peripherals
+/// (I2S, LCD-CAM, `PARL_IO`) and between direct-drive (16-bit) and latched
+/// (8-bit) HUB75 controller boards.
 #[cfg(hub75_use_lcd_cam)]
 pub trait Hub75Pins<'d> {
     /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
@@ -311,12 +395,12 @@ pub trait Hub75Pins<'d> {
     ) -> esp_hal::lcd_cam::lcd::i8080::I8080<'d, DM>;
 }
 
-/// A trait for converting a set of HUB75 pins into the required format for a
-/// specific ESP32 peripheral.
+/// Converts a set of HUB75 pins into the format a specific ESP32 peripheral
+/// expects.
 ///
-/// This allows the driver to abstract over the differences in pin
-/// configurations between peripherals (I2S, LCD-CAM, `PARL_IO`) and between
-/// direct-drive (16-bit) and latched (8-bit) HUB75 controller boards.
+/// This hides the differences in pin configuration between peripherals
+/// (I2S, LCD-CAM, `PARL_IO`) and between direct-drive (16-bit) and latched
+/// (8-bit) HUB75 controller boards.
 ///
 /// # Type Parameters
 /// * `T` - The target pin configuration type for the specific peripheral.
@@ -341,12 +425,12 @@ pub trait Hub75Pins<'d, T> {
 // GDMA channel number trait (ESP32-S3 / C6 / C5)
 // ---------------------------------------------------------------------------
 
-/// Maps a DMA channel singleton to its numeric index so that the driver can
+/// Maps a DMA channel singleton to its numeric index so the driver can
 /// configure GDMA interrupts without scanning registers at runtime.
 ///
-/// This trait is implemented automatically for every `DMA_CHn` type exported
-/// by `esp-hal`. Users never need to name it directly — it is satisfied
-/// implicitly when passing a DMA channel peripheral to [`Hub75::new`].
+/// Implemented for every `DMA_CHn` type exported by `esp-hal`. You never
+/// name this trait directly; it is satisfied implicitly when passing a DMA
+/// channel peripheral to [`Hub75::new`].
 #[cfg(any(esp32s3, esp32c6, esp32c5))]
 pub trait GdmaChannelNum {
     /// Returns the zero-based GDMA channel index (0, 1, 2, …).
@@ -384,25 +468,23 @@ impl GdmaChannelNum for esp_hal::peripherals::DMA_CH4<'_> {
     }
 }
 
-/// Represents errors that can occur during HUB75 driver operations.
+/// Errors returned by the HUB75 driver.
 ///
-/// This enum consolidates errors from the underlying `esp-hal` DMA, peripheral,
-/// and buffer management modules into a single type for easier error handling.
+/// Wraps the `esp-hal` DMA, buffer, and peripheral errors in one type.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Hub75Error {
     /// The driver has not been initialised (no `Hub75` instance exists).
     NotInitialised,
-    /// The driver has already been initialised. Only one `Hub75` instance
-    /// may exist at a time. The driver runs for the program lifetime and
-    /// cannot be released — creating a second instance is not supported.
+    /// The driver has already been initialised. A `Hub75` instance runs for
+    /// the whole program and cannot be released, so only one may exist.
     AlreadyInitialised,
-    /// Error occurred during DMA transfer operations
+    /// Error during a DMA transfer
     Dma(esp_hal::dma::DmaError),
-    /// Error occurred while managing DMA buffers
+    /// Error while managing DMA buffers
     DmaBuf(esp_hal::dma::DmaBufError),
-    /// A framebuffer swap is already in flight — only one
-    /// [`Hub75Swap`](crate::Hub75Swap) may be outstanding at a time. Call
+    /// A framebuffer swap is already in flight; only one
+    /// [`Hub75Swap`] may be outstanding at a time. Call
     /// `.wait()` (or `.wait_for_done().await` then `.wait()`) on the
     /// previous swap before calling `swap()` again.
     SwapInFlight,
@@ -437,7 +519,7 @@ impl core::fmt::Display for Hub75Error {
             Self::I8080(e) => write!(f, "I8080 config error: {e:?}"),
             Self::AlreadyRunning => write!(
                 f,
-                "driver is already running — call wait() on outstanding swap before restarting"
+                "driver is already running; call wait() on the outstanding swap before restarting"
             ),
         }
     }

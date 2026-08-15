@@ -4,15 +4,11 @@
 [![Documentation](https://docs.rs/esp-hub75/badge.svg)](https://docs.rs/esp-hub75)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](README.md)
 
-A `no-std` Rust driver for HUB75-style LED matrix panels on ESP32-series
-microcontrollers. HUB75 is a standard interface for driving large, bright,
-and colorful RGB LED displays, commonly used in digital signage and art
-installations.
+A `no-std` driver for HUB75-style LED matrix panels on ESP32-series
+microcontrollers.
 
-This library provides a high-performance implementation that uses Direct
-Memory Access (DMA) to drive the display with minimal CPU overhead. It is
-designed to work with a variety of ESP32 models, using the most efficient
-peripheral available on each chip:
+The panel is refreshed over DMA with almost no CPU involvement, using
+whichever peripheral fits each chip best:
 
 - **ESP32-S3**: Uses the LCD_CAM peripheral
 - **ESP32-C6**: Uses the PARL_IO peripheral
@@ -20,30 +16,28 @@ peripheral available on each chip:
   latch circuit and `Hub75Pins8`)
 - **ESP32**: Uses the I2S peripheral in parallel mode
 
-The driver is built on top of the `embedded-graphics` crate, allowing you to
-easily draw shapes, text, and images on the display. It also uses a zero-copy
-framebuffer for efficient memory usage.
+The framebuffers work with `embedded-graphics`, so you can draw shapes, text,
+and images on the display, and they go to the DMA engine as-is; there is no
+per-frame conversion step.
 
 ## Framebuffers
 
-The `hub75-framebuffer` crate provides two families of framebuffer: the
-**standard** framebuffers and the **bitplane** framebuffers. Each family has a
-direct-drive variant (16-bit, no external latch) and a latched variant (8-bit,
-requires an external address-latch circuit). Both families can be sent directly
-to the peripheral without any extra formatting step. The difference is how they
-achieve Binary Code Modulation (BCM):
+The `hub75-framebuffer` crate has two families of framebuffer: **standard**
+and **bitplane**. Each family has a direct-drive variant (16-bit, no external
+latch) and a latched variant (8-bit, needs an external address-latch
+circuit). Both can be handed to the peripheral as-is; there is no extra
+formatting step. They differ in how they do Binary Code Modulation (BCM):
 
 - **Standard** framebuffers (`framebuffer::plain::DmaFrameBuffer` /
   `framebuffer::latched::DmaFrameBuffer`) pre-render a complete copy of the
-  pixel data for every BCM bit-weight. This makes DMA output straightforward
-  but multiplies memory usage by the number of frames (`frame_count`).
+  pixel data for every BCM bit-weight. DMA output is straightforward, but
+  memory use multiplies by the number of frames (`frame_count`).
 - **Bitplane** framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer` /
   `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
-  pixel per plane. The driver uses DMA descriptors to assemble the BCM output
-  on the fly, avoiding the duplicated memory. The result is significantly lower
-  RAM usage with the same visual quality.
+  pixel per plane. The driver assembles the BCM output on the fly with DMA
+  descriptors: same visual quality, much less RAM.
 
-Bitplane framebuffers are strongly recommended for most applications.
+Unless you have a reason not to, use the bitplane framebuffers.
 
 ## Hardware Requirements
 
@@ -52,52 +46,81 @@ Bitplane framebuffers are strongly recommended for most applications.
 - A 5V power supply capable of providing several amps of current
 - A 3.3V to 5V level shifter (e.g., 74HCT245) is highly recommended
 
-**Note**: The ESP32 operates at 3.3V, while HUB75 panels require 5V logic
-signals. While it may sometimes work without one, using a level shifter
-ensures reliable operation and prevents damage to your hardware.
+**Note**: The ESP32 is a 3.3V chip but HUB75 panels expect 5V logic. It can
+work without a level shifter, but don't count on it.
 
 ## Pin Configurations
 
-This driver supports two types of HUB75 pin configurations, which you can
-select based on your hardware setup:
+Two pin configurations are supported, depending on your hardware:
 
-- **`Hub75Pins16` (Direct Drive)**: This is the standard configuration where
-  the row address lines are sent with every pixel. It requires more GPIO
-  pins but works with any standard HUB75 panel.
+- **`Hub75Pins16` (Direct Drive)**: the standard configuration, where the row
+  address lines go out with every pixel. Needs more GPIO pins but works with
+  any standard HUB75 panel.
 
-- **`Hub75Pins8` (Latched)**: This configuration is for controller boards that
-  include an external 74HC574-style latch for the row address lines. This is
-  more memory-efficient and requires fewer GPIO pins. For more details on the
+- **`Hub75Pins8` (Latched)**: for controller boards with an external
+  74HC574-style latch on the row address lines. Uses fewer GPIO pins and less
+  memory. For more details on the
   required circuit, see the [`hub75-framebuffer` crate's documentation](https://crates.io/crates/hub75-framebuffer)
   or its [GitHub repository](https://github.com/liebman/hub75-framebuffer).
 
 ## Examples
 
-The following examples demonstrate how to use this crate with different ESP32
-variants.
+The examples are standalone crates in the [`examples/`](examples) directory,
+organized by display setup rather than by chip. Each one supports several
+boards; pick a board and it builds for the right chip automatically.
 
-### ESP32-S3 (LCD_CAM Interface)
-
-- [`examples/hello_lcd_cam.rs`](examples/hello_lcd_cam.rs) - Displays "Hello, World!" using blocking `start()`.
-- [`examples/lcd_cam.rs`](examples/lcd_cam.rs) - Async `start()`/`swap()` with color gradient and stats.
-- [`examples/lcd_cam_latch.rs`](examples/lcd_cam_latch.rs) - Latched (8-bit) variant with color gradient and stats.
-- [`examples/rustacean_lcd_cam.rs`](examples/rustacean_lcd_cam.rs) - Renders a Rustacean image.
-
-### ESP32-C6 / ESP32-C5 (PARL_IO Interface)
-
-- [`examples/parl_io.rs`](examples/parl_io.rs) - Async `start()`/`swap()` with color gradient and stats.
-- [`examples/parl_io_latch.rs`](examples/parl_io_latch.rs) - Latched (8-bit) variant.
-- [`examples/rustacean_parl_io.rs`](examples/rustacean_parl_io.rs) - Renders a Rustacean image.
+- [`examples/gradient`](examples/gradient) - Blocking (non-async) 64x64
+  color-gradient demo with refresh/render stats, using a 16-bit bitplane
+  framebuffer (direct drive, no latch). For ESP32, ESP32-S3, ESP32-C6, and
+  ESP32-Trinity.
+- [`examples/gradient-embassy`](examples/gradient-embassy) - Embassy (async)
+  variant of `gradient`. Same boards.
+- [`examples/gradient-latched`](examples/gradient-latched) - Blocking 64x64
+  color-gradient demo using an 8-bit latched bitplane framebuffer for
+  controller boards with a SmartLEDShield-style address latch. For ESP32,
+  ESP32-S3, ESP32-C6, and ESP32-C5.
+- [`examples/gradient-quarter`](examples/gradient-quarter) - Blocking demo
+  for quarter-scan (1/16-scan) 64x64 panels, using the `QuarterScan`
+  remapper. Same boards as `gradient`.
+- [`examples/gradient-tiled`](examples/gradient-tiled) - Blocking demo that
+  tiles four 64x32 panels (2x2) into one 128x64 virtual canvas. Same boards
+  as `gradient`.
 
 **Note**: The ESP32-C5 does not support 16-bit mode, so only the latched
-examples (`parl_io_latch.rs`) can be used with it.
+example (`gradient-latched`) can be used with it.
 
-### ESP32 (I2S Parallel Interface)
+### Running the examples
 
-- [`examples/hello_i2s_parallel.rs`](examples/hello_i2s_parallel.rs) - Displays "Hello, World!" using blocking `start()`.
-- [`examples/i2s_parallel.rs`](examples/i2s_parallel.rs) - Async `start()`/`swap()` with color gradient and stats.
-- [`examples/i2s_parallel_latch.rs`](examples/i2s_parallel_latch.rs) - Latched (8-bit) variant.
-- [`examples/rustacean_i2s.rs`](examples/rustacean_i2s.rs) - Renders a Rustacean image.
+Each example defines its own cargo aliases in its `.cargo/config.toml`; see
+the `[alias]` section there for the full list. There are `run-*`, `build-*`,
+and `clippy-*` aliases per board (e.g. `run-esp32`, `run-esp32s3`,
+`run-esp32c6`), and the `run-*` aliases build, flash with `espflash`, and
+monitor in one step:
+
+    cd examples/gradient
+    cargo run-esp32
+
+Extra features can be appended to any alias with `-F`/`--features`:
+
+    cargo run-esp32 -F circular-dma,trail-blank-2
+
+The features each example accepts (board selection and pass-throughs for
+every `esp-hub75` feature) are listed in its `Cargo.toml`; see
+[Crate Features](#crate-features) for what the driver features do. Two
+example-only features are available on top of those:
+
+- `row`: Use the row-major framebuffer layout (all bit-planes of a row
+  stored contiguously) instead of the default plane-major layout.
+- `20mhz`: Drive the panel at 20 MHz instead of the default 10 MHz for a
+  higher refresh rate. The ESP32's I2S peripheral tops out at 19 MHz, which
+  the examples handle automatically.
+
+**Note**: Other than `gradient-latched`, the examples use plain
+(direct-drive) framebuffers, which by default insert no blanking before or
+after the row address change. Adding at least `trail-blank-2` is recommended
+to avoid row ghosting. The latched framebuffers have this blanking built in
+(1 clock before and 2 clocks after the address change) due to the
+framebuffer structure.
 
 ## Crate Features
 
@@ -110,7 +133,7 @@ examples (`parl_io_latch.rs`) can be used with it.
 - `invert-blank`: Invert the blank signal. This only applies to 8-bit latched
   configurations (`Hub75Pins8`); in 16-bit direct-drive mode the blank signal is
   always active-low. Some latch controller boards include a hardware inverter on
-  the blank line — enable this feature to compensate.
+  the blank line; enable this feature to compensate.
 - `invert-clock`: Invert the clock signal. By default the driver outputs data
   that changes on the falling edge of CLK so that it is stable when the panel
   latches on the rising edge. Enable this feature if your panel requires the
@@ -125,9 +148,8 @@ examples (`parl_io_latch.rs`) can be used with it.
   pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
   always active in this mode, providing both `frame_count()` and the
   completion signal for `Hub75Swap::wait()` / `Hub75Swap::wait_for_done()`.
-  Only supported on ESP32 and ESP32-S3 — enabling this on ESP32-C5/C6 is a
-  compile-time error because the PARL_IO peripheral does not support circular
-  chains.
+  Only supported on ESP32 and ESP32-S3; on ESP32-C5/C6 this is a compile-time
+  error because PARL_IO cannot do circular chains.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
 - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Applies to
@@ -135,10 +157,10 @@ examples (`parl_io_latch.rs`) can be used with it.
   Appends a single extra "tail" word at the end of each DMA buffer (`plain`)
   or at the end of each bit-plane (`bitplane::plain`) that parks the bus with
   LATCH=0 and OE=BLANK, cleanly terminating the transfer.
-- `iram`: Place the driver’s hot-path (render / DMA wait functions) in
+- `iram`: Place the driver's hot path (render / DMA wait functions) in
   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
-  Enabling this feature consumes roughly 5–10 KiB of IRAM.
+  Costs roughly 5-10 KiB of IRAM.
 - `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
   `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
   (OE HIGH) inserted around row address changes. The lead blank controls
@@ -152,12 +174,12 @@ examples (`parl_io_latch.rs`) can be used with it.
   adds extra blanked cycles after the address change.
 - `reverse-row-order`: Forwards to `hub75-framebuffer`. Stores the rows of the
   framebuffer in reverse scan order so that the DMA stream renders the last
-  panel row first and row 0 last. 
+  panel row first and row 0 last.
 
-##  Known Working Panels
+## Known Working Panels
 
-This library should work with any "normal" RGB matrix panels. The following panels have been
-tested and confirmed to work:
+This library should work with any "normal" RGB matrix panels. The following
+panels have been tested and confirmed to work:
 
 | Panel | Scan Rate | Column Driver | Row Driver |
 |-------|-----------|---------------|------------|

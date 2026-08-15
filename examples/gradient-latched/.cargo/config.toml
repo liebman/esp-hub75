@@ -1,0 +1,21 @@
+[alias]
+# Convenience aliases for building/running/clippy for each board.
+#
+# The default feature set is `iram, skip-black-pixels, log`; each alias adds a
+# single board feature on top. Add `20mhz` for a 20 MHz clock (19 MHz on
+# ESP32) or `row` for the row-major framebuffer layout.
+
+run-esp32    = "run --config .cargo/config-esp32.toml --release --features esp32"
+run-esp32s3  = "run --config .cargo/config-esp32s3.toml --release --features esp32s3"
+run-esp32c6  = "run --config .cargo/config-esp32c6.toml --release --features esp32c6"
+run-esp32c5  = "run --config .cargo/config-esp32c5.toml --release --features esp32c5"
+
+build-esp32    = "build --config .cargo/config-esp32.toml --release --features esp32"
+build-esp32s3  = "build --config .cargo/config-esp32s3.toml --release --features esp32s3"
+build-esp32c6  = "build --config .cargo/config-esp32c6.toml --release --features esp32c6"
+build-esp32c5  = "build --config .cargo/config-esp32c5.toml --release --features esp32c5"
+
+clippy-esp32    = "clippy --config .cargo/config-esp32.toml --release --features esp32"
+clippy-esp32s3  = "clippy --config .cargo/config-esp32s3.toml --release --features esp32s3"
+clippy-esp32c6  = "clippy --config .cargo/config-esp32c6.toml --release --features esp32c6"
+clippy-esp32c5  = "clippy --config .cargo/config-esp32c5.toml --release --features esp32c5"

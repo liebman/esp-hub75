@@ -1,9 +1,8 @@
 //! HUB75 driver for I2S Parallel peripherals (ESP32).
 //!
-//! This module provides an interrupt-driven display controller that
-//! continuously refreshes a HUB75 panel from a framebuffer. The I2S DMA
-//! `out_total_eof` interrupt drives the entire BCM (Binary Code Modulation)
-//! refresh loop. Buffer swaps happen atomically at frame boundaries.
+//! The I2S DMA `out_total_eof` interrupt runs the BCM (Binary Code
+//! Modulation) refresh loop, so the panel keeps scanning out the current
+//! framebuffer on its own. Buffer swaps take effect at frame boundaries.
 //!
 //! # Blocking example
 //!
@@ -13,7 +12,7 @@
 //!     tx_descriptors, Rate::from_mhz(20), &*fb,
 //! ).expect("failed to create Hub75");
 //!
-//! // Display refreshes automatically — main thread is free.
+//! // Display refreshes on its own; the main thread is free.
 //! loop { core::hint::spin_loop(); }
 //! ```
 //!
@@ -25,7 +24,7 @@
 //!     tx_descriptors, Rate::from_mhz(20), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
-//! // Swap buffers — yields to the executor, returns Err on DMA failure.
+//! // Swap buffers: yields to the executor, returns Err on DMA failure.
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
@@ -53,14 +52,14 @@ use crate::bcm::linear::BcmBuf;
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
-// I2S instance trait — maps concrete peripherals to their interrupt and
+// I2S instance trait: maps concrete peripherals to their interrupt and
 // register block for enabling `out_total_eof`.
 // ---------------------------------------------------------------------------
 
-/// Helper trait implemented for I2S0 and I2S1 to provide interrupt binding
-/// and `out_total_eof` enable. Users don't need to interact with this trait
-/// directly — just pass `peripherals.I2S0` or `peripherals.I2S1` to the
-/// constructor.
+/// Interrupt binding and `out_total_eof` setup for I2S0 and I2S1.
+///
+/// You never implement or call this directly; just pass `peripherals.I2S0`
+/// or `peripherals.I2S1` to the constructor.
 pub trait I2sHub75Instance: esp_hal::i2s::parallel::Instance {
     #[doc(hidden)]
     fn bind_and_enable_isr();
@@ -71,10 +70,9 @@ pub trait I2sHub75Instance: esp_hal::i2s::parallel::Instance {
 
 impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
     fn bind_and_enable_isr() {
-        // SAFETY: The I2S0 peripheral is already owned by the caller (consumed
-        // by `I2sParallel::new`). We `steal()` a second handle solely to flip
-        // the interrupt-enable bit, which the esp-hal I2S driver does not
-        // expose. This runs during init before the ISR is active, so there is
+        // SAFETY: `I2sParallel::new` has consumed the I2S0 peripheral. We
+        // steal a second handle only to flip the interrupt-enable bit, which
+        // esp-hal's I2S driver doesn't expose. The ISR isn't active yet, so
         // no data race.
         #[cfg(not(feature = "circular-dma"))]
         unsafe {
@@ -90,7 +88,7 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
             let reg = stolen.register_block();
             // Use `out_eof` (per-descriptor EOF) rather than
             // `out_total_eof` because, in a circular DMA chain, the
-            // transfer never ends — `out_total_eof` never fires. The
+            // transfer never ends, so `out_total_eof` never fires. The
             // per-descriptor `out_eof` fires whenever a descriptor with
             // `suc_eof=1` is encountered, even when `next` points back
             // to the ring start. This has been hardware-tested and
@@ -120,8 +118,8 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
 
 impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
     fn bind_and_enable_isr() {
-        // SAFETY: Same justification as I2S0 above — we only touch the
-        // interrupt-enable bit, which is not contested by the esp-hal driver,
+        // SAFETY: Same justification as I2S0 above: we only touch the
+        // interrupt-enable bit, which the esp-hal driver doesn't contest,
         // and this runs during init.
         #[cfg(not(feature = "circular-dma"))]
         unsafe {
@@ -137,7 +135,7 @@ impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
             let reg = stolen.register_block();
             // Use `out_eof` (per-descriptor EOF) rather than
             // `out_total_eof` because, in a circular DMA chain, the
-            // transfer never ends — `out_total_eof` never fires. The
+            // transfer never ends, so `out_total_eof` never fires. The
             // per-descriptor `out_eof` fires whenever a descriptor with
             // `suc_eof=1` is encountered, even when `next` points back
             // to the ring start. This has been hardware-tested and
@@ -265,7 +263,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// framebuffer.
     ///
     /// The pin configuration's word type must match the framebuffer's word
-    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
     /// # Arguments
@@ -307,7 +305,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// framebuffer.
     ///
     /// The pin configuration's word type must match the framebuffer's word
-    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
     /// # Arguments
@@ -349,8 +347,9 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     type Word = u16;
 
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
-        // SAFETY: We only use the output signal half. The original `AnyPin` is
-        // consumed by the enclosing struct move, so there is no aliased access.
+        // SAFETY: we keep only the output half of the pin; the original
+        // `AnyPin` is moved into this struct and consumed, so nothing else
+        // can drive it.
         let (_, blank) = unsafe { self.blank.split() };
         let pins = TxSixteenBits::new(
             self.addr0,
@@ -378,8 +377,9 @@ impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     type Word = u8;
 
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
-        // SAFETY: We only use the output signal half. The original `AnyPin` is
-        // consumed by the enclosing struct move, so there is no aliased access.
+        // SAFETY: we keep only the output half of the pin; the original
+        // `AnyPin` is moved into this struct and consumed, so nothing else
+        // can drive it.
         let (_, blank) = unsafe { self.blank.split() };
         let pins = TxEightBits::new(
             self.red1,

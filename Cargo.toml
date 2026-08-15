@@ -38,81 +38,40 @@ static_cell = { version = "2.1.1" }
 [build-dependencies]
 esp-metadata-generated = { version = "0.4.0", features = ["build-script"] }
 
-[dev-dependencies]
-defmt-rtt = { version = "1.3.0" }
-embassy-executor = { version = "0.10.0" }
-embassy-sync = { version = "0.8.0" }
-embassy-time = { version = "0.5.1", features = [] }
-embedded-graphics = { version = "0.8.2" }
-esp-backtrace = { version = "0.19.0", features = ["panic-handler"] }
-esp-bootloader-esp-idf = "0.5.0"
-esp-hal = { version = "1.1.0", features = ["unstable"] }
-esp-println = { version = "0.17.0" }
-esp-rtos = { version = "0.3.0", features = ["embassy"] }
-heapless = { version = "0.9.3", features = ["ufmt"] }
-embedded-sprites = "0.2.0"
-
 [features]
 default = []
 skip-black-pixels = ["hub75-framebuffer/skip-black-pixels"]
 iram = []
 esp32 = [
-    "esp-bootloader-esp-idf/esp32",
     "esp-hal/esp32",
-    "esp-backtrace/esp32",
-    "esp-rtos/esp32",
-    "esp-println/esp32",
     "esp-metadata-generated/esp32",
     "hub75-framebuffer/esp32-ordering",
 ]
 esp32s3 = [
-    "esp-bootloader-esp-idf/esp32s3",
     "esp-hal/esp32s3",
-    "esp-backtrace/esp32s3",
-    "esp-rtos/esp32s3",
-    "esp-println/esp32s3",
     "esp-metadata-generated/esp32s3",
 ]
 esp32c5 = [
-    "esp-bootloader-esp-idf/esp32c5",
     "esp-hal/esp32c5",
-    "esp-backtrace/esp32c5",
-    "esp-rtos/esp32c5",
-    "esp-println/esp32c5",
     "esp-metadata-generated/esp32c5",
     "dep:esp32c5",
 ]
 esp32c6 = [
-    "esp-bootloader-esp-idf/esp32c6",
     "esp-hal/esp32c6",
-    "esp-backtrace/esp32c6",
-    "esp-rtos/esp32c6",
-    "esp-println/esp32c6",
     "esp-metadata-generated/esp32c6",
 ]
 defmt = [
     "dep:defmt",
-    "esp-bootloader-esp-idf/defmt",
-    "esp-backtrace/defmt",
     "esp-hal/defmt",
-    "hub75-framebuffer/defmt",
     "esp32c5?/defmt",
+    "hub75-framebuffer/defmt",
 ]
-log = [
-    "dep:log",
-    "esp-bootloader-esp-idf/log-04",
-    "esp-backtrace/println",
-    "esp-hal/log-04",
-    "esp-println/auto",
-    "esp-println/log-04",
-    "esp-println/colors",
-]
-full-chain-dma = [
-] # full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 plane limit)
-circular-dma = [
-    "full-chain-dma",
-] # circular descriptor chain, immediate pointer-swap in swap()
-invert-blank = [] # only for some latched implementations
+log = ["dep:log", "esp-hal/log-04"]
+# full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 plane limit)
+full-chain-dma = [] 
+# circular descriptor chain, immediate pointer-swap in swap()
+circular-dma = ["full-chain-dma"]
+invert-blank = []
 invert-clock = []
 
 tail-closes-latch = ["hub75-framebuffer/tail-closes-latch"]

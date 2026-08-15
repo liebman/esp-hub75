@@ -1,9 +1,9 @@
 //! Shared ISR-driven BCM refresh infrastructure.
 //!
-//! This module is compiled for all platforms that use an interrupt-driven
-//! display refresh loop (ESP32 via I2S Parallel, ESP32-S3 via `LCD_CAM`,
-//! ESP32-C5/C6 via `PARL_IO`). It contains the transfer state machine, the
-//! interrupt handler, and the public [`Hub75`] driver handle with `swap()` API.
+//! Compiled for every platform that uses an interrupt-driven refresh loop
+//! (ESP32 via I2S Parallel, ESP32-S3 via `LCD_CAM`, ESP32-C5/C6 via
+//! `PARL_IO`). Holds the transfer state machine, the interrupt handler, and
+//! the public [`Hub75`] driver handle with its `swap()` API.
 
 use core::cell::RefCell;
 use core::sync::atomic::AtomicBool;
@@ -120,8 +120,8 @@ pub(crate) struct CircularState {
 }
 
 #[cfg(feature = "circular-dma")]
-// SAFETY: Same justification as IsrState — all access serialised by
-// critical_section.
+// SAFETY: Same justification as `IsrState`: all access is serialised by
+// `critical_section`.
 unsafe impl Send for CircularState {}
 
 #[cfg(feature = "circular-dma")]
@@ -391,7 +391,7 @@ pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
 ///
 /// The pin configuration's [`Hub75Pins::Word`](crate::Hub75Pins) type must
 /// match the framebuffer's
-/// [`FrameBuffer::Word`](crate::framebuffer::FrameBuffer::Word) — mismatches
+/// [`FrameBuffer::Word`](crate::framebuffer::FrameBuffer::Word); mismatches
 /// are caught at compile time.
 ///
 /// # Type Parameters
@@ -417,12 +417,11 @@ pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
 /// instance would overwrite the first.
 ///
 /// **Framebuffer data must reside in internal DRAM, not PSRAM.** PSRAM
-/// requires cache writeback before DMA reads, which is not performed for the
-/// custom DMA buffer paths used by this driver. A debug-only assertion
-/// validates this at initialization time.
+/// needs cache writeback before DMA reads, and this driver's custom DMA
+/// buffer paths don't do that. A debug assertion checks this at init.
 ///
-/// `Hub75` does not implement [`Drop`]. The ISR-driven display refresh is
-/// designed to run for the lifetime of the program.
+/// `Hub75` does not implement [`Drop`]. The ISR-driven refresh runs for the
+/// lifetime of the program.
 pub struct Hub75<DM: esp_hal::DriverMode, FB> {
     _dm: core::marker::PhantomData<DM>,
     _fb: core::marker::PhantomData<fn() -> FB>,
@@ -551,10 +550,10 @@ pub struct Hub75Swap<FB: 'static> {
 }
 
 // SAFETY: The raw pointer always originates from a `&'static mut FB`. Only
-// one `Hub75Swap` exists at a time — `Hub75::swap()` returns
+// one `Hub75Swap` exists at a time: `Hub75::swap()` returns
 // `Err(Hub75Error::SwapInFlight, _)` if called while a previous swap is still
-// in-flight. `Hub75` is `!Sync`, so concurrent `swap()` calls from multiple
-// threads are prevented at compile time.
+// in-flight, and `Hub75` is `!Sync`, so concurrent `swap()` calls from
+// multiple threads are impossible.
 unsafe impl<FB: 'static> Send for Hub75Swap<FB> {}
 
 impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
@@ -693,7 +692,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     ///
     /// Registers `new_fb` as the pending buffer. The actual swap occurs at
     /// the next frame boundary (handled by the ISR). Returns a [`Hub75Swap`]
-    /// transfer object — call [`.wait_for_done()`](Hub75Swap::wait_for_done)
+    /// transfer object; call [`.wait_for_done()`](Hub75Swap::wait_for_done)
     /// then [`.wait()`](Hub75Swap::wait), or just `.wait()` directly for
     /// blocking.
     ///
@@ -701,7 +700,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     ///
     /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
     /// if a previous [`Hub75Swap`] is still outstanding. Only one swap may be
-    /// in-flight at a time — call `.wait()` (or `.wait_for_done().await` then
+    /// in-flight at a time; call `.wait()` (or `.wait_for_done().await` then
     /// `.wait()`) on the previous [`Hub75Swap`] before calling `swap()` again.
     ///
     /// # Panics
@@ -734,8 +733,9 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             }
             let old = state.current_fb_ptr;
             // Both framebuffers are the same type with identical internal
-            // layout — the same invariant circular-DMA mode relies on.
-            // The delta shifts every cached segment pointer to the new FB.
+            // layout; this is the same invariant circular-DMA mode relies
+            // on. The delta shifts every cached segment pointer to the new
+            // FB.
             let delta = new_fb_ptr as isize - old as isize;
             state.pending_delta = Some(delta);
             state.pending_fb_ptr = new_fb_ptr as *const ();
@@ -771,7 +771,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     ///
     /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
     /// if a previous [`Hub75Swap`] is still outstanding. Only one swap may be
-    /// in-flight at a time — call `.wait()` (or `.wait_for_done().await` then
+    /// in-flight at a time; call `.wait()` (or `.wait_for_done().await` then
     /// `.wait()`) on the previous [`Hub75Swap`] before calling `swap()` again.
     ///
     /// # Panics
@@ -792,19 +792,18 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             state.swap_in_flight = true;
             let delta = new_fb_ptr as isize - state.current_fb_ptr as isize;
             // SAFETY: `descriptors` points to a `&'static mut` descriptor
-            // array that outlives everything. The DMA engine reads descriptor
-            // fields concurrently while we update `buffer` pointers here.
-            // This is safe because:
-            //  1. Each `buffer` field is a naturally-aligned 32-bit pointer. On Xtensa
-            //     (ESP32/S3) aligned 32-bit stores are atomic with respect to the DMA bus
-            //     master, so the DMA never observes a half-written pointer value.
-            //  2. `circular-dma` is blocked at compile time on RISC-V targets (ESP32-C5/C6)
-            //     where PARL_IO does not support circular chains.
-            //  3. The pointer delta is valid because all plane data resides within a single
-            //     contiguous `FB` allocation — both old and new framebuffers have identical
-            //     internal layout.
-            //  4. The worst-case visual artifact is one partially-mixed frame (tearing),
-            //     which is acceptable for a display use-case.
+            // array that outlives everything. The DMA engine may be reading
+            // descriptor fields while we rewrite the `buffer` pointers here;
+            // that race is fine:
+            //  1. Each `buffer` field is a naturally aligned 32-bit pointer. On Xtensa
+            //     (ESP32/S3), aligned 32-bit stores are atomic with respect to the DMA bus
+            //     master, so DMA never sees a half-written pointer.
+            //  2. `circular-dma` is blocked at compile time on RISC-V targets
+            //     (ESP32-C5/C6), where PARL_IO has no circular chains.
+            //  3. The delta stays valid because all plane data lives in one contiguous `FB`
+            //     allocation and old and new framebuffers have identical layout.
+            //  4. Worst case is one partially mixed frame (tearing), acceptable for a
+            //     display.
             unsafe {
                 for i in 0..state.desc_count {
                     let desc = &mut *state.descriptors.add(i);

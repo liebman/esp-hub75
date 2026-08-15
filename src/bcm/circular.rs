@@ -2,9 +2,8 @@
 //!
 //! `CircularBcmBuf` builds a single circular DMA descriptor chain encoding the
 //! full BCM (Binary Code Modulation) repetition sequence. The DMA engine starts
-//! once and loops forever. Buffer swaps are performed by applying a pointer
-//! delta to every descriptor's `buffer` field — no descriptor rebuild, no DMA
-//! stop/restart.
+//! once and loops forever. Buffer swaps apply a pointer delta to every
+//! descriptor's `buffer` field: no descriptor rebuild, no DMA stop/restart.
 
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaTxBuffer;

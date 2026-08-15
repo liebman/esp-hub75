@@ -44,7 +44,7 @@ const EMPTY_SEGMENT: BcmSegment = BcmSegment {
 ///
 /// One static slot holds the full segment sequence. `swap()` stores a
 /// pointer delta (old FB → new FB) and the ISR applies it at the frame
-/// boundary — same approach as circular-DMA mode. No copies, no slots.
+/// boundary, the same approach as circular-DMA mode. No copies, no slots.
 #[cfg(not(feature = "circular-dma"))]
 struct CacheCell(UnsafeCell<SegmentCache>);
 
@@ -205,7 +205,10 @@ pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut Segmen
     cache.segments_per_group = spg;
     for i in 0..count {
         let segment = fb.bcm_segment(i);
-        debug_assert!(!segment.ptr.is_null(), "segment {i} returned a null pointer");
+        debug_assert!(
+            !segment.ptr.is_null(),
+            "segment {i} returned a null pointer"
+        );
         // Verify that the runtime segment agrees with the static shape array
         // (catches `FrameBuffer` implementations whose `bcm_segment()` and
         // `BCM_SEGMENT_SHAPES` are out of sync before a descriptor overflow).
@@ -225,9 +228,9 @@ pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut Segmen
 
 /// Convenience wrapper that returns a fresh [`SegmentCache`] by value.
 ///
-/// Prefer [`segments_from_fb_into`] in performance-sensitive paths — this
-/// construction requires ~3.9 KB of stack headroom. Only used by
-/// circular-DMA init.
+/// Prefer [`segments_from_fb_into`] in performance-sensitive paths; this
+/// construction needs ~3.9 KB of stack headroom. Only used by circular-DMA
+/// init.
 #[cfg(feature = "circular-dma")]
 pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
     let mut cache = SegmentCache::new();
@@ -257,9 +260,9 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 /// Fill a full-chain BCM descriptor sequence from cached segments.
 ///
 /// The caller provides the `next` pointer for the last descriptor in the
-/// chain — `null_mut()` for linear mode (last `next` = null),
-/// `ring_start` (points back to `desc[0]`) for circular mode.
-/// The last descriptor always has `suc_eof = 1`.
+/// chain: `null_mut()` for linear mode (last `next` = null), `ring_start`
+/// (points back to `desc[0]`) for circular mode. The last descriptor always
+/// has `suc_eof = 1`.
 #[cfg_attr(feature = "iram", ram)]
 pub(super) fn fill_full_chain(
     descriptors: &mut [DmaDescriptor],

@@ -32,7 +32,7 @@ use crate::MAX_DMA_CHUNK_SIZE;
 pub(crate) struct BcmBuf {
     descriptors: &'static mut [DmaDescriptor],
     /// Raw pointer to the static segment cache (`SEGMENT_CACHE`).
-    /// Dereferenced inline at each use site — the pointer is always
+    /// Dereferenced inline at each use site; the pointer is always
     /// valid because the cache is a `'static` and all access is
     /// serialised by `critical_section`.
     cache: *const SegmentCache,
@@ -107,8 +107,8 @@ impl BcmBuf {
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn apply_delta(&mut self, delta: isize) {
         // SAFETY: Called from the ISR (inside critical_section). The cache
-        // is not concurrently accessed — `swap()` only reads FB pointers
-        // to compute the delta; it never writes to the cache.
+        // is not concurrently accessed; `swap()` only reads FB pointers
+        // to compute the delta and never writes to the cache.
         let cache = unsafe { &mut *self.cache.cast_mut() };
         for i in 0..cache.count {
             cache.segments[i].ptr = cache.segments[i].ptr.wrapping_byte_offset(delta);
