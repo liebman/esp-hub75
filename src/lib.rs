@@ -220,8 +220,8 @@ pub const MAX_DMA_CHUNK_SIZE: usize = esp_hal::dma::CHUNK_SIZE;
 /// `max_chunk` is the maximum number of bytes a single DMA descriptor can
 /// transfer (see [`MAX_DMA_CHUNK_SIZE`]).
 ///
-/// The count is derived from the framebuffer's static BCM segment shapes
-/// ([`framebuffer::FrameBuffer::BCM_SEGMENT_SHAPES`]): a segment of `len`
+/// The count is derived from the framebuffer's static BCM sequence
+/// ([`framebuffer::FrameBuffer::BCM_SEQUENCE`]): a segment of `len`
 /// bytes streamed `reps` times needs `ceil(len / max_chunk) * reps`
 /// descriptors. What exactly is returned depends on the driver's DMA mode:
 ///
@@ -256,7 +256,7 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
             "BCM_SEQUENCE_LEN must be divisible by BCM_SEGMENTS_PER_GROUP"
         );
     }
-    let shapes = FB::BCM_SEGMENT_SHAPES;
+    let seq = FB::BCM_SEQUENCE;
     let period = FB::BCM_SEQUENCE_LEN;
     #[cfg(feature = "full-chain-dma")]
     let spg = period; // the whole period is chained into one transfer
@@ -268,8 +268,8 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
         let mut group = 0usize;
         let mut j = 0usize;
         while j < spg {
-            let (len, reps) = shapes[base + j];
-            group += len.div_ceil(max_chunk) * reps;
+            let entry = seq[base + j];
+            group += entry.len.div_ceil(max_chunk) * entry.reps;
             j += 1;
         }
         if group > max_group {

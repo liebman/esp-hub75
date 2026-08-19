@@ -209,19 +209,6 @@ pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut Segmen
             !segment.ptr.is_null(),
             "segment {i} returned a null pointer"
         );
-        // Verify that the runtime segment agrees with the static shape array
-        // (catches `FrameBuffer` implementations whose `bcm_segment()` and
-        // `BCM_SEGMENT_SHAPES` are out of sync before a descriptor overflow).
-        debug_assert!(
-            {
-                let (shape_len, shape_reps) = FB::BCM_SEGMENT_SHAPES[i % FB::BCM_SEQUENCE_LEN];
-                segment.len == shape_len && segment.reps == shape_reps
-            },
-            "bcm_segment({i}) len={} reps={} disagrees with BCM_SEGMENT_SHAPES {shape:?}",
-            segment.len,
-            segment.reps,
-            shape = FB::BCM_SEGMENT_SHAPES[i % FB::BCM_SEQUENCE_LEN],
-        );
         cache.segments[i] = segment;
     }
 }
