@@ -321,6 +321,8 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
         // `AnyPin` is moved into this struct and consumed, so nothing else
         // can drive it.
         let (_, blank) = unsafe { self.blank.split() };
+        #[cfg(feature = "invert-blank")]
+        let blank = blank.with_output_inverter(true);
 
         i8080
             .with_wrx(self.clock)
@@ -332,7 +334,7 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
             .with_data5(self.latch)
             .with_data6(NoPin)
             .with_data7(NoPin)
-            .with_data8(blank.with_output_inverter(true))
+            .with_data8(blank)
             .with_data9(self.red1)
             .with_data10(self.grn1)
             .with_data11(self.blu1)

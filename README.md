@@ -130,14 +130,22 @@ framebuffer structure.
 - `esp32c6`: Enable support for the ESP32-C6
 - `defmt`: Enable logging with `defmt`
 - `log`: Enable logging with the `log` crate
-- `invert-blank`: Invert the blank signal. This only applies to 8-bit latched
-  configurations (`Hub75Pins8`); in 16-bit direct-drive mode the blank signal is
-  always active-low. Some latch controller boards include a hardware inverter on
-  the blank line; enable this feature to compensate.
+- `invert-blank`: Invert the blank signal in hardware by enabling the GPIO
+  output inverter on the blank pin. Applies to both 8-bit latched
+  (`Hub75Pins8`) and 16-bit direct-drive (`Hub75Pins16`) configurations. Some
+  latch controller boards include a hardware inverter on the blank line; enable
+  this feature to compensate.
 - `invert-clock`: Invert the clock signal. By default the driver outputs data
   that changes on the falling edge of CLK so that it is stable when the panel
   latches on the rising edge. Enable this feature if your panel requires the
   opposite polarity.
+- `invert-oe`: Forwards to the `hub75-framebuffer` crate, inverting the
+  output-enable (OE) signal in the generated data stream. Whereas `invert-blank`
+  inverts the blank pin in hardware, this feature flips the OE polarity at the
+  framebuffer level instead. The two features may seem redundant but are meant
+  to be used together: where the peripheral drives all pins to 0 when a
+  transfer completes, `invert-blank` turns that idle 0 into a 1 (blanked), and
+  `invert-oe` compensates for the now-inverted pin.
 - `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
   transfer instead of one plane per interrupt. This reduces interrupt frequency
   at the cost of more DMA descriptor RAM. Note that the ESP32-C6 PARL_IO

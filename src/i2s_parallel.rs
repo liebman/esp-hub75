@@ -351,23 +351,12 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
         // `AnyPin` is moved into this struct and consumed, so nothing else
         // can drive it.
         let (_, blank) = unsafe { self.blank.split() };
+        #[cfg(feature = "invert-blank")]
+        let blank = blank.with_output_inverter(true);
+
         let pins = TxSixteenBits::new(
-            self.addr0,
-            self.addr1,
-            self.addr2,
-            self.addr3,
-            self.addr4,
-            self.latch,
-            NoPin,
-            NoPin,
-            blank.with_output_inverter(true),
-            self.red1,
-            self.grn1,
-            self.blu1,
-            self.red2,
-            self.grn2,
-            self.blu2,
-            NoPin,
+            self.addr0, self.addr1, self.addr2, self.addr3, self.addr4, self.latch, NoPin, NoPin,
+            blank, self.red1, self.grn1, self.blu1, self.red2, self.grn2, self.blu2, NoPin,
         );
         (pins, self.clock)
     }
@@ -381,18 +370,11 @@ impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
         // `AnyPin` is moved into this struct and consumed, so nothing else
         // can drive it.
         let (_, blank) = unsafe { self.blank.split() };
+        #[cfg(feature = "invert-blank")]
+        let blank = blank.with_output_inverter(true);
+
         let pins = TxEightBits::new(
-            self.red1,
-            self.grn1,
-            self.blu1,
-            self.red2,
-            self.grn2,
-            self.blu2,
-            self.latch,
-            #[cfg(feature = "invert-blank")]
-            blank.with_output_inverter(true),
-            #[cfg(not(feature = "invert-blank"))]
-            blank,
+            self.red1, self.grn1, self.blu1, self.red2, self.grn2, self.blu2, self.latch, blank,
         );
         (pins, self.clock)
     }

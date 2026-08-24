@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   types with an inherent `dma_descriptor_count()` could be used).
 * Compile-time check that a framebuffer's BCM segment count fits the
   driver's segment cache (`MAX_SEGMENTS`).
+* `invert-oe` feature forwarding to `hub75-framebuffer`, inverting the
+  output-enable (OE) signal in the generated data stream.
 
 ### Changed
 
@@ -49,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   chain as required.
 * `MAX_SEGMENTS` raised from 288 to 320 to cover the true worst case
   (32 row-pairs × (8 planes + inter-row gap + trailer)).
+* `invert-blank` now applies to 16-bit direct-drive (`Hub75Pins16`)
+  configurations in addition to 8-bit latched (`Hub75Pins8`); previously the
+  16-bit blank pin was always inverted in hardware.
 
 ## [0.14.0] - 2026-08-02
 

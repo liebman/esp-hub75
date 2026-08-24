@@ -31,7 +31,7 @@ esp-hal = { version = "1.1.0", default-features = false, features = [
 esp-metadata-generated = { version = "0.4.0" }
 log = { version = "0.4.30", optional = true }
 # hub75-framebuffer = { version = "0.11.0" }
-hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", rev = "501a03dfeec4aebf3803610b56ce499efa8feabf" }
+hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", rev = "9de7b9e9e510aabe2255485009cc8ba70c984db5" }
 
 static_cell = { version = "2.1.1" }
 
@@ -71,9 +71,11 @@ log = ["dep:log", "esp-hal/log-04"]
 full-chain-dma = [] 
 # circular descriptor chain, immediate pointer-swap in swap()
 circular-dma = ["full-chain-dma"]
+# these two invert the polarity of the blank and clock signals, respectively, in hardware.
 invert-blank = []
 invert-clock = []
 
+invert-oe = ["hub75-framebuffer/invert-oe"]
 tail-closes-latch = ["hub75-framebuffer/tail-closes-latch"]
 lead-blank-1 = ["hub75-framebuffer/lead-blank-1"]
 lead-blank-2 = ["hub75-framebuffer/lead-blank-2"]
