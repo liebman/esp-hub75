@@ -21,11 +21,11 @@ esp-hub75 = { path = "../..", default-features = false }
 embassy-executor = { version = "0.10.0" }
 embassy-time = { version = "0.5.1" }
 embedded-graphics = { version = "0.8.2" }
-esp-backtrace = { version = "0.19.0", features = ["panic-handler"] }
+esp-backtrace = { version = "0.20.0", features = ["panic-handler"] }
 esp-bootloader-esp-idf = "0.5.0"
-esp-hal = { version = "1.1.0", features = ["unstable"] }
-esp-println = { version = "0.17.0" }
-esp-rtos = { version = "0.3.0", features = ["embassy"] }
+esp-hal = { version = "1.2.0-rc.0", features = ["unstable"] }
+esp-println = { version = "0.18.0" }
+esp-rtos = { version = "0.4.0", features = ["embassy"] }
 heapless = { version = "0.9.3", features = ["ufmt"] }
 static_cell = { version = "2.1.1" }
 

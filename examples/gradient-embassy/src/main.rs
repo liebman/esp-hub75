@@ -45,7 +45,6 @@ use embedded_graphics::text::Text;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
-use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hub75::Color;
@@ -222,10 +221,9 @@ async fn main(spawner: Spawner) {
     info!("FB size: {}", core::mem::size_of::<FBType>());
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
 
     info!("init embassy");
-    esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     info!("init framebuffers");
     let fb0 = mk_static!(FBType, FBType::new());

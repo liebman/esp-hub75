@@ -14,7 +14,6 @@ use esp_hal::dma::EmptyBuf;
 #[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
 use esp_hal::dma::Owner;
 use esp_hal::dma::Preparation;
-use esp_hal::dma::TransferDirection;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
 
@@ -236,7 +235,6 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
     let mut empty = EmptyBuf;
     let mut prep: Preparation = empty.prepare();
     prep.start = descriptors.as_mut_ptr();
-    prep.direction = TransferDirection::Out;
     prep.burst_transfer = BurstConfig::default();
     prep.check_owner = Some(false);
     prep.auto_write_back = false;

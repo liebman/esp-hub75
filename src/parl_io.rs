@@ -29,12 +29,12 @@
 //! ```
 
 use esp_hal::Blocking;
-use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ConfigurePins;
 use esp_hal::parl_io::ParlIo;
+use esp_hal::parl_io::ParlIoDmaChannel;
 use esp_hal::parl_io::ParlIoInterrupt;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
@@ -61,7 +61,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     >(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
-        channel: impl DmaChannelFor<PARL_IO<'static>>,
+        channel: impl ParlIoDmaChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -146,7 +146,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     pub fn new<T: TxPins + ConfigurePins + 'static, P: Hub75Pins<'static, T, Word = FB::Word>>(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
-        channel: impl DmaChannelFor<PARL_IO<'static>>,
+        channel: impl ParlIoDmaChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -189,7 +189,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     >(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
-        channel: impl DmaChannelFor<PARL_IO<'static>>,
+        channel: impl ParlIoDmaChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
