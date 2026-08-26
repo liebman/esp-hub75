@@ -15,116 +15,139 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
 
 env:
-  CARGO_TARGET_DIR: ${{ github.workspace }}/target
   CARGO_TERM_COLOR: always
+  # Compile-time defmt filter. `trace` keeps every log level compiled in so the
+  # arguments of trace!/debug!/info!/warn! are all type-checked (a value with no
+  # `defmt::Format` impl is only a compile error if its level is enabled).
   DEFMT_LOG: trace
+  # espup (used by esp-rs/xtensa-toolchain) queries the GitHub API; provide a
+  # token to avoid transient rate-limit errors.
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  build:
-    name: Build Examples
+  # Clippy the esp-hub75 library across every chip, logging backend, and
+  # DMA-mode feature combination.
+  clippy:
+    name: Clippy lib (${{ matrix.chip }}, ${{ matrix.logging }}${{ matrix.extra }})
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: "-D warnings -C link-arg=-Tlinkall.x -C link-arg=-Tdefmt.x"
     strategy:
       fail-fast: false
       matrix:
-        target: [esp32, esp32s3, esp32c5, esp32c6]
-        features: [log, defmt]
-        extra_features: ["", "full-chain-dma,invert-blank,invert-clock", "circular-dma"]
-        exclude:
-          - target: esp32c5
-            extra_features: "circular-dma"
-          - target: esp32c6
-            extra_features: "circular-dma"
+        chip: [esp32, esp32s3, esp32c5, esp32c6]
+        logging: [log, defmt]
+        # Leading comma keeps the feature list well-formed when empty.
+        extra: ["", ",full-chain-dma,invert-blank,invert-clock", ",circular-dma"]
         include:
-          - target: esp32
+          - chip: esp32
             rust_target: xtensa-esp32-none-elf
-            toolchain: esp
-            example: i2s_parallel
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
-            example: i2s_parallel_latch
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
-            example: hello_i2s_parallel
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
-            example: esp32-trinity
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32
-            rust_target: xtensa-esp32-none-elf
-            toolchain: +esp
-            example: rustacean_i2s
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
+          - chip: esp32s3
             rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
-            example: lcd_cam
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
-            rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
-            example: lcd_cam_latch
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
-            rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
-            example: hello_lcd_cam
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32s3
-            rust_target: xtensa-esp32s3-none-elf
-            toolchain: +esp
-            example: rustacean_lcd_cam
-            cargo_unstable: "-Zbuild-std=core,alloc"
-          - target: esp32c5
+          - chip: esp32c5
             rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
-            example: parl_io_latch
-            cargo_unstable: ""
-          - target: esp32c6
+          - chip: esp32c6
             rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
-            example: parl_io
-            cargo_unstable: ""
-          - target: esp32c6
-            rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
-            example: parl_io_latch
-            cargo_unstable: ""
-          - target: esp32c6
-            rust_target: riscv32imac-unknown-none-elf
-            toolchain: ""
-            example: rustacean_parl_io
-            cargo_unstable: ""
+        exclude:
+          # circular-dma is a compile error on PARL_IO (ESP32-C5/C6).
+          - chip: esp32c5
+            extra: ",circular-dma"
+          - chip: esp32c6
+            extra: ",circular-dma"
     steps:
       - uses: actions/checkout@v4
 
-      # Install the Rust toolchain for Xtensa devices:
-      - name: Install Xtensa toolchain
+      # The `esp` toolchain covers the Xtensa and RISC-V targets and ships
+      # rust-src + clippy, so a single install covers every chip.
+      - name: Install Rust toolchain
         uses: esp-rs/xtensa-toolchain@v1.6
         with:
-          version: 1.88.0.0
-
-      # Install the Rust stable toolchain for RISC-V devices:
-      - name: Install RISC-V toolchain
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          target: riscv32imc-unknown-none-elf,riscv32imac-unknown-none-elf
-          toolchain: stable
-          components: rust-src
+          default: true
+          version: "1.88.0.0"
 
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "ci-${{ matrix.target }}"
           cache-all-crates: true
-  
-      - name: Build examples
-        run: |
-          cargo ${{ matrix.toolchain }} build --target ${{ matrix.rust_target }} --example ${{ matrix.example }} --features "iram,${{ matrix.target }},${{ matrix.features }},${{ matrix.extra_features }}" ${{ matrix.cargo_unstable }}
+          prefix-key: "clippy-lib-${{ matrix.chip }}-${{ matrix.logging }}"
 
+      - name: Run clippy
+        run: |
+          cargo clippy \
+            --target ${{ matrix.rust_target }} \
+            -Zbuild-std=core,alloc \
+            --features "iram,esp-hal-unstable,${{ matrix.chip }},${{ matrix.logging }}${{ matrix.extra }}" \
+            -- -D warnings
+
+  # Clippy every example crate on each board it supports. Driven by the
+  # `clippy-*` aliases each example defines in its own `.cargo/config.toml`
+  # (mirroring `clippy-all.sh`), so new examples/boards are picked up
+  # automatically and unsupported boards are skipped without an exclude list.
+  clippy-examples:
+    name: Clippy examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: esp-rs/xtensa-toolchain@v1.6
+        with:
+          default: true
+          version: "1.88.0.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          prefix-key: "clippy-examples"
+
+      - name: Run clippy
+        run: |
+          for dir in examples/*/; do
+            example="$(basename "$dir")"
+            for alias in clippy-esp32 clippy-esp32s3 clippy-esp32c6 clippy-trinity clippy-esp32c5; do
+              if grep -qE "^[[:space:]]*${alias}[[:space:]]*=" "$dir/.cargo/config.toml"; then
+                board="${alias#clippy-}"
+                echo "=========================================="
+                echo "Clippy: examples/${example} (${board})"
+                echo "=========================================="
+                (cd "$dir" && cargo "$alias" -- -D warnings)
+              fi
+            done
+          done
+
+  # Check the esp-hub75 library formatting.
+  fmt:
+    name: Format lib
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustfmt ships with the esp toolchain; formatting needs no cross-target
+      # build, so a single host install is enough.
+      - name: Install Rust toolchain
+        uses: esp-rs/xtensa-toolchain@v1.6
+        with:
+          default: true
+          version: "1.88.0.0"
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  # Check formatting of every example crate. Examples are independent crates
+  # (not part of a workspace), so each is checked separately; they inherit the
+  # repo-root rustfmt.toml.
+  fmt-examples:
+    name: Format ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [gradient, gradient-embassy, gradient-latched, gradient-quarter, gradient-tiled]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: esp-rs/xtensa-toolchain@v1.6
+        with:
+          default: true
+          version: "1.88.0.0"
+
+      - name: Check formatting
+        run: cargo fmt --all --manifest-path examples/${{ matrix.example }}/Cargo.toml -- --check

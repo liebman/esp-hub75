@@ -1,0 +1,29 @@
+[alias]
+
+# build
+build-esp32      = "build --target xtensa-esp32-none-elf         -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log"
+build-esp32-c    = "build --target xtensa-esp32-none-elf         -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log,circular-dma"
+build-esp32c6    = "build --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c6,esp-hal-unstable,defmt"
+build-esp32c5    = "build --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt"
+build-esp32s3    = "build --target xtensa-esp32s3-none-elf       -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt"
+build-esp32s3-c  = "build --target xtensa-esp32s3-none-elf       -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt,circular-dma"
+
+# clippy
+clippy-esp32     = "clippy --target xtensa-esp32-none-elf        -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,defmt"
+clippy-esp32-c   = "clippy --target xtensa-esp32-none-elf        -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log,circular-dma"
+clippy-esp32c6   = "clippy --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc --features esp32c6,esp-hal-unstable,defmt"
+clippy-esp32c5   = "clippy --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt"
+clippy-esp32s3   = "clippy --target xtensa-esp32s3-none-elf      -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt"
+clippy-esp32s3-c = "clippy --target xtensa-esp32s3-none-elf      -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt,circular-dma"
+
+# doc
+doc-esp32        = "doc --target xtensa-esp32-none-elf           -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log"
+doc-esp32c5      = "doc --target riscv32imac-unknown-none-elf    -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt"
+doc-esp32c6      = "doc --target riscv32imac-unknown-none-elf    -Zbuild-std=core,alloc --features esp32c6,esp-hal-unstable,defmt"
+doc-esp32s3      = "doc --target xtensa-esp32s3-none-elf         -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt"
+
+# udeps
+udeps-esp32      = "udeps --target xtensa-esp32-none-elf         -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log"
+udeps-esp32s3    = "udeps --target xtensa-esp32s3-none-elf       -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt"
+udeps-esp32c5    = "udeps --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt"
+udeps-esp32c6    = "udeps --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c6,esp-hal-unstable,defmt"

@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking
+
+* Removed the deprecated free function
+  `dma_descriptor_count(bcm_chunk_count, bcm_chunk_bytes)` (deprecated since
+  0.7.0). Use the new generic const fn
+  `esp_hub75::dma_descriptor_count::<FB>(MAX_DMA_CHUNK_SIZE)` or the
+  `hub75_dma_descriptors!` macro instead.
+* Requires a `hub75-framebuffer` release exposing
+  `FrameBuffer::BCM_SEGMENT_SHAPES`/`BCM_SEQUENCE_LEN`/`BCM_SEQUENCE_COUNT`.
+
+### Added
+
+* `reverse-row-order` feature (forwards to `hub75-framebuffer`) storing the
+  rows of every framebuffer layout in reverse scan order, so the DMA stream
+  renders the last panel row first and row 0 last. Logical coordinates are
+  unchanged, only the scan order changes.
+* `lead-blank-32` and `trail-blank-32` features extending blanking delay options to 32 pixel-clock cycles.
+* New generic const fn `esp_hub75::dma_descriptor_count::<FB>(max_chunk)`
+  computes the required DMA descriptor count from the framebuffer type's
+  static `FrameBuffer::BCM_SEGMENT_SHAPES`; no framebuffer instance
+  needed, so descriptor tables stay statically allocated.
+* `hub75_dma_descriptors!` now works with any `FrameBuffer` type,
+  including `tiling::RemappedFrameBuffer` (previously only framebuffer
+  types with an inherent `dma_descriptor_count()` could be used).
+* Compile-time check that a framebuffer's BCM segment count fits the
+  driver's segment cache (`MAX_SEGMENTS`).
+* `invert-oe` feature forwarding to `hub75-framebuffer`, inverting the
+  output-enable (OE) signal in the generated data stream.
+
+### Changed
+
+* DMA descriptor sizing moved out of `hub75-framebuffer` into this crate:
+  the framebuffer crate now exposes only the platform-neutral BCM scan
+  sequence; all ESP DMA descriptor logic lives here.
+* `hub75_dma_descriptors!` no longer over-allocates in the default
+  group-based DMA mode: it now allocates only the largest single transfer
+  group's descriptors instead of the whole frame's chain (e.g. 33 instead
+  of 1056 descriptors for a 64×64 row-major 6-plane configuration, saving
+  ~12 KiB of RAM). `full-chain-dma`/`circular-dma` still allocate the full
+  chain as required.
+* `MAX_SEGMENTS` raised from 288 to 320 to cover the true worst case
+  (32 row-pairs × (8 planes + inter-row gap + trailer)).
+* `invert-blank` now applies to 16-bit direct-drive (`Hub75Pins16`)
+  configurations in addition to 8-bit latched (`Hub75Pins8`); previously the
+  16-bit blank pin was always inverted in hardware.
+
 ## [0.14.0] - 2026-08-02
 
 ### ⚠️ Breaking — Major refactor [#49](https://github.com/liebman/esp-hub75/pull/49)
@@ -18,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each call sent one frame via DMA, returned a `Hub75Transfer` (consuming
   `Hub75`), and the display was only alive while the loop ran. Now `new()` /
   `new_async()` take an initial `&'static FB` and start an internal ISR that
-  refreshes the display continuously. To update the image, call `hub75.swap(fb)`
+  refreshes the display continuously. To update the image, call `hub75.swap(fb)?`
   which returns a `Hub75Swap` transfer object; wait on it to reclaim the old
   buffer.
 
@@ -35,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let hub75 = Hub75::new_async(parl_io, pins, channel, tx_descriptors, freq, &*fb0)?;
   loop {
       // ... draw into fb1 ...
-      let mut xfer = hub75.swap(fb1);
+      let mut xfer = hub75.swap(fb1)?;
       xfer.wait_for_done().await;
       fb1 = xfer.wait()?;
   }

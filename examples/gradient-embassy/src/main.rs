@@ -1,33 +1,23 @@
-//! Embassy "async" example driving a 64x64 HUB75 display using the I2S
-//! peripheral of an `esp32` with 16-bit bitplane framebuffer (no latch
-//! circuit).
+//! Embassy (async) HUB75 demo driving a 64×64 panel with a 16-bit bitplane
+//! framebuffer (no latch circuit). See the sibling `gradient` crate for the
+//! blocking, non-embassy variant.
 //!
-//! The ISR handles the entire BCM refresh loop — the async `swap()` method lets
-//! the display task exchange framebuffers without blocking. The display task
-//! runs on the second core via `InterruptExecutor` (kept on core 0's executor
-//! for now due to esp-hal issue #2369).
+//! Select the target board with exactly one of the `esp32`, `esp32s3`,
+//! `esp32c6`, or `esp32-trinity` features (`esp32-trinity` implies `esp32`,
+//! sharing all ESP32-common setup). The framebuffer is the 16-bit
+//! `plain` layout by default; enable the `row` feature to use the row-major
+//! `plain::row` layout instead.
+//!
+//! The ISR runs the BCM refresh loop; the async `swap()` method exchanges
+//! framebuffers without blocking. The display task runs on the same core as
+//! the application (single-core setup).
 //!
 //! This example draws a simple gradient on the display and shows the refresh
-//! rate and render rate plus a simple counter.
-//!
-//! Following pins are used: (ESP-Trinity board)
-//! - R1  => GPIO25
-//! - G1  => GPIO26
-//! - B1  => GPIO27
-//! - R2  => GPIO14
-//! - G2  => GPIO12
-//! - B2  => GPIO13
-//! - A   => GPIO23
-//! - B   => GPIO19
-//! - C   => GPIO5
-//! - D   => GPIO17
-//! - E   => GPIO18
-//! - OE  => GPIO15
-//! - CLK => GPIO16
-//! - LAT => GPIO4
+//! rate, render rate and a simple counter.
 //!
 //! Note that you most likely need level converters 3.3v to 5v for all HUB75
-//! signals
+//! signals.
+
 #![no_std]
 #![no_main]
 #![allow(clippy::uninlined_format_args)]
@@ -40,36 +30,54 @@ use core::sync::atomic::Ordering;
 use defmt::info;
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
-use embassy_executor::task;
 use embassy_executor::Spawner;
+use embassy_executor::task;
 use embassy_time::Duration;
 use embassy_time::Instant;
 use embassy_time::Timer;
+use embedded_graphics::Drawable;
 use embedded_graphics::geometry::Point;
-use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
+use embedded_graphics::mono_font::ascii::FONT_5X7;
 use embedded_graphics::pixelcolor::RgbColor;
 use embedded_graphics::text::Alignment;
 use embedded_graphics::text::Text;
-use embedded_graphics::Drawable;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::interrupt::Priority;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
-use esp_hub75::framebuffer::compute_rows;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
 use esp_hub75::Hub75Pins16;
-use esp_rtos::embassy::InterruptExecutor;
+#[cfg(not(feature = "row"))]
+use esp_hub75::framebuffer::bitplane::plain::DmaFrameBuffer;
+#[cfg(feature = "row")]
+use esp_hub75::framebuffer::bitplane::plain::row::DmaFrameBuffer;
+use esp_hub75::framebuffer::compute_rows;
 use heapless::String;
 #[cfg(feature = "log")]
 use log::info;
 
 esp_bootloader_esp_idf::esp_app_desc!();
+
+// ---- board selection check ----
+// `esp32-trinity` implies `esp32`, so the chip features alone determine
+// exclusivity.
+#[cfg(not(any(feature = "esp32", feature = "esp32s3", feature = "esp32c6")))]
+compile_error!(
+    "no board selected; enable exactly one of: `esp32`, `esp32s3`, `esp32c6`, `esp32-trinity`"
+);
+#[cfg(any(
+    all(feature = "esp32", feature = "esp32s3"),
+    all(feature = "esp32", feature = "esp32c6"),
+    all(feature = "esp32s3", feature = "esp32c6")
+))]
+compile_error!(
+    "multiple board features enabled; enable exactly one of: `esp32`, `esp32s3`, `esp32c6`, \
+     `esp32-trinity`"
+);
 
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
@@ -86,7 +94,14 @@ static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
+
+// esp32c6 can only do 5 planes without the row feature
+// this is due to limitations on the length of a transfer in the PARL_IO
+// peripheral
+#[cfg(all(feature = "esp32c6", not(feature = "row")))]
 const PLANES: usize = 5;
+#[cfg(any(not(feature = "esp32c6"), feature = "row"))]
+const PLANES: usize = 6;
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;
@@ -169,7 +184,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         .draw(fb)
         .unwrap();
 
-        let mut xfer = hub75.swap(fb);
+        let mut xfer = hub75.swap(fb).expect("swap already in flight");
         xfer.wait_for_done().await;
         fb = xfer.wait().expect("DMA transfer failed");
 
@@ -192,39 +207,95 @@ unsafe extern "C" {
 }
 
 #[esp_rtos::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     #[cfg(feature = "log")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
     info!("Main starting!");
+    info!("main: stack size:  {}", unsafe {
+        core::ptr::addr_of!(_stack_start_cpu0).offset_from(core::ptr::addr_of!(_stack_end_cpu0))
+    });
     info!("ROWS: {}", ROWS);
     info!("COLS: {}", COLS);
     info!("PLANES: {}", PLANES);
     info!("FB size: {}", core::mem::size_of::<FBType>());
-    info!("main: stack size:  {}", unsafe {
-        core::ptr::addr_of!(_stack_start_cpu0).offset_from(core::ptr::addr_of!(_stack_end_cpu0))
-    });
-
-    let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    let software_interrupt = sw_ints.software_interrupt2;
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
 
     info!("init embassy");
     esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
 
     info!("init framebuffers");
     let fb0 = mk_static!(FBType, FBType::new());
-    fb0.erase();
     let fb1 = mk_static!(FBType, FBType::new());
-    fb1.erase();
 
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);
 
     let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
+    info!(
+        "DMA descriptors: {} ({} bytes)",
+        tx_descriptors.len(),
+        core::mem::size_of_val(tx_descriptors)
+    );
 
+    #[cfg(feature = "esp32c6")]
+    let pins = Hub75Pins16 {
+        red1: peripherals.GPIO19.degrade(),
+        grn1: peripherals.GPIO20.degrade(),
+        blu1: peripherals.GPIO21.degrade(),
+        red2: peripherals.GPIO22.degrade(),
+        grn2: peripherals.GPIO23.degrade(),
+        blu2: peripherals.GPIO15.degrade(),
+        addr0: peripherals.GPIO10.degrade(),
+        addr1: peripherals.GPIO8.degrade(),
+        addr2: peripherals.GPIO1.degrade(),
+        addr3: peripherals.GPIO0.degrade(),
+        addr4: peripherals.GPIO11.degrade(),
+        blank: peripherals.GPIO5.degrade(),
+        clock: peripherals.GPIO7.degrade(),
+        latch: peripherals.GPIO6.degrade(),
+    };
+
+    #[cfg(feature = "esp32s3")]
+    let pins = Hub75Pins16 {
+        red1: peripherals.GPIO38.degrade(),
+        grn1: peripherals.GPIO42.degrade(),
+        blu1: peripherals.GPIO48.degrade(),
+        red2: peripherals.GPIO47.degrade(),
+        grn2: peripherals.GPIO2.degrade(),
+        blu2: peripherals.GPIO21.degrade(),
+        addr0: peripherals.GPIO14.degrade(),
+        addr1: peripherals.GPIO46.degrade(),
+        addr2: peripherals.GPIO13.degrade(),
+        addr3: peripherals.GPIO9.degrade(),
+        addr4: peripherals.GPIO3.degrade(),
+        blank: peripherals.GPIO11.degrade(),
+        clock: peripherals.GPIO12.degrade(),
+        latch: peripherals.GPIO10.degrade(),
+    };
+
+    #[cfg(all(feature = "esp32", not(feature = "esp32-trinity")))]
+    let pins = Hub75Pins16 {
+        red1: peripherals.GPIO16.degrade(),
+        grn1: peripherals.GPIO4.degrade(),
+        blu1: peripherals.GPIO17.degrade(),
+        red2: peripherals.GPIO18.degrade(),
+        grn2: peripherals.GPIO5.degrade(),
+        blu2: peripherals.GPIO19.degrade(),
+        addr0: peripherals.GPIO15.degrade(),
+        addr1: peripherals.GPIO13.degrade(),
+        addr2: peripherals.GPIO12.degrade(),
+        addr3: peripherals.GPIO14.degrade(),
+        addr4: peripherals.GPIO2.degrade(),
+        blank: peripherals.GPIO25.degrade(),
+        clock: peripherals.GPIO27.degrade(),
+        latch: peripherals.GPIO26.degrade(),
+    };
+
+    #[cfg(feature = "esp32-trinity")]
     let pins = Hub75Pins16 {
         red1: peripherals.GPIO25.degrade(),
         grn1: peripherals.GPIO26.degrade(),
@@ -242,37 +313,49 @@ async fn main(_spawner: Spawner) {
         latch: peripherals.GPIO4.degrade(),
     };
 
+    #[cfg(all(feature = "20mhz", not(feature = "esp32")))]
+    let rate = Rate::from_mhz(20);
+    #[cfg(all(feature = "20mhz", feature = "esp32"))]
+    let rate = Rate::from_mhz(19);
+    #[cfg(not(feature = "20mhz"))]
+    let rate = Rate::from_mhz(10);
+
+    #[cfg(feature = "esp32c6")]
+    let hub75 = Hub75::new_async(
+        peripherals.PARL_IO,
+        pins,
+        peripherals.DMA_CH0,
+        tx_descriptors,
+        rate,
+        &*fb0,
+    )
+    .expect("failed to create Hub75");
+
+    #[cfg(feature = "esp32s3")]
+    let hub75 = Hub75::new_async(
+        peripherals.LCD_CAM,
+        pins,
+        peripherals.DMA_CH0,
+        tx_descriptors,
+        rate,
+        &*fb0,
+    )
+    .expect("failed to create Hub75");
+
+    // `esp32-trinity` implies `esp32`, so both ESP32 boards share the I2S0
+    // peripheral path.
+    #[cfg(feature = "esp32")]
     let hub75 = Hub75::new_async(
         peripherals.I2S0,
         pins,
         peripherals.DMA_I2S0,
         tx_descriptors,
-        Rate::from_mhz(10),
+        rate,
         &*fb0,
     )
     .expect("failed to create Hub75");
 
-    let cpu1_fnctn = {
-        move || {
-            let hp_executor = mk_static!(
-                InterruptExecutor<2>,
-                InterruptExecutor::new(software_interrupt)
-            );
-            let high_pri_spawner = hp_executor.start(Priority::Priority3);
-            high_pri_spawner.spawn(display_task(hub75, fb1).unwrap());
-        }
-    };
-
-    use esp_hal::system::Stack;
-    const DISPLAY_STACK_SIZE: usize = 8192;
-    let app_core_stack = mk_static!(Stack<DISPLAY_STACK_SIZE>, Stack::new());
-
-    esp_rtos::start_second_core(
-        peripherals.CPU_CTRL,
-        sw_ints.software_interrupt1,
-        app_core_stack,
-        cpu1_fnctn,
-    );
+    spawner.spawn(display_task(hub75, fb1).unwrap());
 
     loop {
         if SIMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) >= 99999 {

@@ -1,9 +1,8 @@
-//! HUB75 driver for LCD_CAM peripherals (ESP32-S3).
+//! HUB75 driver for `LCD_CAM` peripherals (ESP32-S3).
 //!
-//! This module provides an interrupt-driven display controller that
-//! continuously refreshes a HUB75 panel from a framebuffer. The LCD_CAM
-//! `lcd_trans_done` interrupt drives the entire BCM (Binary Code Modulation)
-//! refresh loop. Buffer swaps happen atomically at frame boundaries.
+//! The `lcd_trans_done` interrupt runs the BCM (Binary Code Modulation)
+//! refresh loop, so the panel keeps scanning out the current framebuffer on
+//! its own. Buffer swaps take effect at frame boundaries.
 //!
 //! # Blocking example
 //!
@@ -13,7 +12,7 @@
 //!     tx_descriptors, Rate::from_mhz(20), &*fb,
 //! ).expect("failed to create Hub75");
 //!
-//! // Display refreshes automatically — main thread is free.
+//! // Display refreshes on its own; the main thread is free.
 //! loop { core::hint::spin_loop(); }
 //! ```
 //!
@@ -25,36 +24,38 @@
 //!     tx_descriptors, Rate::from_mhz(20), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
-//! // Swap buffers — yields to the executor, returns Err on DMA failure.
-//! let old_fb = hub75.swap(fb1).wait().expect("DMA error");
+//! // Swap buffers: yields to the executor, returns Err on DMA failure.
+//! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
+use esp_hal::Blocking;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
-use esp_hal::lcd_cam::lcd::i8080;
-use esp_hal::lcd_cam::lcd::i8080::I8080;
+use esp_hal::lcd_cam::LcdCam;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::ClockMode;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::Phase;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::Polarity;
-use esp_hal::lcd_cam::LcdCam;
+use esp_hal::lcd_cam::lcd::i8080;
+#[cfg(feature = "circular-dma")]
+use esp_hal::lcd_cam::lcd::i8080::Command;
+use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
-use esp_hal::Blocking;
 
-#[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
-#[cfg(feature = "circular-dma")]
-use crate::bcm::circular::CircularBcmBuf;
-use crate::framebuffer::WordSize;
-pub use crate::isr::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
-use crate::Hub75Pins16;
 use crate::Hub75Pins8;
+use crate::Hub75Pins16;
+#[cfg(feature = "circular-dma")]
+use crate::bcm::circular::CircularBcmBuf;
+#[cfg(not(feature = "circular-dma"))]
+use crate::bcm::linear::BcmBuf;
+use crate::framebuffer::WordSize;
+pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -65,11 +66,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl TxChannelFor<LCD_CAM<'static>> + crate::GdmaChannelNum,
+        channel: impl TxChannelFor<LCD_CAM<'static>>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
+
         let word_size = hub75_pins.word_size();
 
         let mut lcd_cam_dev = LcdCam::new(lcd_cam);
@@ -88,11 +91,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
         let i8080 = hub75_pins.apply(i8080);
 
-        // SAFETY: The LCD_CAM peripheral is already owned by the `I8080`
-        // driver constructed above. We `steal()` a second handle solely to
-        // set the `lcd_trans_done` interrupt-enable bit, which the esp-hal
-        // I8080 driver does not expose. This runs during init before the ISR
-        // is active, so there is no data race.
+        // SAFETY: The `I8080` driver above owns the LCD_CAM peripheral. We
+        // steal a second handle only to set the `lcd_trans_done`
+        // interrupt-enable bit, which esp-hal doesn't expose. The ISR isn't
+        // active yet, so no data race.
         unsafe {
             let stolen = LCD_CAM::steal();
             stolen
@@ -119,6 +121,9 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         frequency: Rate,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
+        crate::bcm::validate_fb_internal_ram(fb);
+
         let word_size = hub75_pins.word_size();
 
         let ch_num = channel.channel_num();
@@ -138,12 +143,11 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
         let i8080 = hub75_pins.apply(i8080);
 
-        let buf = CircularBcmBuf::new(tx_descriptors, fb);
+        let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
-        let fb_ptr = fb as *const _ as *const ();
+        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
-        use esp_hal::lcd_cam::lcd::i8080::Command;
         let xfer = match word_size {
             WordSize::Eight => i8080.send(Command::<u8>::None, 0, buf),
             WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, buf),
@@ -155,8 +159,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // In circular mode, the LCD_CAM `lcd_trans_done` interrupt never
         // fires because the DMA chain loops forever and continuous output
         // mode never ends. Instead we use the GDMA channel's `out_eof`
-        // interrupt which fires whenever a descriptor with `suc_eof=1` is
-        // encountered — even in a circular chain.
+        // interrupt, which fires whenever a descriptor with `suc_eof=1` is
+        // encountered, even in a circular chain.
         setup_gdma_frame_count_isr(ch_num);
 
         Ok(Self::from_phantom())
@@ -174,14 +178,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 // consumed by the I8080 driver.
 
 #[cfg(feature = "circular-dma")]
-static GDMA_CHANNEL_NUM: core::sync::atomic::AtomicU8 =
-    core::sync::atomic::AtomicU8::new(0);
+static GDMA_CHANNEL_NUM: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 #[cfg(feature = "circular-dma")]
 fn clear_gdma_out_eof() {
     let ch = GDMA_CHANNEL_NUM.load(core::sync::atomic::Ordering::Relaxed) as usize;
-    // SAFETY: We only write to the interrupt-clear register for the channel
-    // we own. This is a write-1-to-clear register so writing to it is safe.
+    // SAFETY: We only write the interrupt-clear register of the channel we
+    // own, and it's write-1-to-clear, so the write can't disturb other state.
     unsafe {
         let dma = esp_hal::peripherals::DMA::steal();
         dma.register_block()
@@ -210,7 +213,7 @@ fn setup_gdma_frame_count_isr(ch_num: u8) {
     esp_hal::interrupt::bind_handler(interrupt, crate::isr::hub75_frame_count_isr);
 
     // SAFETY: The DMA peripheral is already in use (the transfer is running).
-    // We steal a PAC handle solely to enable the `out_eof` interrupt on the
+    // We steal a PAC handle only to enable the `out_eof` interrupt on the
     // channel we own.
     unsafe {
         let dma = esp_hal::peripherals::DMA::steal();
@@ -227,22 +230,28 @@ fn setup_gdma_frame_count_isr(ch_num: u8) {
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// Create a new blocking HUB75 driver.
     ///
-    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
     /// framebuffer.
     ///
     /// The pin configuration's word type must match the framebuffer's word
-    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
     /// # Arguments
-    /// * `lcd_cam` -- The LCD_CAM peripheral instance
+    /// * `lcd_cam` -- The `LCD_CAM` peripheral instance
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- LCD_CAM clock rate
+    /// * `frequency` -- `LCD_CAM` clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`],
+    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`](crate::Hub75Error::I8080)
+    /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
@@ -260,22 +269,28 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// Create a new async HUB75 driver.
     ///
-    /// Configures the LCD_CAM peripheral, applies pin assignments, and
+    /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
     /// framebuffer.
     ///
     /// The pin configuration's word type must match the framebuffer's word
-    /// type — passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
     /// # Arguments
-    /// * `lcd_cam` -- The LCD_CAM peripheral instance
+    /// * `lcd_cam` -- The `LCD_CAM` peripheral instance
     /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- LCD_CAM clock rate
+    /// * `frequency` -- `LCD_CAM` clock rate
     /// * `fb` -- Initial framebuffer to display
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`],
+    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`](crate::Hub75Error::I8080)
+    /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(
@@ -302,9 +317,12 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
     }
 
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
-        // SAFETY: We only use the output signal half. The original `AnyPin` is
-        // consumed by the enclosing struct move, so there is no aliased access.
+        // SAFETY: we keep only the output half of the pin; the original
+        // `AnyPin` is moved into this struct and consumed, so nothing else
+        // can drive it.
         let (_, blank) = unsafe { self.blank.split() };
+        #[cfg(feature = "invert-blank")]
+        let blank = blank.with_output_inverter(true);
 
         i8080
             .with_wrx(self.clock)
@@ -316,7 +334,7 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
             .with_data5(self.latch)
             .with_data6(NoPin)
             .with_data7(NoPin)
-            .with_data8(blank.with_output_inverter(true))
+            .with_data8(blank)
             .with_data9(self.red1)
             .with_data10(self.grn1)
             .with_data11(self.blu1)
@@ -335,15 +353,13 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
     }
 
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
-        // SAFETY: We only use the output signal half of each pin. The original
-        // `AnyPin` values are consumed by the enclosing struct move, so there
-        // is no aliased access.
+        // SAFETY: we keep only the output half of each pin; the originals
+        // are moved into this struct and consumed, so nothing else can
+        // drive them.
         let (_, blank) = unsafe { self.blank.split() };
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
-        // SAFETY: We only use the output signal half of each pin. The original
-        // `AnyPin` values are consumed by the enclosing struct move, so there
-        // is no aliased access.
+        // SAFETY: same split as `blank` above; output half only.
         let (_, clock) = unsafe { self.clock.split() };
         #[cfg(feature = "invert-clock")]
         let clock = clock.with_output_inverter(true);

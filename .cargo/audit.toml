@@ -1,0 +1,5 @@
+[advisories]
+ignore = [
+    # paste crate is no longer maintained
+    "RUSTSEC-2024-0436",
+]
