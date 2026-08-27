@@ -347,10 +347,7 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     type Word = u16;
 
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
-        // SAFETY: we keep only the output half of the pin; the original
-        // `AnyPin` is moved into this struct and consumed, so nothing else
-        // can drive it.
-        let (_, blank) = unsafe { self.blank.split() };
+        let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
 
@@ -366,10 +363,7 @@ impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     type Word = u8;
 
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
-        // SAFETY: we keep only the output half of the pin; the original
-        // `AnyPin` is moved into this struct and consumed, so nothing else
-        // can drive it.
-        let (_, blank) = unsafe { self.blank.split() };
+        let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
 
