@@ -94,16 +94,16 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, config)?;
 
-        // SAFETY: The driver above owns the PARL_IO peripheral. We steal a
-        // PAC handle only to set the `tx_eof_gen_sel` bit, so the DMA EOF
+        // SAFETY: The driver above owns the PARL_IO peripheral. We steal it
+        // only to set the `tx_eof_gen_sel` bit, so the DMA EOF
         // signal comes from the GDMA channel rather than the peripheral's
         // byte counter; esp-hal doesn't expose this register. The ISR isn't
         // active yet, so no data race.
         #[cfg(esp32c5)]
         unsafe {
-            use esp32c5 as pac;
-            let pio = pac::PARL_IO::steal();
-            pio.tx_genrl_cfg()
+            esp_hal::peripherals::PARL_IO::steal()
+                .register_block()
+                .tx_genrl_cfg()
                 .modify(|_, w| w.tx_eof_gen_sel().set_bit());
         }
 
@@ -214,10 +214,7 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     type Word = u16;
 
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
-        // SAFETY: we keep only the output half of the pin; the original
-        // `AnyPin` is moved into this struct and consumed, so nothing else
-        // can drive it.
-        let (_, blank) = unsafe { self.blank.split() };
+        let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
 
@@ -233,10 +230,7 @@ impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     type Word = u8;
 
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
-        // SAFETY: we keep only the output half of the pin; the original
-        // `AnyPin` is moved into this struct and consumed, so nothing else
-        // can drive it.
-        let (_, blank) = unsafe { self.blank.split() };
+        let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
         let blank = blank.with_output_inverter(true);
 
