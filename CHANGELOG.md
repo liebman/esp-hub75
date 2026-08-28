@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking
+
+* Removed the `I2sHub75Instance` trait. `Hub75::new` and `Hub75::new_async`
+  now use the `i2s::parallel::Instance` trait of esp-hal for the ESP32 (I2S
+  parallel) backend. Code with `I2S0` or `I2S1` needs no changes.
+
+* The ESP32 (I2S parallel) backend now uses the public interrupt API of
+  `I2sParallel` (`set_interrupt_handler`, `listen`,
+  `I2sParallelTransfer::clear_interrupts`). The old code used `steal()` and
+  wrote the `int_ena` and `int_clr` registers. The new code does not use
+  `steal()`. It removes 6 `unsafe` blocks. This needs the esp-hal change in
+  `../esp-hal` (upstream request #1 in `esp-hal.md`). All example crates now
+  use the local esp-hal tree.
+
 ## [0.16.0] - 2026-09-02
 
 ### Changed

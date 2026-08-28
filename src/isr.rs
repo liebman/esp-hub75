@@ -109,8 +109,13 @@ static ISR_STATE: SharedIsrState = Mutex::new(RefCell::new(None));
 
 #[cfg(feature = "circular-dma")]
 pub(crate) struct CircularState {
-    // kept alive to prevent DMA from stopping
-    pub(crate) _transfer: Option<TxTransfer>,
+    // The driver keeps this transfer in the state. Without it, the DMA
+    // stops. The I2S backend  also uses the transfer to clear the
+    // `out_eof` flag (see `clear_frame_interrupt`). The LCD_CAM backend
+    // does not read the field. It only keeps the transfer alive. This
+    // allow stops the dead-code warning on the S3.
+    #[cfg_attr(hub75_use_lcd_cam, allow(dead_code))]
+    pub(crate) transfer: Option<TxTransfer>,
     pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
     pub(crate) desc_count: usize,
     pub(crate) current_fb_ptr: *const (),
@@ -144,7 +149,16 @@ static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 
-#[cfg(feature = "circular-dma")]
+/// The frame-count ISR uses this function  to clear the interrupt
+/// flag. Only the ESP32-S3 (`LCD_CAM`) backend  stores a function here.
+///
+/// The frame interrupt of the S3 comes from the GDMA channel, not from the
+/// `LCD_CAM` peripheral. esp-hal does not give the code control of that
+/// interrupt yet (see `esp-hal.md` §3). The stored function uses
+/// `DMA::steal()` to clear the flag. The ESP32 (I2S) backend stores no
+/// function. It clears the flag through the stored transfer (see
+/// `clear_frame_interrupt`).
+#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
 #[allow(clippy::type_complexity)]
 static CLEAR_INTERRUPT: Mutex<RefCell<Option<fn()>>> = Mutex::new(RefCell::new(None));
 
@@ -290,18 +304,48 @@ pub(crate) fn hub75_isr() {
 #[cfg_attr(feature = "iram", ram)]
 pub(crate) fn hub75_frame_count_isr() {
     critical_section::with(|cs| {
+        // The DMA is now at a frame boundary. It starts the chain again
+        // . It sends only data from the new buffer now. Clear the flag.
+        // The next `swap()` can then start.
+        if let Some(state) = CIRCULAR_STATE.borrow_ref_mut(cs).as_mut() {
+            clear_frame_interrupt(cs, state);
+            state.swap_in_flight = false;
+        }
+        FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+        signal_swap_done(cs);
+    });
+}
+
+/// This function clears the frame interrupt flag. It does this for the
+/// circular-DMA backend  that the chip uses.
+///
+/// Borrow `state` from `CIRCULAR_STATE` before this function runs. Hold
+/// the critical section while this function runs.
+#[cfg(feature = "circular-dma")]
+fn clear_frame_interrupt(cs: critical_section::CriticalSection, state: &mut CircularState) {
+    // ESP32 (I2S): the transfer clears its own `out_eof` flag. esp-hal
+    // supplies `I2sParallelTransfer::clear_interrupts` for this. You do not
+    // need `steal()` here (esp-hal.md §1).
+    #[cfg(hub75_use_i2s_parallel)]
+    {
+        let _ = cs; // The I2S branch does not use `cs`.
+        if let Some(xfer) = state.transfer.as_mut() {
+            use esp_hal::i2s::parallel::I2sParallelInterrupt;
+            xfer.clear_interrupts(I2sParallelInterrupt::Eof);
+        }
+    }
+
+    // ESP32-S3 (LCD_CAM): the frame interrupt comes from the GDMA channel.
+    // esp-hal does not give the code control of this interrupt yet
+    // (esp-hal.md §3). The stored function  uses `DMA::steal()` to
+    // clear the flag.
+    #[cfg(hub75_use_lcd_cam)]
+    {
+        let _ = state;
         if let Some(clear) = CLEAR_INTERRUPT.borrow_ref(cs).as_ref() {
             (clear)();
         }
-        FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-        // A frame boundary has passed — the DMA has completed one full pass
-        // and is reading exclusively from the new buffer. Clear the flag so
-        // the next `swap()` is permitted.
-        if let Some(state) = CIRCULAR_STATE.borrow_ref_mut(cs).as_mut() {
-            state.swap_in_flight = false;
-        }
-        signal_swap_done(cs);
-    });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +391,7 @@ pub(crate) fn store_circular_state(
 ) {
     critical_section::with(|cs| {
         *CIRCULAR_STATE.borrow_ref_mut(cs) = Some(CircularState {
-            _transfer: Some(xfer),
+            transfer: Some(xfer),
             descriptors: desc_ptr,
             desc_count,
             current_fb_ptr: fb_ptr,
@@ -356,7 +400,7 @@ pub(crate) fn store_circular_state(
     });
 }
 
-#[cfg(feature = "circular-dma")]
+#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
 pub(crate) fn store_clear_interrupt(clear: fn()) {
     critical_section::with(|cs| {
         *CLEAR_INTERRUPT.borrow_ref_mut(cs) = Some(clear);
@@ -814,9 +858,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             // An ISR triggered on a pre-update EOF would incorrectly attribute
             // the boundary to the new buffer and prematurely release the old
             // framebuffer while DMA may still be reading from it.
-            if let Some(clear) = CLEAR_INTERRUPT.borrow_ref(cs).as_ref() {
-                (clear)();
-            }
+            clear_frame_interrupt(cs, state);
             let old_ptr = state.current_fb_ptr;
             state.current_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Release);

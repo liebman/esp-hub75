@@ -22,7 +22,7 @@ embassy-executor = { version = "0.10.0" }
 embassy-time = { version = "0.5.1" }
 embedded-graphics = { version = "0.8.2" }
 esp-backtrace = { version = "0.20.0", features = ["panic-handler"] }
-esp-bootloader-esp-idf = "0.5.0"
+esp-bootloader-esp-idf = "0.6.0"
 esp-hal = { version = "1.2.0", features = ["unstable"] }
 esp-println = { version = "0.18.0" }
 esp-rtos = { version = "0.4.0", features = ["embassy"] }
@@ -119,8 +119,25 @@ inter-row-blank-32 = ["esp-hub75/inter-row-blank-32"]
 reverse-row-order = ["esp-hub75/reverse-row-order"]
 esp-hal-unstable = ["esp-hub75/esp-hal-unstable"]
 
-# [patch.crates-io]
-# hub75-framebuffer = { path = "../../../hub75-framebuffer" }
-
 # [patch."https://github.com/liebman/hub75-framebuffer.git"]
 # hub75-framebuffer = { path = "../../../hub75-framebuffer" }
+
+[patch.crates-io]
+# hub75-framebuffer = { path = "../../../hub75-framebuffer" }
+
+# esp-backtrace = { path = "../../../esp-hal/esp-backtrace" }
+# esp-hal = { path = "../../../esp-hal/esp-hal" }
+# esp-rtos = { path = "../../../esp-hal/esp-rtos" }
+# esp-println = { path = "../../../esp-hal/esp-println" }
+# esp-riscv-rt = { path = "../../../esp-hal/esp-riscv-rt" }
+# xtensa-lx-rt = { path = "../../../esp-hal/xtensa-lx-rt" }
+# esp-rom-sys = { path = "../../../esp-hal/esp-rom-sys" }
+
+esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+esp-rtos = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+esp-riscv-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+xtensa-lx-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+esp-rom-sys = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }
+esp-storage = { git = "https://github.com/esp-rs/esp-hal.git", rev = "c9240a08b35cb6bfab7eff8cf336cb2797d07946" }

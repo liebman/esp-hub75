@@ -1,8 +1,10 @@
 //! HUB75 driver for I2S Parallel peripherals (ESP32).
 //!
-//! The I2S DMA `out_total_eof` interrupt runs the BCM (Binary Code
-//! Modulation) refresh loop, so the panel keeps scanning out the current
-//! framebuffer on its own. Buffer swaps take effect at frame boundaries.
+//! The I2S DMA `out_total_eof` interrupt runs the BCM loop . In
+//! circular-DMA mode, the per-descriptor `out_eof` interrupt runs the
+//! loop. The loop sends the framebuffer data to the panel again and
+//! again. The panel shows the current framebuffer by itself. A buffer
+//! swap starts at a frame boundary.
 //!
 //! # Blocking example
 //!
@@ -34,10 +36,11 @@ use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::I2sParallel;
 use esp_hal::i2s::parallel::I2sParallelDmaChannel;
+use esp_hal::i2s::parallel::I2sParallelInterrupt;
+use esp_hal::i2s::parallel::Instance;
 use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
-use esp_hal::peripherals::Interrupt;
 use esp_hal::time::Rate;
 
 use crate::Hub75Error;
@@ -51,118 +54,6 @@ use crate::bcm::linear::BcmBuf;
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
-// I2S instance trait: maps concrete peripherals to their interrupt and
-// register block for enabling `out_total_eof`.
-// ---------------------------------------------------------------------------
-
-/// Interrupt binding and `out_total_eof` setup for I2S0 and I2S1.
-///
-/// You never implement or call this directly; just pass `peripherals.I2S0`
-/// or `peripherals.I2S1` to the constructor.
-pub trait I2sHub75Instance: esp_hal::i2s::parallel::Instance {
-    #[doc(hidden)]
-    fn bind_and_enable_isr();
-
-    #[doc(hidden)]
-    fn clear_interrupt();
-}
-
-impl I2sHub75Instance for esp_hal::peripherals::I2S0<'_> {
-    fn bind_and_enable_isr() {
-        // SAFETY: `I2sParallel::new` has consumed the I2S0 peripheral. We
-        // steal a second handle only to flip the interrupt-enable bit, which
-        // esp-hal's I2S driver doesn't expose. The ISR isn't active yet, so
-        // no data race.
-        #[cfg(not(feature = "circular-dma"))]
-        unsafe {
-            esp_hal::interrupt::bind_handler(Interrupt::I2S0, crate::isr::hub75_isr);
-            let stolen = esp_hal::peripherals::I2S0::steal();
-            let reg = stolen.register_block();
-            reg.int_ena().modify(|_, w| w.out_total_eof().set_bit());
-        }
-        #[cfg(feature = "circular-dma")]
-        unsafe {
-            esp_hal::interrupt::bind_handler(Interrupt::I2S0, crate::isr::hub75_frame_count_isr);
-            let stolen = esp_hal::peripherals::I2S0::steal();
-            let reg = stolen.register_block();
-            // Use `out_eof` (per-descriptor EOF) rather than
-            // `out_total_eof` because, in a circular DMA chain, the
-            // transfer never ends, so `out_total_eof` never fires. The
-            // per-descriptor `out_eof` fires whenever a descriptor with
-            // `suc_eof=1` is encountered, even when `next` points back
-            // to the ring start. This has been hardware-tested and
-            // confirmed working on ESP32 classic (I2S LCD mode).
-            //
-            // TODO: esp-hal's I2S parallel driver only uses
-            // `out_total_eof` internally; exposing a way to use
-            // per-descriptor `out_eof` for circular chains (or at least
-            // documenting the register-level workaround) would let us
-            // drop this PAC-level register manipulation.
-            reg.int_ena().modify(|_, w| w.out_eof().set_bit());
-        }
-    }
-
-    fn clear_interrupt() {
-        unsafe {
-            let stolen = esp_hal::peripherals::I2S0::steal();
-            let reg = stolen.register_block();
-            #[cfg(not(feature = "circular-dma"))]
-            reg.int_clr()
-                .write(|w| w.out_total_eof().clear_bit_by_one());
-            #[cfg(feature = "circular-dma")]
-            reg.int_clr().write(|w| w.out_eof().clear_bit_by_one());
-        }
-    }
-}
-
-impl I2sHub75Instance for esp_hal::peripherals::I2S1<'_> {
-    fn bind_and_enable_isr() {
-        // SAFETY: Same justification as I2S0 above: we only touch the
-        // interrupt-enable bit, which the esp-hal driver doesn't contest,
-        // and this runs during init.
-        #[cfg(not(feature = "circular-dma"))]
-        unsafe {
-            esp_hal::interrupt::bind_handler(Interrupt::I2S1, crate::isr::hub75_isr);
-            let stolen = esp_hal::peripherals::I2S1::steal();
-            let reg = stolen.register_block();
-            reg.int_ena().modify(|_, w| w.out_total_eof().set_bit());
-        }
-        #[cfg(feature = "circular-dma")]
-        unsafe {
-            esp_hal::interrupt::bind_handler(Interrupt::I2S1, crate::isr::hub75_frame_count_isr);
-            let stolen = esp_hal::peripherals::I2S1::steal();
-            let reg = stolen.register_block();
-            // Use `out_eof` (per-descriptor EOF) rather than
-            // `out_total_eof` because, in a circular DMA chain, the
-            // transfer never ends, so `out_total_eof` never fires. The
-            // per-descriptor `out_eof` fires whenever a descriptor with
-            // `suc_eof=1` is encountered, even when `next` points back
-            // to the ring start. This has been hardware-tested and
-            // confirmed working on ESP32 classic (I2S LCD mode).
-            //
-            // TODO: esp-hal's I2S parallel driver only uses
-            // `out_total_eof` internally; exposing a way to use
-            // per-descriptor `out_eof` for circular chains (or at least
-            // documenting the register-level workaround) would let us
-            // drop this PAC-level register manipulation.
-            reg.int_ena().modify(|_, w| w.out_eof().set_bit());
-        }
-    }
-
-    fn clear_interrupt() {
-        unsafe {
-            let stolen = esp_hal::peripherals::I2S1::steal();
-            let reg = stolen.register_block();
-            #[cfg(not(feature = "circular-dma"))]
-            reg.int_clr()
-                .write(|w| w.out_total_eof().clear_bit_by_one());
-            #[cfg(feature = "circular-dma")]
-            reg.int_clr().write(|w| w.out_eof().clear_bit_by_one());
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 
@@ -171,7 +62,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
-        I: I2sHub75Instance + 'static,
+        I: Instance + 'static,
     >(
         i2s: I,
         hub75_pins: P,
@@ -191,11 +82,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-clock"))]
         let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
 
-        let i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
+        let mut i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
 
-        // Bind our ISR and enable the interrupt so we get notified on each
-        // DMA transfer completion.
-        I::bind_and_enable_isr();
+        // This connects `hub75_isr` to the interrupt and turns on the
+        // `out_total_eof` source. The `out_total_eof` interrupt occurs when
+        // the DMA finishes the full DMA descriptor chain.
+        i2s_parallel.set_interrupt_handler(crate::isr::hub75_isr);
+        i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(i2s_parallel, buf);
@@ -210,7 +103,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
-        I: I2sHub75Instance + 'static,
+        I: Instance + 'static,
     >(
         i2s: I,
         hub75_pins: P,
@@ -231,11 +124,17 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-clock"))]
         let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
 
-        let i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
+        let mut i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
 
-        // Bind the frame-count ISR if enabled; otherwise the DMA runs
-        // silently with no interrupts.
-        I::bind_and_enable_isr();
+        // This connects `hub75_frame_count_isr` to the interrupt and turns
+        // on the per-descriptor `out_eof` source. The `out_eof` interrupt
+        // occurs each time the DMA finds a descriptor with `suc_eof=1`.
+        // This is also true for a circular chain , where `next` points
+        // back to the start of the chain. We checked this on the hardware
+        // (ESP32 classic, I2S LCD mode). `out_total_eof` never occurs on a
+        // circular chain, because the transfer never ends.
+        i2s_parallel.set_interrupt_handler(crate::isr::hub75_frame_count_isr);
+        i2s_parallel.listen(I2sParallelInterrupt::Eof);
 
         let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
@@ -247,8 +146,6 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
         crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
-
-        crate::isr::store_clear_interrupt(I::clear_interrupt);
 
         Ok(Self::from_phantom())
     }
@@ -283,7 +180,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     pub fn new<
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
-        I: I2sHub75Instance + 'static,
+        I: Instance + 'static,
     >(
         i2s: I,
         hub75_pins: P,
@@ -325,7 +222,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     pub fn new_async<
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
-        I: I2sHub75Instance + 'static,
+        I: Instance + 'static,
     >(
         i2s: I,
         hub75_pins: P,
