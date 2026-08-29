@@ -13,6 +13,8 @@ use core::task::Waker;
 
 use critical_section::Mutex;
 use esp_hal::Blocking;
+#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
+use esp_hal::dma::DmaTxInterrupt;
 use esp_hal::handler;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
@@ -144,7 +146,7 @@ static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 
-#[cfg(feature = "circular-dma")]
+#[cfg(all(feature = "circular-dma", hub75_use_i2s_parallel))]
 #[allow(clippy::type_complexity)]
 static CLEAR_INTERRUPT: Mutex<RefCell<Option<fn()>>> = Mutex::new(RefCell::new(None));
 
@@ -290,6 +292,8 @@ pub(crate) fn hub75_isr() {
 #[cfg_attr(feature = "iram", ram)]
 pub(crate) fn hub75_frame_count_isr() {
     critical_section::with(|cs| {
+        // ESP32 (I2S): the clear closure is registered by the constructor.
+        #[cfg(hub75_use_i2s_parallel)]
         if let Some(clear) = CLEAR_INTERRUPT.borrow_ref(cs).as_ref() {
             (clear)();
         }
@@ -298,6 +302,12 @@ pub(crate) fn hub75_frame_count_isr() {
         // and is reading exclusively from the new buffer. Clear the flag so
         // the next `swap()` is permitted.
         if let Some(state) = CIRCULAR_STATE.borrow_ref_mut(cs).as_mut() {
+            // ESP32-S3 (LCD_CAM): clear the frame-boundary source through
+            // the transfer kept alive in the driver state.
+            #[cfg(hub75_use_lcd_cam)]
+            if let Some(transfer) = state._transfer.as_ref() {
+                transfer.clear_interrupts_dma(DmaTxInterrupt::Eof);
+            }
             state.swap_in_flight = false;
         }
         signal_swap_done(cs);
@@ -353,10 +363,26 @@ pub(crate) fn store_circular_state(
             current_fb_ptr: fb_ptr,
             swap_in_flight: false,
         });
+
+        // ESP32-S3 (LCD_CAM) only: the DMA chain started in `send()` before
+        // the transfer was stored here, so an `out_eof` may have latched
+        // while the source was disabled (the enable bit only gates the CPU
+        // interrupt; the raw status bit still latches). Drain it now, then
+        // enable the source. From this point on, every interrupt can be
+        // serviced through the transfer stored in this state, and none can
+        // fire before that was the case.
+        #[cfg(hub75_use_lcd_cam)]
+        {
+            let mut state_ref = CIRCULAR_STATE.borrow_ref_mut(cs);
+            let state = state_ref.as_mut().expect("just stored");
+            let transfer = state._transfer.as_ref().expect("transfer kept alive");
+            transfer.clear_interrupts_dma(DmaTxInterrupt::Eof);
+            transfer.listen_dma(DmaTxInterrupt::Eof);
+        }
     });
 }
 
-#[cfg(feature = "circular-dma")]
+#[cfg(all(feature = "circular-dma", hub75_use_i2s_parallel))]
 pub(crate) fn store_clear_interrupt(clear: fn()) {
     critical_section::with(|cs| {
         *CLEAR_INTERRUPT.borrow_ref_mut(cs) = Some(clear);
@@ -814,8 +840,13 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             // An ISR triggered on a pre-update EOF would incorrectly attribute
             // the boundary to the new buffer and prematurely release the old
             // framebuffer while DMA may still be reading from it.
+            #[cfg(hub75_use_i2s_parallel)]
             if let Some(clear) = CLEAR_INTERRUPT.borrow_ref(cs).as_ref() {
                 (clear)();
+            }
+            #[cfg(hub75_use_lcd_cam)]
+            if let Some(transfer) = state._transfer.as_ref() {
+                transfer.clear_interrupts_dma(DmaTxInterrupt::Eof);
             }
             let old_ptr = state.current_fb_ptr;
             state.current_fb_ptr = new_fb_ptr as *const ();

@@ -124,3 +124,29 @@ esp-hal-unstable = ["esp-hub75/esp-hal-unstable"]
 
 # [patch."https://github.com/liebman/hub75-framebuffer.git"]
 # hub75-framebuffer = { path = "../../../hub75-framebuffer" }
+
+# esp-backtrace = { path = "../../../esp-hal/esp-backtrace" }
+# esp-hal = { path = "../../../esp-hal/esp-hal" }
+# esp-println = { path = "../../../esp-hal/esp-println" }
+# esp-riscv-rt = { path = "../../../esp-hal/esp-riscv-rt" }
+# xtensa-lx-rt = { path = "../../../esp-hal/xtensa-lx-rt" }
+# esp-rom-sys = { path = "../../../esp-hal/esp-rom-sys" }
+
+[patch.crates-io]
+# esp-backtrace = { path = "../../../esp-hal/esp-backtrace" }
+# esp-hal = { path = "../../../esp-hal/esp-hal" }
+# esp-println = { path = "../../../esp-hal/esp-println" }
+# esp-riscv-rt = { path = "../../../esp-hal/esp-riscv-rt" }
+# xtensa-lx-rt = { path = "../../../esp-hal/xtensa-lx-rt" }
+# esp-rom-sys = { path = "../../../esp-hal/esp-rom-sys" }
+# # needed so the registry `esp-rtos` dep unifies with the fork's `esp-sync`
+# # (which receives the chip features forwarded by `esp-hal`)
+# esp-sync = { path = "../../../esp-hal/esp-sync" }
+
+esp-backtrace = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-hal = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-println = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-riscv-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+xtensa-lx-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-rom-sys = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-sync = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
