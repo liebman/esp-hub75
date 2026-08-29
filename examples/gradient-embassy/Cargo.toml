@@ -119,25 +119,35 @@ inter-row-blank-32 = ["esp-hub75/inter-row-blank-32"]
 reverse-row-order = ["esp-hub75/reverse-row-order"]
 esp-hal-unstable = ["esp-hub75/esp-hal-unstable"]
 
-# [patch."https://github.com/liebman/hub75-framebuffer.git"]
+# [patch.crates-io]
 # hub75-framebuffer = { path = "../../../hub75-framebuffer" }
 
-[patch.crates-io]
+# [patch."https://github.com/liebman/hub75-framebuffer.git"]
 # hub75-framebuffer = { path = "../../../hub75-framebuffer" }
 
 # esp-backtrace = { path = "../../../esp-hal/esp-backtrace" }
 # esp-hal = { path = "../../../esp-hal/esp-hal" }
-# esp-rtos = { path = "../../../esp-hal/esp-rtos" }
 # esp-println = { path = "../../../esp-hal/esp-println" }
 # esp-riscv-rt = { path = "../../../esp-hal/esp-riscv-rt" }
 # xtensa-lx-rt = { path = "../../../esp-hal/xtensa-lx-rt" }
 # esp-rom-sys = { path = "../../../esp-hal/esp-rom-sys" }
 
-esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-rtos = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-riscv-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-xtensa-lx-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-rom-sys = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-storage = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
+[patch.crates-io]
+# esp-backtrace = { path = "../../../esp-hal/esp-backtrace" }
+# esp-hal = { path = "../../../esp-hal/esp-hal" }
+# esp-println = { path = "../../../esp-hal/esp-println" }
+# esp-riscv-rt = { path = "../../../esp-hal/esp-riscv-rt" }
+# xtensa-lx-rt = { path = "../../../esp-hal/xtensa-lx-rt" }
+# esp-rom-sys = { path = "../../../esp-hal/esp-rom-sys" }
+# # needed so the registry `esp-rtos` dep unifies with the fork's `esp-sync`
+# # (which receives the chip features forwarded by `esp-hal`)
+# esp-sync = { path = "../../../esp-hal/esp-sync" }
+
+esp-backtrace = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-hal = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-println = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-riscv-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+xtensa-lx-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-rom-sys = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-storage = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-sync = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }

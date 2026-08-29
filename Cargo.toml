@@ -102,16 +102,17 @@ cargo-args = ["-Z", "build-std=core"]
 # [patch."https://github.com/liebman/hub75-framebuffer.git"]
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
 
-[patch.crates-io]
+# [patch.crates-io]
 # hub75-framebuffer = { path = "../hub75-framebuffer" }
 # hub75-framebuffer = { git = "https://github.com/liebman/hub75-framebuffer.git", branch = "inter-row-blank" }
 
+[patch.crates-io]
 # esp-hal = { path = "../esp-hal/esp-hal" }
 # esp-riscv-rt = { path = "../esp-hal/esp-riscv-rt" }
 # xtensa-lx-rt = { path = "../esp-hal/xtensa-lx-rt" }
 # esp-rom-sys = { path = "../esp-hal/esp-rom-sys" }
 
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-riscv-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-xtensa-lx-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
-esp-rom-sys = { git = "https://github.com/esp-rs/esp-hal.git", rev = "526d4bb68f144b0e4384afcbb1d36bf0f94f7cdc" }
+esp-hal = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-riscv-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+xtensa-lx-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }
+esp-rom-sys = { git = "https://github.com/liebman/esp-hal.git", branch = "i8080-interrupts" }

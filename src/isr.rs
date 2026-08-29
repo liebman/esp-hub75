@@ -13,6 +13,8 @@ use core::task::Waker;
 
 use critical_section::Mutex;
 use esp_hal::Blocking;
+#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
+use esp_hal::dma::DmaTxInterrupt;
 use esp_hal::handler;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
@@ -64,6 +66,45 @@ pub(crate) type TxTransfer =
     esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, CircularBcmBuf, Blocking>;
 
 // ---------------------------------------------------------------------------
+// Frame-boundary interrupt handling (circular-dma only)
+// ---------------------------------------------------------------------------
+
+/// Clears the frame-boundary DMA interrupt (`out_eof`) through the transfer
+/// kept alive in [`CircularState`], so no `DMA::steal()` or stored closure is
+/// needed on any backend.
+#[cfg(feature = "circular-dma")]
+pub(crate) trait FrameInterrupt {
+    /// Clear a pending `out_eof` flag. Called from the frame-count ISR and
+    /// from `swap()` to drain EOFs latched before the buffer pointer update.
+    fn clear_frame_interrupt(&self);
+
+    /// Enable the `out_eof` source. Called once from `store_circular_state`,
+    /// after the transfer is stored and a latched EOF was drained. Only
+    /// backends that start the DMA engine before the transfer is stored need
+    /// to enable the source here; the rest listen in the constructor.
+    fn listen_frame_interrupt(&self) {}
+}
+
+#[cfg(all(feature = "circular-dma", hub75_use_i2s_parallel))]
+impl FrameInterrupt for TxTransfer {
+    fn clear_frame_interrupt(&self) {
+        use esp_hal::i2s::parallel::I2sParallelInterrupt;
+        self.clear_interrupts(I2sParallelInterrupt::Eof);
+    }
+}
+
+#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
+impl FrameInterrupt for TxTransfer {
+    fn clear_frame_interrupt(&self) {
+        self.clear_interrupts_dma(DmaTxInterrupt::Eof);
+    }
+
+    fn listen_frame_interrupt(&self) {
+        self.listen_dma(DmaTxInterrupt::Eof);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ISR shared state
 // ---------------------------------------------------------------------------
 
@@ -109,12 +150,9 @@ static ISR_STATE: SharedIsrState = Mutex::new(RefCell::new(None));
 
 #[cfg(feature = "circular-dma")]
 pub(crate) struct CircularState {
-    // The driver keeps this transfer in the state. Without it, the DMA
-    // stops. The I2S backend  also uses the transfer to clear the
-    // `out_eof` flag (see `clear_frame_interrupt`). The LCD_CAM backend
-    // does not read the field. It only keeps the transfer alive. This
-    // allow stops the dead-code warning on the S3.
-    #[cfg_attr(hub75_use_lcd_cam, allow(dead_code))]
+    // Kept alive to prevent the DMA from stopping. Both backends also use
+    // the stored transfer to clear the frame-boundary `out_eof` flag (see
+    // `FrameInterrupt` and `clear_frame_interrupt`).
     pub(crate) transfer: Option<TxTransfer>,
     pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
     pub(crate) desc_count: usize,
@@ -148,19 +186,6 @@ static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
-
-/// The frame-count ISR uses this function  to clear the interrupt
-/// flag. Only the ESP32-S3 (`LCD_CAM`) backend  stores a function here.
-///
-/// The frame interrupt of the S3 comes from the GDMA channel, not from the
-/// `LCD_CAM` peripheral. esp-hal does not give the code control of that
-/// interrupt yet (see `esp-hal.md` §3). The stored function uses
-/// `DMA::steal()` to clear the flag. The ESP32 (I2S) backend stores no
-/// function. It clears the flag through the stored transfer (see
-/// `clear_frame_interrupt`).
-#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
-#[allow(clippy::type_complexity)]
-static CLEAR_INTERRUPT: Mutex<RefCell<Option<fn()>>> = Mutex::new(RefCell::new(None));
 
 fn signal_swap_done(cs: critical_section::CriticalSection) {
     SWAP_DONE.store(true, Ordering::Release);
@@ -305,7 +330,7 @@ pub(crate) fn hub75_isr() {
 pub(crate) fn hub75_frame_count_isr() {
     critical_section::with(|cs| {
         // The DMA is now at a frame boundary. It starts the chain again
-        // . It sends only data from the new buffer now. Clear the flag.
+        // and sends only data from the new buffer now. Clear the flag.
         // The next `swap()` can then start.
         if let Some(state) = CIRCULAR_STATE.borrow_ref_mut(cs).as_mut() {
             clear_frame_interrupt(cs, state);
@@ -317,34 +342,18 @@ pub(crate) fn hub75_frame_count_isr() {
 }
 
 /// This function clears the frame interrupt flag. It does this for the
-/// circular-DMA backend  that the chip uses.
+/// circular-DMA backend that the chip uses.
 ///
 /// Borrow `state` from `CIRCULAR_STATE` before this function runs. Hold
 /// the critical section while this function runs.
 #[cfg(feature = "circular-dma")]
 fn clear_frame_interrupt(cs: critical_section::CriticalSection, state: &mut CircularState) {
-    // ESP32 (I2S): the transfer clears its own `out_eof` flag. esp-hal
-    // supplies `I2sParallelTransfer::clear_interrupts` for this. You do not
-    // need `steal()` here (esp-hal.md §1).
-    #[cfg(hub75_use_i2s_parallel)]
-    {
-        let _ = cs; // The I2S branch does not use `cs`.
-        if let Some(xfer) = state.transfer.as_mut() {
-            use esp_hal::i2s::parallel::I2sParallelInterrupt;
-            xfer.clear_interrupts(I2sParallelInterrupt::Eof);
-        }
-    }
-
-    // ESP32-S3 (LCD_CAM): the frame interrupt comes from the GDMA channel.
-    // esp-hal does not give the code control of this interrupt yet
-    // (esp-hal.md §3). The stored function  uses `DMA::steal()` to
-    // clear the flag.
-    #[cfg(hub75_use_lcd_cam)]
-    {
-        let _ = state;
-        if let Some(clear) = CLEAR_INTERRUPT.borrow_ref(cs).as_ref() {
-            (clear)();
-        }
+    // The clear goes through the transfer stored in the driver state. Each
+    // target implements `FrameInterrupt` for its `TxTransfer` type, so no
+    // `DMA::steal()` is needed on any backend.
+    let _ = cs;
+    if let Some(xfer) = state.transfer.as_ref() {
+        xfer.clear_frame_interrupt();
     }
 }
 
@@ -397,13 +406,21 @@ pub(crate) fn store_circular_state(
             current_fb_ptr: fb_ptr,
             swap_in_flight: false,
         });
-    });
-}
 
-#[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
-pub(crate) fn store_clear_interrupt(clear: fn()) {
-    critical_section::with(|cs| {
-        *CLEAR_INTERRUPT.borrow_ref_mut(cs) = Some(clear);
+        // ESP32-S3 (LCD_CAM) only: the DMA chain started in `send()` before
+        // the transfer was stored here, so an `out_eof` may have latched
+        // while the source was disabled (the enable bit only gates the CPU
+        // interrupt; the raw status bit still latches). Drain it now, then
+        // enable the source. From this point on, every interrupt can be
+        // serviced through the transfer stored in this state, and none can
+        // fire before that was the case.
+        {
+            let mut state_ref = CIRCULAR_STATE.borrow_ref_mut(cs);
+            let state = state_ref.as_mut().expect("just stored");
+            let transfer = state.transfer.as_ref().expect("transfer kept alive");
+            transfer.clear_frame_interrupt();
+            transfer.listen_frame_interrupt();
+        }
     });
 }
 
