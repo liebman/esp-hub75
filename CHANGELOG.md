@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking
+
+* Removed the `GdmaChannelNum` trait. The S3 backend now binds and enables its
+  interrupts through the new `esp-hal` `I8080` interrupt API
+  (`set_interrupt_handler` / `set_dma_interrupt_handler` / `listen` /
+  `listen_dma`), so the DMA channel number is no longer needed. This requires
+  an `esp-hal` build that includes the `I8080` interrupt API.
+
 ## [0.16.0] - 2026-09-02
 
 ### Changed

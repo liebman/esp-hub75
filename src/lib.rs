@@ -429,53 +429,6 @@ pub trait Hub75Pins<'d, T> {
     fn convert_pins(self) -> (T, AnyPin<'d>);
 }
 
-// ---------------------------------------------------------------------------
-// GDMA channel number trait (ESP32-S3 / C6 / C5)
-// ---------------------------------------------------------------------------
-
-/// Maps a DMA channel singleton to its numeric index so the driver can
-/// configure GDMA interrupts without scanning registers at runtime.
-///
-/// Implemented for every `DMA_CHn` type exported by `esp-hal`. You never
-/// name this trait directly; it is satisfied implicitly when passing a DMA
-/// channel peripheral to [`Hub75::new`].
-#[cfg(any(esp32s3, esp32c6, esp32c5))]
-pub trait GdmaChannelNum {
-    /// Returns the zero-based GDMA channel index (0, 1, 2, …).
-    fn channel_num(&self) -> u8;
-}
-
-#[cfg(any(esp32s3, esp32c6, esp32c5))]
-impl GdmaChannelNum for esp_hal::peripherals::DMA_CH0<'_> {
-    fn channel_num(&self) -> u8 {
-        0
-    }
-}
-#[cfg(any(esp32s3, esp32c6, esp32c5))]
-impl GdmaChannelNum for esp_hal::peripherals::DMA_CH1<'_> {
-    fn channel_num(&self) -> u8 {
-        1
-    }
-}
-#[cfg(any(esp32s3, esp32c6, esp32c5))]
-impl GdmaChannelNum for esp_hal::peripherals::DMA_CH2<'_> {
-    fn channel_num(&self) -> u8 {
-        2
-    }
-}
-#[cfg(esp32s3)]
-impl GdmaChannelNum for esp_hal::peripherals::DMA_CH3<'_> {
-    fn channel_num(&self) -> u8 {
-        3
-    }
-}
-#[cfg(esp32s3)]
-impl GdmaChannelNum for esp_hal::peripherals::DMA_CH4<'_> {
-    fn channel_num(&self) -> u8 {
-        4
-    }
-}
-
 /// Errors returned by the HUB75 driver.
 ///
 /// Wraps the `esp-hal` DMA, buffer, and peripheral errors in one type.
