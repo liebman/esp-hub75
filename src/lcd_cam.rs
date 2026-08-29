@@ -97,7 +97,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // flag before starting the LCD, so the ISR cannot fire before the
         // ISR state is initialised below.
         i8080.set_interrupt_handler(crate::isr::hub75_isr);
-        i8080.listen(I8080Interrupt::LcdTransDone);
+        i8080.listen(I8080Interrupt::TransDone);
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(i8080, buf, word_size);
