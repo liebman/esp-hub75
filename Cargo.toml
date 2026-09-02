@@ -9,7 +9,7 @@ edition = "2024"
 version = "0.15.0"
 authors = ["liebman <liebman@zod.com>"]
 license = "MIT OR Apache-2.0"
-rust-version = "1.88"
+rust-version = "1.95"
 
 [profile.dev]
 debug = true    # Symbols are nice and they don't increase the size on Flash
@@ -22,17 +22,17 @@ opt-level = "s"
 [dependencies]
 defmt = { version = "1.1.0", optional = true }
 critical-section = "1"
-esp-hal = { version = "1.1.0", default-features = false, features = [
+esp-hal = { version = "1.2.0", default-features = false, features = [
     "requires-unstable",
 ] }
-esp-metadata-generated = { version = "0.4.0" }
+esp-metadata-generated = { version = "0.5.0" }
 log = { version = "0.4.30", optional = true }
 hub75-framebuffer = { version = "0.12.0" }
 
 static_cell = { version = "2.1.1" }
 
 [build-dependencies]
-esp-metadata-generated = { version = "0.4.0", features = ["build-script"] }
+esp-metadata-generated = { version = "0.5.0", features = ["build-script"] }
 
 [features]
 default = []
@@ -62,7 +62,7 @@ defmt = [
 ]
 log = ["dep:log", "esp-hal/log-04"]
 # full BCM chain per DMA transfer (fewer ISRs, more RAM, C6 plane limit)
-full-chain-dma = [] 
+full-chain-dma = []
 # circular descriptor chain, immediate pointer-swap in swap()
 circular-dma = ["full-chain-dma"]
 # these two invert the polarity of the blank and clock signals, respectively, in hardware.

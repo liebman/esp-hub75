@@ -61,7 +61,7 @@ jobs:
         uses: esp-rs/xtensa-toolchain@v1.6
         with:
           default: true
-          version: "1.88.0.0"
+          version: "1.95.0.0"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -90,7 +90,7 @@ jobs:
         uses: esp-rs/xtensa-toolchain@v1.6
         with:
           default: true
-          version: "1.88.0.0"
+          version: "1.95.0.0"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -125,7 +125,7 @@ jobs:
         uses: esp-rs/xtensa-toolchain@v1.6
         with:
           default: true
-          version: "1.88.0.0"
+          version: "1.95.0.0"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -147,7 +147,7 @@ jobs:
         uses: esp-rs/xtensa-toolchain@v1.6
         with:
           default: true
-          version: "1.88.0.0"
+          version: "1.95.0.0"
 
       - name: Check formatting
         run: cargo fmt --all --manifest-path examples/${{ matrix.example }}/Cargo.toml -- --check

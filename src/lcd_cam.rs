@@ -30,9 +30,9 @@
 
 use esp_hal::Blocking;
 use esp_hal::dma::DmaDescriptor;
-use esp_hal::dma::TxChannelFor;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::LcdCam;
+use esp_hal::lcd_cam::LcdDmaTxChannel;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::ClockMode;
 #[cfg(feature = "invert-clock")]
@@ -66,7 +66,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl TxChannelFor<LCD_CAM<'static>>,
+        channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -116,7 +116,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl TxChannelFor<LCD_CAM<'static>> + crate::GdmaChannelNum,
+        channel: impl LcdDmaTxChannel<'static> + crate::GdmaChannelNum,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -257,7 +257,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl TxChannelFor<LCD_CAM<'static>> + crate::GdmaChannelNum,
+        channel: impl LcdDmaTxChannel<'static> + crate::GdmaChannelNum,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -296,7 +296,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl TxChannelFor<LCD_CAM<'static>> + crate::GdmaChannelNum,
+        channel: impl LcdDmaTxChannel<'static> + crate::GdmaChannelNum,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,

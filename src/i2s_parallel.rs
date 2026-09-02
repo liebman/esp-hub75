@@ -29,12 +29,11 @@
 //! ```
 
 use esp_hal::Blocking;
-use esp_hal::dma::DmaChannelFor;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
-use esp_hal::i2s::AnyI2s;
 use esp_hal::i2s::parallel::I2sParallel;
+use esp_hal::i2s::parallel::I2sParallelDmaChannel;
 use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
@@ -176,7 +175,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     >(
         i2s: I,
         hub75_pins: P,
-        channel: impl DmaChannelFor<AnyI2s<'static>>,
+        channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -215,7 +214,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     >(
         i2s: I,
         hub75_pins: P,
-        channel: impl DmaChannelFor<AnyI2s<'static>>,
+        channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -288,7 +287,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     >(
         i2s: I,
         hub75_pins: P,
-        channel: impl DmaChannelFor<AnyI2s<'static>>,
+        channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -330,7 +329,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     >(
         i2s: I,
         hub75_pins: P,
-        channel: impl DmaChannelFor<AnyI2s<'static>>,
+        channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
