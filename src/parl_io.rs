@@ -38,6 +38,8 @@ use esp_hal::parl_io::ParlIoDmaChannel;
 use esp_hal::parl_io::ParlIoInterrupt;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
+#[cfg(esp32c5)]
+use esp_hal::parl_io::TxEofSource;
 use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
 use esp_hal::time::Rate;
@@ -91,21 +93,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .with_sample_edge(sample_edge)
             .with_bit_order(BitPackOrder::Msb);
 
+        // On the C5 the TX EOF must come from the DMA channel rather than the
+        // peripheral's bit-length counter, or the refresh-loop ISR never fires.
+        #[cfg(esp32c5)]
+        let config = config.with_eof_source(TxEofSource::DmaEof);
+
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, config)?;
-
-        // SAFETY: The driver above owns the PARL_IO peripheral. We steal it
-        // only to set the `tx_eof_gen_sel` bit, so the DMA EOF
-        // signal comes from the GDMA channel rather than the peripheral's
-        // byte counter; esp-hal doesn't expose this register. The ISR isn't
-        // active yet, so no data race.
-        #[cfg(esp32c5)]
-        unsafe {
-            esp_hal::peripherals::PARL_IO::steal()
-                .register_block()
-                .tx_genrl_cfg()
-                .modify(|_, w| w.tx_eof_gen_sel().set_bit());
-        }
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(parl_io_tx, buf);
