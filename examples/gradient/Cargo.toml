@@ -134,10 +134,10 @@ esp-hal-unstable = ["esp-hub75/esp-hal-unstable"]
 # xtensa-lx-rt = { path = "../../../esp-hal/xtensa-lx-rt" }
 # esp-rom-sys = { path = "../../../esp-hal/esp-rom-sys" }
 
-esp-backtrace = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
-esp-println = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
-esp-riscv-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
-xtensa-lx-rt = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
-esp-rom-sys = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
-esp-storage = { git = "https://github.com/esp-rs/esp-hal.git", rev = "88887f13b94f4d02fc12d19ae14e78fdd2ab1f45" }
+esp-backtrace = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }
+esp-hal = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }
+esp-println = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }
+esp-riscv-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }
+xtensa-lx-rt = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }
+esp-rom-sys = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }
+esp-storage = { git = "https://github.com/liebman/esp-hal.git", branch = "parl_io-interrupts" }

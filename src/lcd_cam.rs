@@ -9,7 +9,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
 //!     peripherals.LCD_CAM, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb,
+//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb,
 //! ).expect("failed to create Hub75");
 //!
 //! // Display refreshes on its own; the main thread is free.
@@ -21,7 +21,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
 //!     peripherals.LCD_CAM, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb0,
+//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
 //! // Swap buffers: yields to the executor, returns Err on DMA failure.
@@ -46,8 +46,8 @@ use esp_hal::lcd_cam::lcd::i8080::I8080;
 #[cfg(not(feature = "circular-dma"))]
 use esp_hal::lcd_cam::lcd::i8080::I8080Interrupt;
 use esp_hal::peripherals::LCD_CAM;
-use esp_hal::time::Rate;
 
+use crate::Hub75Config;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
@@ -70,7 +70,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
@@ -79,8 +79,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let lcd_cam_dev = LcdCam::new(lcd_cam);
 
-        let config = {
-            let c = i8080::Config::default().with_frequency(frequency);
+        let lcd_config = {
+            let c = i8080::Config::default().with_frequency(config.frequency);
             #[cfg(feature = "invert-clock")]
             let c = c.with_clock_mode(ClockMode {
                 polarity: Polarity::IdleLow,
@@ -89,7 +89,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             c
         };
 
-        let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
+        let i8080 = I8080::new(lcd_cam_dev.lcd, channel, lcd_config).map_err(Hub75Error::I8080)?;
         let mut i8080 = hub75_pins.apply(i8080);
 
         // Bind the BCM refresh ISR to the LCD_CAM interrupt and enable the
@@ -114,7 +114,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
@@ -124,8 +124,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let lcd_cam_dev = LcdCam::new(lcd_cam);
 
-        let config = {
-            let c = i8080::Config::default().with_frequency(frequency);
+        let lcd_config = {
+            let c = i8080::Config::default().with_frequency(config.frequency);
             #[cfg(feature = "invert-clock")]
             let c = c.with_clock_mode(ClockMode {
                 polarity: Polarity::IdleLow,
@@ -134,7 +134,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             c
         };
 
-        let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
+        let i8080 = I8080::new(lcd_cam_dev.lcd, channel, lcd_config).map_err(Hub75Error::I8080)?;
         let mut i8080 = hub75_pins.apply(i8080);
 
         // In circular mode, the LCD_CAM `lcd_trans_done` interrupt never
@@ -164,7 +164,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         }
         .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
+        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr, config.frame_counter);
 
         Ok(Self::from_phantom())
     }
@@ -187,7 +187,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- `LCD_CAM` clock rate
+    /// * `config` -- `LCD_CAM` clock rate
     /// * `fb` -- Initial framebuffer to display
     /// # Errors
     ///
@@ -202,10 +202,10 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, config, fb)
     }
 }
 
@@ -226,7 +226,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- `LCD_CAM` clock rate
+    /// * `config` -- `LCD_CAM` clock rate
     /// * `fb` -- Initial framebuffer to display
     /// # Errors
     ///
@@ -241,10 +241,10 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, config, fb)
     }
 }
 

@@ -16,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`set_interrupt_handler` / `set_dma_interrupt_handler` / `listen` /
   `listen_dma`), so the DMA channel number is no longer needed. This requires
   an `esp-hal` build that includes the `I8080` interrupt API.
+* The `Hub75::new` / `Hub75::new_async` constructors now take a
+  [`Hub75Config`] instead of a bare `Rate`. Use `Hub75Config::new(rate)` to
+  preserve the previous behavior.
+
+### Added
+
+* `circular-dma` support for ESP32-C5 (PARL_IO). The circular chain carries no
+  `suc_eof` (a `suc_eof` descriptor terminates the PARL_IO transfer); a swap
+  arms the boundary detector (`suc_eof` on the last descriptor + the
+  `PARL_IO` `TxEof` interrupt), the ISR applies the pending buffer delta at
+  the pass boundary and restarts the halted transfer. Requires the local
+  `esp-hal` with the PARL_IO transfer interrupt API.
+* `Hub75Config::frame_counter` (circular-DMA mode): when `false`, no
+  interrupts are enabled in steady state on any backend — the detector is
+  armed only around a swap and disarmed again. When `true` (default), the
+  frame-count ISR runs every frame as before; `frame_count()` then reports
+  real frame counts, otherwise completed swaps.
+* In circular-DMA mode the swap delta is now applied by the ISR at the pass
+  boundary instead of immediately in `swap()`, eliminating the mid-frame
+  tear the previous implementation could produce.
+
 
 ## [0.16.0] - 2026-09-02
 

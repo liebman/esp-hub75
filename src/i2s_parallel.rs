@@ -11,7 +11,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
 //!     peripherals.I2S0, pins, peripherals.DMA_I2S0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb,
+//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb,
 //! ).expect("failed to create Hub75");
 //!
 //! // Display refreshes on its own; the main thread is free.
@@ -23,7 +23,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
 //!     peripherals.I2S0, pins, peripherals.DMA_I2S0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb0,
+//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
 //! // Swap buffers: yields to the executor, returns Err on DMA failure.
@@ -41,8 +41,8 @@ use esp_hal::i2s::parallel::Instance;
 use esp_hal::i2s::parallel::TxEightBits;
 use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
-use esp_hal::time::Rate;
 
+use crate::Hub75Config;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
@@ -68,7 +68,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
@@ -82,7 +82,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-clock"))]
         let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
 
-        let mut i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
+        let mut i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
 
         // This connects `hub75_isr` to the interrupt and turns on the
         // `out_total_eof` source. The `out_total_eof` interrupt occurs when
@@ -109,7 +109,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
@@ -124,7 +124,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-clock"))]
         let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
 
-        let mut i2s_parallel = I2sParallel::new(i2s, channel, frequency, pins, clock_pin);
+        let mut i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
 
         // This connects `hub75_frame_count_isr` to the interrupt and turns
         // on the per-descriptor `out_eof` source. The `out_eof` interrupt
@@ -145,7 +145,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .send(buf)
             .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
+        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr, config.frame_counter);
 
         Ok(Self::from_phantom())
     }
@@ -168,7 +168,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// * `channel` -- DMA channel (`DMA_I2S0` or `DMA_I2S1`)
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- I2S clock rate
+    /// * `config` -- I2S clock rate
     /// * `fb` -- Initial framebuffer to display
     /// # Errors
     ///
@@ -186,10 +186,10 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, config, fb)
     }
 }
 
@@ -210,7 +210,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// * `channel` -- DMA channel (`DMA_I2S0` or `DMA_I2S1`)
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- I2S clock rate
+    /// * `config` -- I2S clock rate
     /// * `fb` -- Initial framebuffer to display
     /// # Errors
     ///
@@ -228,10 +228,10 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, config, fb)
     }
 }
 

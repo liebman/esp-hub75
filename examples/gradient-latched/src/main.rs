@@ -47,6 +47,7 @@ use esp_hal::time::Instant;
 use esp_hal::time::Rate;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
+use esp_hub75::Hub75Config;
 use esp_hub75::Hub75Pins8;
 #[cfg(not(feature = "row"))]
 use esp_hub75::framebuffer::bitplane::latched::DmaFrameBuffer;
@@ -213,7 +214,7 @@ fn main() -> ! {
         pins,
         peripherals.DMA_I2S1,
         tx_descriptors,
-        rate,
+        Hub75Config::new(rate),
         &*fb0,
     )
     .expect("failed to create Hub75");
@@ -224,7 +225,7 @@ fn main() -> ! {
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
-        rate,
+        Hub75Config::new(rate),
         &*fb0,
     )
     .expect("failed to create Hub75");
@@ -235,7 +236,7 @@ fn main() -> ! {
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
-        rate,
+        Hub75Config::new(rate),
         &*fb0,
     )
     .expect("failed to create Hub75");

@@ -9,7 +9,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb,
+//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb,
 //! ).expect("failed to create Hub75");
 //!
 //! // Display refreshes on its own; the main thread is free.
@@ -21,7 +21,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb0,
+//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
 //! // Swap buffers: yields to the executor, returns Err on DMA failure.
@@ -35,6 +35,7 @@ use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ConfigurePins;
 use esp_hal::parl_io::ParlIo;
 use esp_hal::parl_io::ParlIoDmaChannel;
+#[cfg(not(feature = "circular-dma"))]
 use esp_hal::parl_io::ParlIoInterrupt;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
@@ -42,21 +43,27 @@ use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxEofSource;
 use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
-use esp_hal::time::Rate;
 
+use crate::Hub75Config;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 #[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
+#[cfg(feature = "circular-dma")]
+use crate::bcm::circular::CircularBcmBuf;
+#[cfg(not(feature = "circular-dma"))]
 use crate::bcm::linear::BcmBuf;
 pub use crate::isr::Hub75;
+#[cfg(feature = "circular-dma")]
+use crate::isr::PARL_IO_DUMMY_TRANSFER_LEN;
 
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
+    #[cfg(not(feature = "circular-dma"))]
     fn new_internal<
         T: TxPins + ConfigurePins + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
@@ -65,7 +72,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
         crate::isr::claim_driver()?;
@@ -87,8 +94,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-blank"))]
         let idle_value = 0x0100;
 
-        let config = TxConfig::default()
-            .with_frequency(frequency)
+        let tx_config = TxConfig::default()
+            .with_frequency(config.frequency)
             .with_idle_value(idle_value)
             .with_sample_edge(sample_edge)
             .with_bit_order(BitPackOrder::Msb);
@@ -96,14 +103,94 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // On the C5 the TX EOF must come from the DMA channel rather than the
         // peripheral's bit-length counter, or the refresh-loop ISR never fires.
         #[cfg(esp32c5)]
-        let config = config.with_eof_source(TxEofSource::DmaEof);
+        let tx_config = tx_config.with_eof_source(TxEofSource::DmaEof);
 
         let clk_pin = ClkOutPin::new(clock_pin);
-        let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, config)?;
+        let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(parl_io_tx, buf);
         crate::isr::start_internal(fb)?;
+
+        Ok(Self::from_phantom())
+    }
+
+    /// Circular-DMA constructor (ESP32-C5 only).
+    ///
+    /// The DMA engine is started once with a looping, `suc_eof`-free
+    /// descriptor chain and never stopped; in steady state no interrupts are
+    /// enabled. A swap arms the boundary detector (`suc_eof` on the last
+    /// descriptor + the `PARL_IO` `TxEof` interrupt); the consumed `suc_eof`
+    /// halts the DMA channel, so the ISR restarts the transfer after
+    /// applying the pending buffer delta (see
+    /// [`crate::isr::hub75_frame_count_isr`]). With
+    /// `Hub75Config::frame_counter` the detector stays armed permanently,
+    /// i.e. the transfer is restarted every frame.
+    ///
+    /// The ISR must be bound before the first transfer starts so it can
+    /// never fire without state to service; `store_circular_state` enables
+    /// the interrupt source only once the transfer is stored there.
+    #[cfg(feature = "circular-dma")]
+    fn new_internal<
+        T: TxPins + ConfigurePins + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+    >(
+        parl_io: PARL_IO<'static>,
+        hub75_pins: P,
+        channel: impl ParlIoDmaChannel<'static>,
+        tx_descriptors: &'static mut [DmaDescriptor],
+        config: Hub75Config,
+        fb: &'static FB,
+    ) -> Result<Self, Hub75Error> {
+        crate::isr::claim_driver()?;
+        crate::bcm::validate_fb_internal_ram(fb);
+
+        let (pins, clock_pin) = hub75_pins.convert_pins();
+
+        let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
+
+        // Bind the unified frame-boundary/swap ISR to the `PARL_IO`
+        // interrupt. Binding unlistens from and clears all `PARL_IO`
+        // interrupt sources, so nothing fires until a swap (or the frame
+        // counter) arms the `TxEof` source.
+        parl_io_dev.set_interrupt_handler(crate::isr::hub75_frame_count_isr);
+
+        #[cfg(feature = "invert-clock")]
+        let sample_edge = SampleEdge::Normal;
+        #[cfg(not(feature = "invert-clock"))]
+        let sample_edge = SampleEdge::Invert;
+
+        #[cfg(feature = "invert-blank")]
+        let idle_value = 0x0000;
+        #[cfg(not(feature = "invert-blank"))]
+        let idle_value = 0x0100;
+
+        let tx_config = TxConfig::default()
+            .with_frequency(config.frequency)
+            .with_idle_value(idle_value)
+            .with_sample_edge(sample_edge)
+            .with_bit_order(BitPackOrder::Msb);
+
+        // On the C5 the TX EOF must come from the DMA channel rather than the
+        // peripheral's bit-length counter. With `DmaEof` and a transfer
+        // length of 0 the frame ends at the armed `suc_eof` descriptor
+        // regardless of its size.
+        #[cfg(esp32c5)]
+        let tx_config = tx_config.with_eof_source(TxEofSource::DmaEof);
+
+        let clk_pin = ClkOutPin::new(clock_pin);
+        let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
+
+        let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
+        let desc_ptr = buf.descriptors_ptr();
+        let desc_count = buf.desc_count();
+        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
+
+        let xfer = parl_io_tx
+            .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
+            .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
+
+        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr, config.frame_counter);
 
         Ok(Self::from_phantom())
     }
@@ -126,7 +213,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- `PARL_IO` clock rate
+    /// * `config` -- `PARL_IO` clock rate and options
     /// * `fb` -- Initial framebuffer to display
     /// # Errors
     ///
@@ -142,10 +229,10 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, config, fb)
     }
 }
 
@@ -166,7 +253,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// * `channel` -- DMA channel
     /// * `tx_descriptors` -- DMA descriptor storage (use
     ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- `PARL_IO` clock rate
+    /// * `config` -- `PARL_IO` clock rate and options
     /// * `fb` -- Initial framebuffer to display
     /// # Errors
     ///
@@ -185,10 +272,10 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
+        config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, config, fb)
     }
 }
 

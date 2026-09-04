@@ -108,7 +108,7 @@
 //!         pins,
 //!         peripherals.DMA_CH0,
 //!         tx_descriptors,
-//!         Rate::from_mhz(20),
+//!         Hub75Config::new(Rate::from_mhz(20)),
 //!         &*fb,
 //!     )
 //!     .expect("failed to create Hub75");
@@ -150,13 +150,18 @@
 //!   constrains the maximum panel size and plane count when this feature is
 //!   enabled.
 //! - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
-//!   The DMA engine starts once and loops forever; buffer swaps are instant
-//!   pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
-//!   always active in this mode, providing both `frame_count()` and the
-//!   completion signal for [`Hub75Swap::wait()`] /
-//!   [`Hub75Swap::wait_for_done()`]. Only supported on ESP32 and ESP32-S3; on
-//!   ESP32-C5/C6 this is a compile-time error because `PARL_IO` cannot do
-//!   circular chains.
+//!   The DMA engine starts once and loops forever; buffer swaps are
+//!   pointer-delta updates applied by the frame-boundary ISR at a pass
+//!   boundary, so there is no DMA stop/restart and no mid-frame tearing. In
+//!   steady state **no interrupts are enabled** unless
+//!   [`Hub75Config::frame_counter`] is set: a swap temporarily arms the
+//!   boundary detector (`suc_eof` on the last descriptor) and the ISR disarms
+//!   it again after applying the swap. On ESP32-C5 (`PARL_IO`) a consumed
+//!   `suc_eof` *halts* the DMA channel, so the ISR restarts the transfer after
+//!   each armed boundary — with `frame_counter` enabled this happens every
+//!   frame, on ESP32/S3 the chain free-runs uninterrupted. Supported on ESP32
+//!   (`I2S`), ESP32-S3 (`LCD_CAM`), and ESP32-C5 (`PARL_IO`); on ESP32-C6 this
+//!   is a compile-time error because `PARL_IO` cannot do circular chains.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling
 //!   an optimization that skips writing black pixels to the framebuffer.
 //! - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Appends a
@@ -193,10 +198,62 @@
 #![warn(clippy::pedantic)]
 
 use esp_hal::gpio::AnyPin;
+use esp_hal::time::Rate;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
 pub use static_cell;
 pub(crate) mod bcm;
+
+/// Configuration for creating a [`Hub75`] instance.
+///
+/// Passed to [`Hub75::new`](hub75::Hub75::new) and
+/// [`Hub75::new_async`](hub75::Hub75::new_async) instead of a bare frequency.
+///
+/// `frame_counter` only applies when the `circular-dma` feature is enabled. It
+/// controls whether a frame-boundary interrupt is kept permanently enabled:
+///
+/// - `true` (default): the frame-count ISR runs every frame; `frame_count()`
+///   reports real frame counts. On ESP32-C5 the `suc_eof` boundary halts the
+///   DMA channel, so this mode restarts the transfer every frame.
+/// - `false`: no interrupts are enabled in steady state — the DMA free-runs. A
+///   swap temporarily arms the frame-boundary detector so the ISR can apply the
+///   buffer delta at a pass boundary, then disarms again. `frame_count()` then
+///   counts completed swaps.
+#[derive(Debug, Clone, Copy)]
+pub struct Hub75Config {
+    /// The HUB75 pixel-clock frequency.
+    pub frequency: Rate,
+    /// Keep the frame-boundary interrupt permanently enabled (circular-DMA
+    /// mode only).
+    pub frame_counter: bool,
+}
+
+impl Hub75Config {
+    /// Creates a new configuration with the given pixel-clock frequency and
+    /// the frame counter enabled.
+    #[must_use]
+    pub const fn new(frequency: Rate) -> Self {
+        Self {
+            frequency,
+            frame_counter: true,
+        }
+    }
+
+    /// Sets the HUB75 pixel-clock frequency.
+    #[must_use]
+    pub const fn with_frequency(mut self, frequency: Rate) -> Self {
+        self.frequency = frequency;
+        self
+    }
+
+    /// Enables or disables the permanent frame-boundary interrupt
+    /// (circular-DMA mode only).
+    #[must_use]
+    pub const fn with_frame_counter(mut self, frame_counter: bool) -> Self {
+        self.frame_counter = frame_counter;
+        self
+    }
+}
 
 #[cfg_attr(hub75_use_i2s_parallel, path = "i2s_parallel.rs")]
 #[cfg_attr(hub75_use_lcd_cam, path = "lcd_cam.rs")]
@@ -208,9 +265,9 @@ pub use hub75::Hub75;
 pub use hub75_framebuffer::Color;
 pub use isr::Hub75Swap;
 
-#[cfg(all(feature = "circular-dma", any(esp32c5, esp32c6)))]
+#[cfg(all(feature = "circular-dma", esp32c6))]
 compile_error!(
-    "circular-dma is not supported on ESP32-C5/C6: the PARL_IO peripheral \
+    "circular-dma is not supported on ESP32-C6: the PARL_IO peripheral \
      stops after the first transfer even with a circular descriptor chain."
 );
 
