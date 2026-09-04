@@ -43,6 +43,8 @@ use esp_hal::lcd_cam::lcd::i8080;
 #[cfg(feature = "circular-dma")]
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
+#[cfg(not(feature = "circular-dma"))]
+use esp_hal::lcd_cam::lcd::i8080::I8080Interrupt;
 use esp_hal::peripherals::LCD_CAM;
 use esp_hal::time::Rate;
 
@@ -75,8 +77,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let word_size = hub75_pins.word_size();
 
-        let mut lcd_cam_dev = LcdCam::new(lcd_cam);
-        lcd_cam_dev.set_interrupt_handler(crate::isr::hub75_isr);
+        let lcd_cam_dev = LcdCam::new(lcd_cam);
 
         let config = {
             let c = i8080::Config::default().with_frequency(frequency);
@@ -89,19 +90,14 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         };
 
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
-        let i8080 = hub75_pins.apply(i8080);
+        let mut i8080 = hub75_pins.apply(i8080);
 
-        // SAFETY: The `I8080` driver above owns the LCD_CAM peripheral. We
-        // steal a second handle only to set the `lcd_trans_done`
-        // interrupt-enable bit, which esp-hal doesn't expose. The ISR isn't
-        // active yet, so no data race.
-        unsafe {
-            let stolen = LCD_CAM::steal();
-            stolen
-                .register_block()
-                .lc_dma_int_ena()
-                .modify(|_, w| w.lcd_trans_done_int_ena().set_bit());
-        }
+        // Bind the BCM refresh ISR to the LCD_CAM interrupt and enable the
+        // `lcd_trans_done` source. `send()` clears a pending `lcd_trans_done`
+        // flag before starting the LCD, so the ISR cannot fire before the
+        // ISR state is initialised below.
+        i8080.set_interrupt_handler(crate::isr::hub75_isr);
+        i8080.listen(I8080Interrupt::TransDone);
 
         let buf = BcmBuf::new(tx_descriptors);
         crate::isr::init_isr_state(i8080, buf, word_size);
@@ -116,7 +112,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static> + crate::GdmaChannelNum,
+        channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -125,8 +121,6 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         crate::bcm::validate_fb_internal_ram(fb);
 
         let word_size = hub75_pins.word_size();
-
-        let ch_num = channel.channel_num();
 
         let lcd_cam_dev = LcdCam::new(lcd_cam);
 
@@ -141,7 +135,23 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         };
 
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, config).map_err(Hub75Error::I8080)?;
-        let i8080 = hub75_pins.apply(i8080);
+        let mut i8080 = hub75_pins.apply(i8080);
+
+        // In circular mode, the LCD_CAM `lcd_trans_done` interrupt never
+        // fires because the DMA chain loops forever and continuous output
+        // mode never ends. Instead we bind the frame-count ISR to the GDMA
+        // TX channel's `out_eof` interrupt, which fires whenever a
+        // descriptor with `suc_eof=1` is encountered, even in a circular
+        // chain.
+        //
+        // Binding the handler unlistens from and clears all DMA TX sources,
+        // so it must happen before the source is enabled. The source is
+        // enabled in `store_circular_state` below, only once the ISR can
+        // service it through the transfer stored there: `send()` starts the
+        // DMA engine, and the first descriptor can complete before the
+        // constructor returns, so enabling the source any earlier could
+        // fire the ISR while it has no transfer to clear the flag through.
+        i8080.set_dma_interrupt_handler(crate::isr::hub75_frame_count_isr);
 
         let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
@@ -156,75 +166,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
 
-        // In circular mode, the LCD_CAM `lcd_trans_done` interrupt never
-        // fires because the DMA chain loops forever and continuous output
-        // mode never ends. Instead we use the GDMA channel's `out_eof`
-        // interrupt, which fires whenever a descriptor with `suc_eof=1` is
-        // encountered, even in a circular chain.
-        setup_gdma_frame_count_isr(ch_num);
-
         Ok(Self::from_phantom())
     }
-}
-
-// ---------------------------------------------------------------------------
-// GDMA frame-count ISR setup (circular-dma only)
-// ---------------------------------------------------------------------------
-//
-// The LCD_CAM `lcd_trans_done` interrupt never fires in circular DMA mode
-// because continuous output mode never "finishes." We bind the frame-count
-// ISR to the GDMA TX channel's `out_eof` interrupt instead. The channel
-// number is captured from the `GdmaChannelNum` trait before the channel is
-// consumed by the I8080 driver.
-
-#[cfg(feature = "circular-dma")]
-static GDMA_CHANNEL_NUM: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-#[cfg(feature = "circular-dma")]
-fn clear_gdma_out_eof() {
-    let ch = GDMA_CHANNEL_NUM.load(core::sync::atomic::Ordering::Relaxed) as usize;
-    // SAFETY: We only write the interrupt-clear register of the channel we
-    // own, and it's write-1-to-clear, so the write can't disturb other state.
-    unsafe {
-        let dma = esp_hal::peripherals::DMA::steal();
-        dma.register_block()
-            .ch(ch)
-            .out_int()
-            .clr()
-            .write(|w| w.out_eof().clear_bit_by_one());
-    }
-}
-
-#[cfg(feature = "circular-dma")]
-fn setup_gdma_frame_count_isr(ch_num: u8) {
-    use esp_hal::peripherals::Interrupt;
-
-    GDMA_CHANNEL_NUM.store(ch_num, core::sync::atomic::Ordering::Relaxed);
-
-    let interrupt = match ch_num {
-        0 => Interrupt::DMA_OUT_CH0,
-        1 => Interrupt::DMA_OUT_CH1,
-        2 => Interrupt::DMA_OUT_CH2,
-        3 => Interrupt::DMA_OUT_CH3,
-        4 => Interrupt::DMA_OUT_CH4,
-        _ => unreachable!(),
-    };
-
-    esp_hal::interrupt::bind_handler(interrupt, crate::isr::hub75_frame_count_isr);
-
-    // SAFETY: The DMA peripheral is already in use (the transfer is running).
-    // We steal a PAC handle only to enable the `out_eof` interrupt on the
-    // channel we own.
-    unsafe {
-        let dma = esp_hal::peripherals::DMA::steal();
-        dma.register_block()
-            .ch(ch_num as usize)
-            .out_int()
-            .ena()
-            .modify(|_, w| w.out_eof().set_bit());
-    }
-
-    crate::isr::store_clear_interrupt(clear_gdma_out_eof);
 }
 
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
@@ -257,7 +200,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static> + crate::GdmaChannelNum,
+        channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
@@ -296,7 +239,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static> + crate::GdmaChannelNum,
+        channel: impl LcdDmaTxChannel<'static>,
         tx_descriptors: &'static mut [DmaDescriptor],
         frequency: Rate,
         fb: &'static FB,
