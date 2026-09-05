@@ -19,9 +19,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * The `Hub75::new` / `Hub75::new_async` constructors now take a
   [`Hub75Config`] instead of a bare `Rate`. Use `Hub75Config::new(rate)` to
   preserve the previous behavior.
+* `hub75_dma_descriptors!(FBType)` now returns
+  `&'static mut Hub75DmaDescriptors<FBType, N>` (a newtype wrapping the
+  descriptor array, typed by the framebuffer type) instead of
+  `&'static mut [DmaDescriptor]`. The `Hub75::new` / `Hub75::new_async`
+  constructors take the new type. Because the storage is bound to the
+  framebuffer type it was allocated for, passing descriptors built for one
+  framebuffer type to a driver configured for another is now a compile
+  error. Update call sites: the macro invocation itself is unchanged; only
+  the constructor parameter types changed. `gradient-quarter` and
+  `gradient-tiled` now allocate their descriptors with `DisplayFB` (the
+  `RemappedFrameBuffer` type actually passed to the driver; it delegates its
+  BCM layout to the inner `DmaFrameBuffer`, so the descriptor count is
+  unchanged).
 
 ### Added
 
+* `Hub75DmaDescriptors<FB, N>`: typed DMA descriptor storage with a
+  compile-time descriptor count (`COUNT`) derived from the framebuffer type
+  and the enabled DMA features. The macro is the only constructor; the size
+  and the framebuffer binding are correct by construction.
 * `circular-dma` support for ESP32-C5 (PARL_IO). The circular chain carries no
   `suc_eof` (a `suc_eof` descriptor terminates the PARL_IO transfer); a swap
   arms the boundary detector (`suc_eof` on the last descriptor + the

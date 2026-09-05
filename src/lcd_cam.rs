@@ -29,7 +29,6 @@
 //! ```
 
 use esp_hal::Blocking;
-use esp_hal::dma::DmaDescriptor;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::lcd_cam::LcdDmaTxChannel;
@@ -48,6 +47,7 @@ use esp_hal::lcd_cam::lcd::i8080::I8080Interrupt;
 use esp_hal::peripherals::LCD_CAM;
 
 use crate::Hub75Config;
+use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
@@ -65,11 +65,11 @@ pub use crate::isr::Hub75;
 
 #[cfg(not(feature = "circular-dma"))]
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
+    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -99,7 +99,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         i8080.set_interrupt_handler(crate::isr::hub75_isr);
         i8080.listen(I8080Interrupt::TransDone);
 
-        let buf = BcmBuf::new(tx_descriptors);
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
         crate::isr::init_isr_state(i8080, buf, word_size);
         crate::isr::start_internal(fb)?;
 
@@ -109,11 +109,11 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
 #[cfg(feature = "circular-dma")]
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>>(
+    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -153,7 +153,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // fire the ISR while it has no transfer to clear the flag through.
         i8080.set_dma_interrupt_handler(crate::isr::hub75_frame_count_isr);
 
-        let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
+        let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
         let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
@@ -197,11 +197,11 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<P: Hub75Pins<'static, Word = FB::Word>>(
+    pub fn new<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -236,11 +236,11 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>>(
+    pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {

@@ -29,7 +29,6 @@
 //! ```
 
 use esp_hal::Blocking;
-use esp_hal::dma::DmaDescriptor;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ConfigurePins;
@@ -45,6 +44,7 @@ use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
 
 use crate::Hub75Config;
+use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
@@ -67,11 +67,12 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<
         T: TxPins + ConfigurePins + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
+        const N: usize,
     >(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -108,7 +109,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
 
-        let buf = BcmBuf::new(tx_descriptors);
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
         crate::isr::init_isr_state(parl_io_tx, buf);
         crate::isr::start_internal(fb)?;
 
@@ -134,11 +135,12 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     fn new_internal<
         T: TxPins + ConfigurePins + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
+        const N: usize,
     >(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -181,7 +183,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
 
-        let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
+        let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
         let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
@@ -224,11 +226,15 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<T: TxPins + ConfigurePins + 'static, P: Hub75Pins<'static, T, Word = FB::Word>>(
+    pub fn new<
+        T: TxPins + ConfigurePins + 'static,
+        P: Hub75Pins<'static, T, Word = FB::Word>,
+        const N: usize,
+    >(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -267,11 +273,12 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     pub fn new_async<
         T: TxPins + ConfigurePins + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
+        const N: usize,
     >(
         parl_io: PARL_IO<'static>,
         hub75_pins: P,
         channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {

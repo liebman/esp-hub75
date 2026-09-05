@@ -31,7 +31,6 @@
 //! ```
 
 use esp_hal::Blocking;
-use esp_hal::dma::DmaDescriptor;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::I2sParallel;
@@ -43,6 +42,7 @@ use esp_hal::i2s::parallel::TxPins;
 use esp_hal::i2s::parallel::TxSixteenBits;
 
 use crate::Hub75Config;
+use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
@@ -63,11 +63,12 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
         I: Instance + 'static,
+        const N: usize,
     >(
         i2s: I,
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -90,7 +91,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         i2s_parallel.set_interrupt_handler(crate::isr::hub75_isr);
         i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
 
-        let buf = BcmBuf::new(tx_descriptors);
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
         crate::isr::init_isr_state(i2s_parallel, buf);
         crate::isr::start_internal(fb)?;
 
@@ -104,11 +105,12 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
         I: Instance + 'static,
+        const N: usize,
     >(
         i2s: I,
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -136,7 +138,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         i2s_parallel.set_interrupt_handler(crate::isr::hub75_frame_count_isr);
         i2s_parallel.listen(I2sParallelInterrupt::Eof);
 
-        let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
+        let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
         let desc_ptr = buf.descriptors_ptr();
         let desc_count = buf.desc_count();
         let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
@@ -181,11 +183,12 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
         I: Instance + 'static,
+        const N: usize,
     >(
         i2s: I,
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {
@@ -223,11 +226,12 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
         T: TxPins<'static> + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
         I: Instance + 'static,
+        const N: usize,
     >(
         i2s: I,
         hub75_pins: P,
         channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut [DmaDescriptor],
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
         fb: &'static FB,
     ) -> Result<Self, Hub75Error> {

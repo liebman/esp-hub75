@@ -123,7 +123,7 @@ const LINE3: i32 = VIRT_ROWS as i32 - 1;
 const NBARS: i32 = VIRT_ROWS as i32 / 8;
 
 // --- Type aliases ---
-// Raw inner framebuffer (used with hub75_dma_descriptors! macro)
+// Raw inner (physical) framebuffer; DisplayFB is what the driver sees.
 type InnerFB = DmaFrameBuffer<NROWS, FB_COLS, PLANES>;
 
 // Pixel remapper for the 2×2 tiling with ChainTopRightDown
@@ -171,8 +171,10 @@ fn main() -> ! {
     info!("fb0: {:?}", fb0);
     info!("fb1: {:?}", fb1);
 
-    // DMA descriptors are sized for the inner (physical) framebuffer
-    let tx_descriptors = esp_hub75::hub75_dma_descriptors!(InnerFB);
+    // Descriptors are sized for DisplayFB, the framebuffer type actually
+    // passed to Hub75 (RemappedFrameBuffer delegates its BCM layout to the
+    // inner DmaFrameBuffer, so the count is identical to InnerFB's).
+    let tx_descriptors = esp_hub75::hub75_dma_descriptors!(DisplayFB);
     info!(
         "DMA descriptors: {} ({} bytes)",
         tx_descriptors.len(),

@@ -197,6 +197,7 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
+use core::marker::PhantomData;
 use esp_hal::gpio::AnyPin;
 use esp_hal::time::Rate;
 pub use hub75_framebuffer as framebuffer;
@@ -350,12 +351,75 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
     max_group
 }
 
+/// DMA descriptor storage bound to a specific framebuffer type.
+///
+/// The descriptor array is stored inline and sized at compile time from the
+/// framebuffer type `FB` and the enabled DMA features (see [`COUNT`][Self::COUNT]
+/// and [`dma_descriptor_count`]). The type parameter makes it a compile error
+/// to pass descriptor storage built for one framebuffer type to a driver
+/// instance configured for another.
+///
+/// Construct only via [`hub75_dma_descriptors!`], which allocates the storage
+/// in a `static_cell::StaticCell` and returns
+/// `&'static mut Hub75DmaDescriptors<FB, N>`.
+pub struct Hub75DmaDescriptors<FB, const N: usize> {
+    descriptors: [esp_hal::dma::DmaDescriptor; N],
+    _fb: PhantomData<fn() -> FB>,
+}
+
+impl<FB: framebuffer::FrameBuffer, const N: usize> Hub75DmaDescriptors<FB, N> {
+    /// Compile-time descriptor count required for framebuffer type `FB`
+    /// under the currently enabled DMA features.
+    pub const COUNT: usize = dma_descriptor_count::<FB>(MAX_DMA_CHUNK_SIZE);
+
+    /// Creates the storage with all descriptors initialised to
+    /// [`esp_hal::dma::DmaDescriptor::EMPTY`], asserting at (per-instantiation)
+    /// const evaluation time that `N` matches [`Self::COUNT`].
+    ///
+    /// Not intended for direct use; [`hub75_dma_descriptors!`] is the only
+    /// sanctioned constructor and always satisfies this assertion.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn new() -> Self {
+        assert!(
+            N == Self::COUNT,
+            "descriptor array size does not match the count required by the framebuffer type"
+        );
+        Self {
+            descriptors: [esp_hal::dma::DmaDescriptor::EMPTY; N],
+            _fb: PhantomData,
+        }
+    }
+
+    /// Number of descriptors held (equal to [`Self::COUNT`] by construction).
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.descriptors.len()
+    }
+
+    /// Always `false`: the array is sized at compile time to the required
+    /// non-zero count. Present so `len()` is not flagged by Clippy.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Mutable view of the descriptor array for the driver internals.
+    pub(crate) fn as_slice(&mut self) -> &mut [esp_hal::dma::DmaDescriptor] {
+        &mut self.descriptors
+    }
+}
+
 /// Allocates static DMA descriptors sized for the given framebuffer type.
 ///
 /// This macro computes the required number of DMA descriptors at compile
-/// time with [`dma_descriptor_count`] and allocates them in a static cell.
-/// It returns `&'static mut [DmaDescriptor]` suitable for passing to
+/// time with [`dma_descriptor_count`] and allocates them in a static cell
+/// wrapped in [`Hub75DmaDescriptors`]`<$fb_type, N>`. It returns
+/// `&'static mut Hub75DmaDescriptors<$fb_type, N>` suitable for passing to
 /// [`Hub75::new`] or [`Hub75::new_async`].
+///
+/// Because the returned storage is typed by the framebuffer type, passing
+/// descriptors built for a different framebuffer type is a compile error.
 ///
 /// # Example
 /// ```rust,ignore
@@ -366,12 +430,10 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
 macro_rules! hub75_dma_descriptors {
     ($fb_type:ty) => {{
         const __N: usize = $crate::dma_descriptor_count::<$fb_type>($crate::MAX_DMA_CHUNK_SIZE);
-        static __DESC_CELL: $crate::static_cell::StaticCell<[esp_hal::dma::DmaDescriptor; __N]> =
-            $crate::static_cell::StaticCell::new();
-        __DESC_CELL
-            .uninit()
-            .write([esp_hal::dma::DmaDescriptor::EMPTY; __N])
-            .as_mut_slice()
+        static __DESC_CELL: $crate::static_cell::StaticCell<
+            $crate::Hub75DmaDescriptors<$fb_type, __N>,
+        > = $crate::static_cell::StaticCell::new();
+        __DESC_CELL.uninit().write($crate::Hub75DmaDescriptors::new())
     }};
 }
 
