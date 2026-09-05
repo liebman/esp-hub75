@@ -128,14 +128,14 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
 
-        // This connects `hub75_frame_count_isr` to the interrupt and turns
+        // This connects `hub75_boundary_isr` to the interrupt and turns
         // on the per-descriptor `out_eof` source. The `out_eof` interrupt
         // occurs each time the DMA finds a descriptor with `suc_eof=1`.
         // This is also true for a circular chain , where `next` points
         // back to the start of the chain. We checked this on the hardware
         // (ESP32 classic, I2S LCD mode). `out_total_eof` never occurs on a
         // circular chain, because the transfer never ends.
-        i2s_parallel.set_interrupt_handler(crate::isr::hub75_frame_count_isr);
+        i2s_parallel.set_interrupt_handler(crate::isr::hub75_boundary_isr);
         i2s_parallel.listen(I2sParallelInterrupt::Eof);
 
         let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
@@ -147,7 +147,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .send(buf)
             .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr, config.frame_counter);
+        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
 
         Ok(Self::from_phantom())
     }

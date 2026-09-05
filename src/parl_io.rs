@@ -124,9 +124,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     /// descriptor + the `PARL_IO` `TxEof` interrupt); the consumed `suc_eof`
     /// halts the DMA channel, so the ISR restarts the transfer after
     /// applying the pending buffer delta (see
-    /// [`crate::isr::hub75_frame_count_isr`]). With
-    /// `Hub75Config::frame_counter` the detector stays armed permanently,
-    /// i.e. the transfer is restarted every frame.
+    /// [`crate::isr::hub75_boundary_isr`]).
     ///
     /// The ISR must be bound before the first transfer starts so it can
     /// never fire without state to service; `store_circular_state` enables
@@ -151,11 +149,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
 
-        // Bind the unified frame-boundary/swap ISR to the `PARL_IO`
-        // interrupt. Binding unlistens from and clears all `PARL_IO`
-        // interrupt sources, so nothing fires until a swap (or the frame
-        // counter) arms the `TxEof` source.
-        parl_io_dev.set_interrupt_handler(crate::isr::hub75_frame_count_isr);
+        // Bind the unified swap-boundary ISR to the `PARL_IO` interrupt.
+        // Binding unlistens from and clears all `PARL_IO` interrupt sources,
+        // so nothing fires until a swap arms the `TxEof` source.
+        parl_io_dev.set_interrupt_handler(crate::isr::hub75_boundary_isr);
 
         #[cfg(feature = "invert-clock")]
         let sample_edge = SampleEdge::Normal;
@@ -192,7 +189,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
             .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr, config.frame_counter);
+        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
 
         Ok(Self::from_phantom())
     }

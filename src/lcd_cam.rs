@@ -139,7 +139,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         // In circular mode, the LCD_CAM `lcd_trans_done` interrupt never
         // fires because the DMA chain loops forever and continuous output
-        // mode never ends. Instead we bind the frame-count ISR to the GDMA
+        // mode never ends. Instead we bind the boundary ISR to the GDMA
         // TX channel's `out_eof` interrupt, which fires whenever a
         // descriptor with `suc_eof=1` is encountered, even in a circular
         // chain.
@@ -151,7 +151,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // DMA engine, and the first descriptor can complete before the
         // constructor returns, so enabling the source any earlier could
         // fire the ISR while it has no transfer to clear the flag through.
-        i8080.set_dma_interrupt_handler(crate::isr::hub75_frame_count_isr);
+        i8080.set_dma_interrupt_handler(crate::isr::hub75_boundary_isr);
 
         let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
         let desc_ptr = buf.descriptors_ptr();
@@ -164,7 +164,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         }
         .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr, config.frame_counter);
+        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
 
         Ok(Self::from_phantom())
     }

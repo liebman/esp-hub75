@@ -151,17 +151,15 @@
 //!   enabled.
 //! - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
 //!   The DMA engine starts once and loops forever; buffer swaps are
-//!   pointer-delta updates applied by the frame-boundary ISR at a pass
-//!   boundary, so there is no DMA stop/restart and no mid-frame tearing. In
-//!   steady state **no interrupts are enabled** unless
-//!   [`Hub75Config::frame_counter`] is set: a swap temporarily arms the
-//!   boundary detector (`suc_eof` on the last descriptor) and the ISR disarms
-//!   it again after applying the swap. On ESP32-C5 (`PARL_IO`) a consumed
-//!   `suc_eof` *halts* the DMA channel, so the ISR restarts the transfer after
-//!   each armed boundary — with `frame_counter` enabled this happens every
-//!   frame, on ESP32/S3 the chain free-runs uninterrupted. Supported on ESP32
-//!   (`I2S`), ESP32-S3 (`LCD_CAM`), and ESP32-C5 (`PARL_IO`); on ESP32-C6 this
-//!   is a compile-time error because `PARL_IO` cannot do circular chains.
+//!   pointer-delta updates applied by the swap-boundary ISR at a pass boundary,
+//!   so there is no DMA stop/restart and no mid-frame tearing. In steady state
+//!   **no interrupts are enabled**: a swap temporarily arms the boundary
+//!   detector (`suc_eof` on the last descriptor) and the ISR disarms it again
+//!   after applying the swap. On ESP32-C5 (`PARL_IO`) a consumed `suc_eof`
+//!   *halts* the DMA channel, so the ISR restarts the transfer after each swap;
+//!   on ESP32/S3 the chain free-runs uninterrupted. Supported on ESP32 (`I2S`),
+//!   ESP32-S3 (`LCD_CAM`), and ESP32-C5 (`PARL_IO`); on ESP32-C6 this is a
+//!   compile-time error because `PARL_IO` cannot do circular chains.
 //! - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling
 //!   an optimization that skips writing black pixels to the framebuffer.
 //! - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Appends a
@@ -211,48 +209,25 @@ pub(crate) mod bcm;
 /// Passed to [`Hub75::new`](hub75::Hub75::new) and
 /// [`Hub75::new_async`](hub75::Hub75::new_async) instead of a bare frequency.
 ///
-/// `frame_counter` only applies when the `circular-dma` feature is enabled. It
-/// controls whether a frame-boundary interrupt is kept permanently enabled:
-///
-/// - `true` (default): the frame-count ISR runs every frame; `frame_count()`
-///   reports real frame counts. On ESP32-C5 the `suc_eof` boundary halts the
-///   DMA channel, so this mode restarts the transfer every frame.
-/// - `false`: no interrupts are enabled in steady state — the DMA free-runs. A
-///   swap temporarily arms the frame-boundary detector so the ISR can apply the
-///   buffer delta at a pass boundary, then disarms again. `frame_count()` then
-///   counts completed swaps.
+/// The theoretical refresh rate for a given framebuffer type and pixel clock
+/// can be computed at compile time with [`refresh_hz`].
 #[derive(Debug, Clone, Copy)]
 pub struct Hub75Config {
     /// The HUB75 pixel-clock frequency.
     pub frequency: Rate,
-    /// Keep the frame-boundary interrupt permanently enabled (circular-DMA
-    /// mode only).
-    pub frame_counter: bool,
 }
 
 impl Hub75Config {
-    /// Creates a new configuration with the given pixel-clock frequency and
-    /// the frame counter enabled.
+    /// Creates a new configuration with the given pixel-clock frequency.
     #[must_use]
     pub const fn new(frequency: Rate) -> Self {
-        Self {
-            frequency,
-            frame_counter: true,
-        }
+        Self { frequency }
     }
 
     /// Sets the HUB75 pixel-clock frequency.
     #[must_use]
     pub const fn with_frequency(mut self, frequency: Rate) -> Self {
         self.frequency = frequency;
-        self
-    }
-
-    /// Enables or disables the permanent frame-boundary interrupt
-    /// (circular-DMA mode only).
-    #[must_use]
-    pub const fn with_frame_counter(mut self, frame_counter: bool) -> Self {
-        self.frame_counter = frame_counter;
         self
     }
 }
@@ -350,6 +325,69 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
         max_group *= FB::BCM_SEQUENCE_COUNT;
     }
     max_group
+}
+
+/// Number of pixel-clock cycles the DMA streams for one complete panel
+/// refresh of framebuffer type `FB`.
+///
+/// This is derived from the framebuffer's static BCM sequence
+/// ([`framebuffer::FrameBuffer::BCM_SEQUENCE`]): a segment of `len` bytes
+/// streamed `reps` times contributes `len / size_of::<Word>()` clock cycles
+/// per repetition. Because the BCM sequence includes the lead/trail blanking,
+/// inter-row gap, and end-of-row trailer segments (whichever are enabled via
+/// features), this count is *exact* for the enabled configuration, not an
+/// approximation.
+///
+/// This is a `const fn` of the framebuffer *type* (no instance needed).
+#[must_use]
+pub const fn frame_clock_cycles<FB: framebuffer::FrameBuffer>() -> u64 {
+    let mut cycles = 0u64;
+    let word = core::mem::size_of::<FB::Word>() as u64;
+    let mut seq = 0;
+    while seq < FB::BCM_SEQUENCE_COUNT {
+        let mut i = 0;
+        while i < FB::BCM_SEQUENCE_LEN {
+            let entry = FB::BCM_SEQUENCE[i];
+            cycles += (entry.len as u64 / word) * entry.reps as u64;
+            i += 1;
+        }
+        seq += 1;
+    }
+    cycles
+}
+
+/// Theoretical refresh rate (in Hz) for framebuffer type `FB` at the given
+/// HUB75 pixel-clock frequency.
+///
+/// One complete panel refresh streams
+/// [`frame_clock_cycles::<FB>()`](frame_clock_cycles) pixel clocks, so:
+///
+/// ```text
+/// refresh_hz = frequency / frame_clock_cycles::<FB>()
+/// ```
+///
+/// This is exact for the enabled configuration (blanking features, row gap,
+/// and trailer segments are all accounted for by
+/// [`frame_clock_cycles`]). It is an upper bound in the default group-based
+/// DMA mode, where the small per-group ISR turnaround adds a few cycles per
+/// BCM group; with `full-chain-dma` or `circular-dma` the value matches
+/// measured refresh rates.
+///
+/// Use this to sanity-check a configuration before committing to it: for
+/// example, a 64×64 panel with 8 planes at 10 MHz yields only ~19 Hz, which
+/// is visibly dim and flickery — reduce the plane count or raise the pixel
+/// clock.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
+/// const REFRESH_HZ: u32 = esp_hub75::refresh_hz::<FBType>(Rate::from_mhz(10));
+/// ```
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // refresh rates fit comfortably in u32
+pub const fn refresh_hz<FB: framebuffer::FrameBuffer>(frequency: Rate) -> u32 {
+    frequency.as_hz() / frame_clock_cycles::<FB>() as u32
 }
 
 /// DMA descriptor storage bound to a specific framebuffer type.

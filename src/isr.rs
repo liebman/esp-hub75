@@ -7,7 +7,6 @@
 
 use core::cell::RefCell;
 use core::sync::atomic::AtomicBool;
-use core::sync::atomic::AtomicU32;
 use core::sync::atomic::Ordering;
 use core::task::Waker;
 
@@ -73,8 +72,8 @@ pub(crate) type TxTransfer =
 // `suc_eof` descriptor would halt the DMA channel on ESP32-C5). The boundary
 // detector is *armed* by setting `suc_eof` on the last descriptor and
 // enabling the backend's frame-boundary interrupt, and *disarmed* again by
-// the ISR. With `frame_counter` enabled (see `Hub75Config`) the detector is
-// kept permanently armed.
+// the ISR. This is done only around a swap; in steady state no interrupts
+// are enabled on any backend.
 
 /// Per-backend frame-boundary interrupt management, through the transfer
 /// kept alive in [`CircularState`], so no `DMA::steal()` or stored closure is
@@ -206,9 +205,6 @@ pub(crate) struct CircularState {
     /// Set by `swap()` and cleared by the frame-boundary ISR; prevents
     /// a second `swap()` while one is still in-flight.
     pub(crate) swap_in_flight: bool,
-    /// Whether the frame-boundary interrupt stays permanently armed
-    /// (`Hub75Config::frame_counter`).
-    pub(crate) frame_counter: bool,
 }
 
 #[cfg(feature = "circular-dma")]
@@ -240,10 +236,6 @@ static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 /// (run-forever design), so this is never reset.
 static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
-/// Completed BCM frame counter. Telemetry only (read via
-/// [`Hub75::frame_count`]); `Relaxed` is intentional — no synchronization
-/// intent, the value is approximate by design.
-static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 
 fn signal_swap_done(cs: critical_section::CriticalSection) {
     SWAP_DONE.store(true, Ordering::Release);
@@ -349,15 +341,11 @@ pub(crate) fn hub75_isr() {
 
         let frame_boundary = buf.advance();
 
-        if frame_boundary {
-            FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-
-            if let Some(delta) = state.pending_delta.take() {
-                state.current_fb_ptr = state.pending_fb_ptr;
-                state.pending_fb_ptr = core::ptr::null();
-                buf.apply_delta(delta);
-                signal_swap_done(cs);
-            }
+        if frame_boundary && let Some(delta) = state.pending_delta.take() {
+            state.current_fb_ptr = state.pending_fb_ptr;
+            state.pending_fb_ptr = core::ptr::null();
+            buf.apply_delta(delta);
+            signal_swap_done(cs);
         }
 
         #[cfg(hub75_use_lcd_cam)]
@@ -379,7 +367,7 @@ pub(crate) fn hub75_isr() {
 }
 
 // ---------------------------------------------------------------------------
-// Frame-boundary ISR (circular-dma)
+// Pass-boundary ISR (circular-dma)
 // ---------------------------------------------------------------------------
 
 /// Apply a pending framebuffer pointer delta to every descriptor, at a pass
@@ -406,13 +394,19 @@ fn apply_pending_delta(state: &mut CircularState, delta: isize) {
     }
 }
 
+/// Swap-boundary ISR (I2S / `LCD_CAM`, circular-dma).
+///
+/// The boundary detector is armed only around a swap (see [`Hub75::swap`]);
+/// this handler applies the pending buffer delta at the pass boundary and
+/// disarms the detector again, leaving the chain free-running with no
+/// interrupts enabled in steady state.
 #[cfg(all(
     feature = "circular-dma",
     any(hub75_use_lcd_cam, hub75_use_i2s_parallel)
 ))]
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
-pub(crate) fn hub75_frame_count_isr() {
+pub(crate) fn hub75_boundary_isr() {
     critical_section::with(|cs| {
         let mut borrow = CIRCULAR_STATE.borrow_ref_mut(cs);
         let Some(state) = borrow.as_mut() else {
@@ -431,30 +425,29 @@ pub(crate) fn hub75_frame_count_isr() {
         if let Some(delta) = state.pending_delta.take() {
             apply_pending_delta(state, delta);
             state.swap_in_flight = false;
-            FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
             signal_swap_done(cs);
-        } else if state.frame_counter {
-            FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
         }
 
-        if !state.frame_counter {
-            // Swap-armed boundary handled: disarm until the next swap. The
-            // DMA does not halt on `suc_eof` on these chips, so the chain
-            // keeps running.
-            crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
-            if let Some(xfer) = state.transfer.as_ref() {
-                xfer.unlisten_frame_interrupt();
-            }
+        // Swap-armed boundary handled: disarm until the next swap. The
+        // DMA does not halt on `suc_eof` on these chips, so the chain
+        // keeps running.
+        crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
+        if let Some(xfer) = state.transfer.as_ref() {
+            xfer.unlisten_frame_interrupt();
         }
     });
 }
 
-/// PARL_IO (ESP32-C5): a consumed `suc_eof` halts the DMA channel, so the ISR
-/// must restart the transfer after applying the pending delta.
+/// Swap-boundary ISR (PARL_IO / ESP32-C5, circular-dma).
+///
+/// A consumed `suc_eof` halts the DMA channel, so the ISR must restart the
+/// transfer after applying the pending delta. The detector is armed only
+/// around a swap (see [`Hub75::swap`]); in steady state the chain runs
+/// `suc_eof`-free and no interrupts are enabled.
 #[cfg(all(feature = "circular-dma", hub75_use_parl_io))]
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
-pub(crate) fn hub75_frame_count_isr() {
+pub(crate) fn hub75_boundary_isr() {
     critical_section::with(|cs| {
         let mut borrow = CIRCULAR_STATE.borrow_ref_mut(cs);
         let Some(state) = borrow.as_mut() else {
@@ -470,22 +463,13 @@ pub(crate) fn hub75_frame_count_isr() {
         if let Some(delta) = state.pending_delta.take() {
             apply_pending_delta(state, delta);
             state.swap_in_flight = false;
-            FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
             signal_swap_done(cs);
-        } else if state.frame_counter {
-            FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
         }
 
-        // Re-arm `suc_eof` only in frame-counter mode; in swap-only mode the
-        // chain runs suc_eof-free again until the next swap arms it.
-        crate::bcm::circular::set_last_suc_eof(
-            state.descriptors,
-            state.desc_count,
-            state.frame_counter,
-        );
-        if !state.frame_counter {
-            xfer.unlisten_frame_interrupt();
-        }
+        // Swap-armed boundary handled: disarm until the next swap; the chain
+        // runs suc_eof-free again until the next swap arms it.
+        crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
+        xfer.unlisten_frame_interrupt();
 
         let (_, tx, buf) = xfer.wait();
         // Dummy transfer length (`tx_bytelen = 0`): with `TxEofSource::DmaEof`
@@ -539,7 +523,6 @@ pub(crate) fn store_circular_state(
     desc_ptr: *mut esp_hal::dma::DmaDescriptor,
     desc_count: usize,
     fb_ptr: *const (),
-    frame_counter: bool,
 ) {
     critical_section::with(|cs| {
         *CIRCULAR_STATE.borrow_ref_mut(cs) = Some(CircularState {
@@ -549,22 +532,17 @@ pub(crate) fn store_circular_state(
             current_fb_ptr: fb_ptr,
             pending_delta: None,
             swap_in_flight: false,
-            frame_counter,
         });
 
         // The transfer is stored; from this point on every interrupt can be
-        // serviced through it. Drain any stale frame-boundary flag, then arm
-        // the detector permanently in frame-counter mode. In swap-only mode
-        // the detector is armed by `swap()` and disarmed by the ISR.
+        // serviced through it. Drain any stale frame-boundary flag. The
+        // detector is armed by `swap()` and disarmed by the ISR; no
+        // interrupts are enabled in steady state.
         {
             let mut state_ref = CIRCULAR_STATE.borrow_ref_mut(cs);
             let state = state_ref.as_mut().expect("just stored");
             let transfer = state.transfer.as_ref().expect("transfer kept alive");
             transfer.clear_frame_interrupt();
-            if frame_counter {
-                crate::bcm::circular::set_last_suc_eof(desc_ptr, desc_count, true);
-                transfer.listen_frame_interrupt();
-            }
         }
     });
 }
@@ -670,12 +648,6 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     #[cfg(not(feature = "circular-dma"))]
     pub fn restart(&self, fb: &'static FB) -> Result<(), Hub75Error> {
         start_internal(fb)
-    }
-
-    /// Returns the number of complete BCM frames rendered since driver
-    /// creation.
-    pub fn frame_count(&self) -> u32 {
-        FRAME_COUNT.load(Ordering::Relaxed)
     }
 }
 
@@ -1007,7 +979,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             // purely a marker for the next pass boundary; the ISR clears it
             // and disarms. On ESP32-C5 the consumed `suc_eof` *halts* the
             // DMA channel; the ISR restarts the transfer (see
-            // `hub75_frame_count_isr`).
+            // `hub75_boundary_isr`).
             crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, true);
             if let Some(xfer) = state.transfer.as_ref() {
                 // Drain any frame-boundary flag latched before the update,

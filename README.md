@@ -31,13 +31,29 @@ formatting step. They differ in how they do Binary Code Modulation (BCM):
 - **Standard** framebuffers (`framebuffer::plain::DmaFrameBuffer` /
   `framebuffer::latched::DmaFrameBuffer`) pre-render a complete copy of the
   pixel data for every BCM bit-weight. DMA output is straightforward, but
-  memory use multiplies by the number of frames (`frame_count`).
+  memory use multiplies by the number of BCM frame copies.
 - **Bitplane** framebuffers (`framebuffer::bitplane::plain::DmaFrameBuffer` /
   `framebuffer::bitplane::latched::DmaFrameBuffer`) store only one bit per
   pixel per plane. The driver assembles the BCM output on the fly with DMA
   descriptors: same visual quality, much less RAM.
 
 Unless you have a reason not to, use the bitplane framebuffers.
+
+## Refresh Rate
+
+The refresh rate of a BCM display is determined by the panel geometry, the
+BCM depth (plane count), and the pixel-clock frequency. The crate provides a
+compile-time helper to compute it exactly, including any enabled blanking
+features:
+
+```rust,ignore
+type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
+const REFRESH_HZ: u32 = esp_hub75::refresh_hz::<FBType>(rate);
+```
+
+Use it to sanity-check a configuration: too many planes at a low pixel clock
+yields a low, flickery refresh rate (e.g. a 64x64 panel with 8 planes at
+10 MHz refreshes at only ~19 Hz).
 
 ## Hardware Requirements
 
@@ -153,11 +169,12 @@ framebuffer structure.
   panel size and plane count when this feature is enabled.
 - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
   The DMA engine starts once and loops forever; buffer swaps are instant
-  pointer-delta updates with no DMA stop/restart. A frame-boundary ISR is
-  always active in this mode, providing both `frame_count()` and the
-  completion signal for `Hub75Swap::wait()` / `Hub75Swap::wait_for_done()`.
-  Only supported on ESP32 and ESP32-S3; on ESP32-C5/C6 this is a compile-time
-  error because PARL_IO cannot do circular chains.
+  pointer-delta updates with no DMA stop/restart. No interrupts are enabled
+  in steady state: a swap temporarily arms the frame-boundary detector and
+  the ISR disarms it again after applying the swap (also providing the
+  completion signal for `Hub75Swap::wait()` / `Hub75Swap::wait_for_done()`).
+  Only supported on ESP32, ESP32-S3, and ESP32-C5; on ESP32-C6 this is a
+  compile-time error because PARL_IO cannot do circular chains.
 - `skip-black-pixels`: Forwards to the `hub75-framebuffer` crate, enabling an
   optimization that skips writing black pixels to the framebuffer.
 - `tail-closes-latch`: Forwards to the `hub75-framebuffer` crate. Applies to

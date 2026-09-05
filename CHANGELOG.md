@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RemappedFrameBuffer` type actually passed to the driver; it delegates its
   BCM layout to the inner `DmaFrameBuffer`, so the descriptor count is
   unchanged).
+* Removed `Hub75::frame_count()` and `Hub75Config::frame_counter` /
+  `Hub75Config::with_frame_counter`. Frame counting required keeping the
+  frame-boundary interrupt permanently enabled in circular-DMA mode; with
+  the counter gone, circular-DMA mode now runs with **no interrupts
+  enabled in steady state on every backend** (the boundary detector is
+  armed only around a swap, exactly like the previous
+  `frame_counter: false` path). The refresh rate can be computed exactly at
+  compile time instead with the new `refresh_hz` helper.
 
 ### Added
 
@@ -39,17 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile-time descriptor count (`COUNT`) derived from the framebuffer type
   and the enabled DMA features. The macro is the only constructor; the size
   and the framebuffer binding are correct by construction.
+* `esp_hub75::refresh_hz::<FB>(frequency)` and
+  `esp_hub75::frame_clock_cycles::<FB>()`: compile-time helpers that compute
+  the exact number of pixel-clock cycles per panel refresh and the resulting
+  refresh rate directly from the framebuffer type's static BCM sequence
+  (`FrameBuffer::BCM_SEQUENCE`), including any enabled blanking/gap/trailer
+  segments. Use them to sanity-check panel geometry, BCM depth, and pixel
+  clock before committing to a configuration.
 * `circular-dma` support for ESP32-C5 (PARL_IO). The circular chain carries no
   `suc_eof` (a `suc_eof` descriptor terminates the PARL_IO transfer); a swap
   arms the boundary detector (`suc_eof` on the last descriptor + the
   `PARL_IO` `TxEof` interrupt), the ISR applies the pending buffer delta at
   the pass boundary and restarts the halted transfer. Requires the local
   `esp-hal` with the PARL_IO transfer interrupt API.
-* `Hub75Config::frame_counter` (circular-DMA mode): when `false`, no
-  interrupts are enabled in steady state on any backend — the detector is
-  armed only around a swap and disarmed again. When `true` (default), the
-  frame-count ISR runs every frame as before; `frame_count()` then reports
-  real frame counts, otherwise completed swaps.
 * In circular-DMA mode the swap delta is now applied by the ISR at the pass
   boundary instead of immediately in `swap()`, eliminating the mid-frame
   tear the previous implementation could produce.

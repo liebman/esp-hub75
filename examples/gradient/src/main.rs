@@ -102,6 +102,19 @@ const NBARS: i32 = ROWS as i32 / 8;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
+// Pixel-clock frequency, selected by the `20mhz` feature (the ESP32's I2S
+// peripheral tops out at 19 MHz).
+#[cfg(all(feature = "20mhz", not(feature = "esp32")))]
+const RATE: Rate = Rate::from_mhz(20);
+#[cfg(all(feature = "20mhz", feature = "esp32"))]
+const RATE: Rate = Rate::from_mhz(19);
+#[cfg(not(feature = "20mhz"))]
+const RATE: Rate = Rate::from_mhz(10);
+
+// Theoretical refresh rate for this configuration, computed at compile time
+// from the framebuffer's BCM sequence and the pixel clock above.
+const REFRESH_RATE: u32 = esp_hub75::refresh_hz::<FBType>(RATE);
+
 unsafe extern "C" {
     static _stack_end_cpu0: u32;
     static _stack_start_cpu0: u32;
@@ -120,6 +133,7 @@ fn main() -> ! {
     info!("ROWS: {}", ROWS);
     info!("COLS: {}", COLS);
     info!("PLANES: {}", PLANES);
+    info!("Refresh rate: {} Hz", REFRESH_RATE);
     info!("FB size: {}", core::mem::size_of::<FBType>());
 
     info!("init framebuffers");
@@ -208,20 +222,13 @@ fn main() -> ! {
         latch: peripherals.GPIO4.degrade(),
     };
 
-    #[cfg(all(feature = "20mhz", not(feature = "esp32")))]
-    let rate = Rate::from_mhz(20);
-    #[cfg(all(feature = "20mhz", feature = "esp32"))]
-    let rate = Rate::from_mhz(19);
-    #[cfg(not(feature = "20mhz"))]
-    let rate = Rate::from_mhz(10);
-
     #[cfg(feature = "esp32c6")]
     let hub75 = Hub75::new(
         peripherals.PARL_IO,
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
-        Hub75Config::new(rate),
+        Hub75Config::new(RATE),
         &*fb0,
     )
     .expect("failed to create Hub75");
@@ -232,7 +239,7 @@ fn main() -> ! {
         pins,
         peripherals.DMA_CH0,
         tx_descriptors,
-        Hub75Config::new(rate),
+        Hub75Config::new(RATE),
         &*fb0,
     )
     .expect("failed to create Hub75");
@@ -245,7 +252,7 @@ fn main() -> ! {
         pins,
         peripherals.DMA_I2S0,
         tx_descriptors,
-        Hub75Config::new(rate),
+        Hub75Config::new(RATE),
         &*fb0,
     )
     .expect("failed to create Hub75");
@@ -260,9 +267,7 @@ fn main() -> ! {
         .build();
 
     let mut render_count = 0u32;
-    let mut refresh_count_start = hub75.frame_count();
     let mut start = Instant::now();
-    let mut refresh_rate = 0u32;
     let mut render_rate = 0u32;
 
     let mut simple_counter = 0u32;
@@ -289,7 +294,7 @@ fn main() -> ! {
 
         let mut buffer: String<64> = String::new();
 
-        fmt::write(&mut buffer, format_args!("Refresh: {:4}", refresh_rate)).unwrap();
+        fmt::write(&mut buffer, format_args!("Refresh: {:4}", REFRESH_RATE)).unwrap();
         Text::with_alignment(
             buffer.as_str(),
             Point::new(0, LINE3),
@@ -330,9 +335,6 @@ fn main() -> ! {
         render_count += 1;
         if start.elapsed() > Duration::from_secs(1) {
             render_rate = render_count;
-            let current_frame_count = hub75.frame_count();
-            refresh_rate = current_frame_count.wrapping_sub(refresh_count_start);
-            refresh_count_start = current_frame_count;
             render_count = 0;
             start = Instant::now();
         }
