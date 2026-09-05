@@ -226,8 +226,12 @@ static CIRCULAR_STATE: SharedCircularState = Mutex::new(RefCell::new(None));
 ///
 /// Payload protocol: all state establishing or retiring a swap is written
 /// before a `Release` store to this flag, and every consumer reads it with
-/// `Acquire`. `true` means the DMA no longer reads the old framebuffer and
-/// it is safe to reclaim via [`Hub75Swap::wait`].
+/// `Acquire`. `true` means the swap has been applied at a pass boundary and
+/// it is safe to reclaim the old framebuffer via [`Hub75Swap::wait`].
+/// Note (ESP32/S3): the first chunk of the just-started pass may still be
+/// clocked out from the old buffer for up to one descriptor transfer time
+/// (~200us at 4KiB/10MHz) after this flag is set; reclaim is still sound
+/// because the old buffer remains valid, just briefly shared.
 static SWAP_DONE: AtomicBool = AtomicBool::new(false);
 #[cfg(not(feature = "circular-dma"))]
 static HAS_ERROR: AtomicBool = AtomicBool::new(false);
@@ -373,6 +377,7 @@ pub(crate) fn hub75_isr() {
 /// Apply a pending framebuffer pointer delta to every descriptor, at a pass
 /// boundary. Shared by the per-backend ISRs.
 #[cfg(feature = "circular-dma")]
+#[cfg_attr(feature = "iram", ram)]
 fn apply_pending_delta(state: &mut CircularState, delta: isize) {
     // SAFETY: `descriptors` points to a `&'static mut` descriptor
     // array that outlives everything. The DMA engine may be reading
@@ -381,9 +386,18 @@ fn apply_pending_delta(state: &mut CircularState, delta: isize) {
     //  1. Each `buffer` field is a naturally aligned 32-bit pointer; aligned 32-bit
     //     stores are atomic with respect to the DMA bus master, so DMA never sees a
     //     half-written pointer.
-    //  2. At a pass boundary the DMA has consumed the whole chain, so the pointers
-    //     only take effect from the start of the next pass (no torn frame) unless
-    //     the ISR is delayed by more than one descriptor's transfer time.
+    //  2. At a pass boundary the DMA has consumed the whole chain, so the
+    //     pointers take effect from the start of the next pass. On chips
+    //     where `suc_eof` does not halt the DMA (ESP32/S3), the engine has
+    //     already fetched descriptor 0's `buffer` at the wrap, before this
+    //     ISR runs — plus one extra chunk per descriptor-transfer-time
+    //     (`chunk_bytes / bus_hz`, ~200us at 4KiB/10MHz) of ISR entry
+    //     latency. Those head chunks of the post-swap pass are sourced from
+    //     the old framebuffer. This is a worst-case one-pass visual artifact
+    //     confined to the LSB-first head of the BCM sequence; it is not
+    //     memory-unsafe. The rewrite loop itself is orders of magnitude
+    //     faster than the DMA's per-descriptor advance, so iteration order
+    //     cannot race the engine.
     //  3. The delta stays valid because all plane data lives in one contiguous `FB`
     //     allocation and old and new framebuffers have identical layout.
     unsafe {
@@ -945,6 +959,16 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// descriptor. Call [`.wait_for_done()`](Hub75Swap::wait_for_done) then
     /// [`.wait()`](Hub75Swap::wait), or just `.wait()` directly for blocking.
     ///
+    /// # Swap granularity
+    ///
+    /// On ESP32-C5 (`PARL_IO`) the DMA halts at the boundary and the switch
+    /// is exact. On ESP32/ESP32-S3 the DMA wraps without halting, so the
+    /// first DMA chunk (~4KiB, the LSB end of the BCM sequence) of the pass
+    /// in which the swap completes may still come from the previous
+    /// framebuffer. The affected slice carries at most a few percent of
+    /// frame brightness and the display is transitioning to new content
+    /// anyway, so this is not visible in practice.
+    ///
     /// # Errors
     ///
     /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
@@ -969,7 +993,10 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             }
             let delta = new_fb_ptr as isize - state.current_fb_ptr as isize;
             // The delta is applied by the frame-boundary ISR at the next pass
-            // boundary, so the framebuffer switch cannot tear mid-frame.
+            // boundary. On ESP32/S3 the wrap-time fetch of descriptor 0 (plus
+            // ISR latency) means the first chunk(s) of that pass still source
+            // the old framebuffer — a benign, LSB-weighted, one-pass artifact
+            // (see `apply_pending_delta`).
             state.pending_delta = Some(delta);
             state.swap_in_flight = true;
             // Arm the boundary detector: mark the last descriptor with
