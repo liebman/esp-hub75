@@ -82,7 +82,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
 
-        parl_io_dev.set_interrupt_handler(crate::isr::hub75_isr);
+        parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::hub75_isr,
+            config.interrupt_priority,
+        ));
         parl_io_dev.listen(ParlIoInterrupt::TxEof);
 
         #[cfg(feature = "invert-clock")]
@@ -152,7 +155,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // Bind the unified swap-boundary ISR to the `PARL_IO` interrupt.
         // Binding unlistens from and clears all `PARL_IO` interrupt sources,
         // so nothing fires until a swap arms the `TxEof` source.
-        parl_io_dev.set_interrupt_handler(crate::isr::hub75_boundary_isr);
+        parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::hub75_boundary_isr,
+            config.interrupt_priority,
+        ));
 
         #[cfg(feature = "invert-clock")]
         let sample_edge = SampleEdge::Normal;

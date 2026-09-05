@@ -96,7 +96,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // `lcd_trans_done` source. `send()` clears a pending `lcd_trans_done`
         // flag before starting the LCD, so the ISR cannot fire before the
         // ISR state is initialised below.
-        i8080.set_interrupt_handler(crate::isr::hub75_isr);
+        i8080.set_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::hub75_isr,
+            config.interrupt_priority,
+        ));
         i8080.listen(I8080Interrupt::TransDone);
 
         let buf = BcmBuf::new(tx_descriptors.as_slice());
@@ -151,7 +154,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // DMA engine, and the first descriptor can complete before the
         // constructor returns, so enabling the source any earlier could
         // fire the ISR while it has no transfer to clear the flag through.
-        i8080.set_dma_interrupt_handler(crate::isr::hub75_boundary_isr);
+        i8080.set_dma_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::hub75_boundary_isr,
+            config.interrupt_priority,
+        ));
 
         let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
         let desc_ptr = buf.descriptors_ptr();

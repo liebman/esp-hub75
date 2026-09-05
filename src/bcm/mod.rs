@@ -54,7 +54,8 @@ const EMPTY_SEGMENT: BcmSegment = BcmSegment {
 struct CacheCell(UnsafeCell<SegmentCache>);
 
 #[cfg(not(feature = "circular-dma"))]
-// SAFETY: All access is serialised by `critical_section::with`. The cache
+// SAFETY: All access is serialised by the ISR state lock (`STATE_LOCK` in
+// `isr.rs`, an `esp_sync::RawMutex`). The cache
 // is written only by `start_internal()` (init/restart path) and the ISR
 // (delta application at frame boundaries); `swap()` never touches it.
 unsafe impl Sync for CacheCell {}

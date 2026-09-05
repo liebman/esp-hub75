@@ -5,18 +5,19 @@
 //! `PARL_IO`). Holds the transfer state machine, the interrupt handler, and
 //! the public [`Hub75`] driver handle with its `swap()` API.
 
-use core::cell::RefCell;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
 use core::task::Waker;
 
-use critical_section::Mutex;
 use esp_hal::Blocking;
 #[cfg(all(feature = "circular-dma", hub75_use_lcd_cam))]
 use esp_hal::dma::DmaTxInterrupt;
 use esp_hal::handler;
+use esp_hal::interrupt::InterruptHandler;
+use esp_hal::interrupt::Priority;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
+use esp_sync::NonReentrantMutex;
 
 use crate::Hub75Error;
 #[cfg(not(feature = "circular-dma"))]
@@ -150,6 +151,48 @@ impl FrameInterrupt for TxTransfer {
 // ISR shared state
 // ---------------------------------------------------------------------------
 
+/// A mutex-protected cell, parl_io-style.
+///
+/// `esp_sync::NonReentrantMutex` — the same `esp_sync::RawMutex` primitive
+/// esp-hal's `PARL_IO` driver uses for its interrupt-enable register RMWs
+/// (and which backs esp-hal's `critical_section` implementation), fused with
+/// the interior-mutable data it guards. Access goes through
+/// [`NonReentrantMutex::with`], which hands the closure a `&mut T`; calling
+/// it reentrantly panics, turning any accidental lock-nesting bug into a
+/// loud crash instead of silent corruption.
+///
+/// Why a dedicated mutex instead of the process-global `critical_section`:
+/// the HUB75 refresh ISR runs at a very high rate (for example 64×32 @ 8
+/// planes @ 200 Hz ⇒ ~12.8k ISR/s), and on multi-core chips (ESP32,
+/// ESP32-S3) the global critical section is a single lock shared with *every*
+/// other critical-section user in the firmware (esp-radio, Embassy, other
+/// drivers). Taking the global lock in the ISR would spin behind unrelated
+/// work on the other core — and make that work spin behind the ISR —
+/// directly adding BCM timing jitter. A dedicated mutex only contends with
+/// code that actually touches the ISR state.
+///
+/// Lock ordering: these mutexes are **leaf** locks. Inside them we only touch
+/// the shared state, our peripheral registers, and esp-hal transfer methods
+/// (which may acquire esp-hal-internal locks, but never ours), so no lock
+/// cycle is possible.
+type Shared<T> = NonReentrantMutex<T>;
+
+/// Rebuilds an `InterruptHandler` with a runtime-configured priority.
+///
+/// `#[handler]` bakes the priority into the emitted const at compile time
+/// (defaulting to `Priority::min()`); the handler's entry point is recovered
+/// via `InterruptHandler::handler().callback()` and re-wrapped with the
+/// requested priority.
+pub(crate) fn handler_with_priority(
+    handler: InterruptHandler,
+    priority: Option<Priority>,
+) -> InterruptHandler {
+    match priority {
+        Some(prio) => InterruptHandler::new(handler.handler().callback(), prio),
+        None => handler,
+    }
+}
+
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) enum TransferPhase {
     Idle(TxDriver, BcmBuf),
@@ -173,18 +216,19 @@ pub(crate) struct IsrState {
 }
 
 #[cfg(not(feature = "circular-dma"))]
-// SAFETY: All access is serialised by `critical_section`, which disables
-// interrupts and acquires a cross-core spinlock on multi-core chips.
-// The raw pointers (`current_fb_ptr`, `pending_fb_ptr`)
-// are only dereferenced inside `critical_section::with` blocks, so they
-// are never accessed concurrently from multiple cores.
+// SAFETY (`Send`): required so the `Mutex<RefCell<Option<_>>>` statics below
+// are `Sync`. All access to the inner value is serialised by the embassy
+// mutex (which disables interrupts and CAS-spins on an owner word on
+// multi-core chips). The raw pointers (`current_fb_ptr`, `pending_fb_ptr`)
+// are only dereferenced inside lock closures, so they are never accessed
+// concurrently from multiple cores.
 unsafe impl Send for IsrState {}
 
 #[cfg(not(feature = "circular-dma"))]
-type SharedIsrState = Mutex<RefCell<Option<IsrState>>>;
+type SharedIsrState = Shared<Option<IsrState>>;
 
 #[cfg(not(feature = "circular-dma"))]
-static ISR_STATE: SharedIsrState = Mutex::new(RefCell::new(None));
+static ISR_STATE: SharedIsrState = Shared::new(None);
 
 // ---------------------------------------------------------------------------
 // Circular-DMA shared state
@@ -208,15 +252,16 @@ pub(crate) struct CircularState {
 }
 
 #[cfg(feature = "circular-dma")]
-// SAFETY: Same justification as `IsrState`: all access is serialised by
-// `critical_section`.
+// SAFETY (`Send`): same justification as `IsrState` — required so the
+// `Mutex<RefCell<Option<_>>>` static is `Sync`; all access is serialised by
+// the embassy mutex.
 unsafe impl Send for CircularState {}
 
 #[cfg(feature = "circular-dma")]
-type SharedCircularState = Mutex<RefCell<Option<CircularState>>>;
+type SharedCircularState = Shared<Option<CircularState>>;
 
 #[cfg(feature = "circular-dma")]
-static CIRCULAR_STATE: SharedCircularState = Mutex::new(RefCell::new(None));
+static CIRCULAR_STATE: SharedCircularState = Shared::new(None);
 
 // ---------------------------------------------------------------------------
 // Swap signalling
@@ -239,11 +284,14 @@ static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 /// constructor from overwriting the ISR state statics. Hub75 has no Drop
 /// (run-forever design), so this is never reset.
 static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
-static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
+static SWAP_WAKER: Shared<Option<Waker>> = Shared::new(None);
 
-fn signal_swap_done(cs: critical_section::CriticalSection) {
+fn signal_swap_done() {
     SWAP_DONE.store(true, Ordering::Release);
-    if let Some(waker) = SWAP_WAKER.borrow_ref_mut(cs).take() {
+    // Take the waker under the lock but wake outside of it: `wake()` runs
+    // arbitrary executor code that must not run while a mutex is held.
+    let waker = SWAP_WAKER.with(Option::take);
+    if let Some(waker) = waker {
         waker.wake();
     }
 }
@@ -321,9 +369,8 @@ fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBu
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
 pub(crate) fn hub75_isr() {
-    critical_section::with(|cs| {
-        let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-        let Some(state) = borrow.as_mut() else { return };
+    ISR_STATE.with(|state| {
+        let Some(state) = state.as_mut() else { return };
 
         let xfer = match core::mem::replace(&mut state.transfer, TransferPhase::Transitioning) {
             TransferPhase::InFlight(xfer) => xfer,
@@ -339,7 +386,7 @@ pub(crate) fn hub75_isr() {
         if let Err(err) = result {
             state.transfer = TransferPhase::Error(err, tx, buf);
             HAS_ERROR.store(true, Ordering::Release);
-            signal_swap_done(cs);
+            signal_swap_done();
             return;
         }
 
@@ -349,7 +396,7 @@ pub(crate) fn hub75_isr() {
             state.current_fb_ptr = state.pending_fb_ptr;
             state.pending_fb_ptr = core::ptr::null();
             buf.apply_delta(delta);
-            signal_swap_done(cs);
+            signal_swap_done();
         }
 
         #[cfg(hub75_use_lcd_cam)]
@@ -364,7 +411,7 @@ pub(crate) fn hub75_isr() {
             Err((hub_err, tx, buf)) => {
                 state.transfer = TransferPhase::Error(hub_err, tx, buf);
                 HAS_ERROR.store(true, Ordering::Release);
-                signal_swap_done(cs);
+                signal_swap_done();
             }
         }
     });
@@ -386,18 +433,17 @@ fn apply_pending_delta(state: &mut CircularState, delta: isize) {
     //  1. Each `buffer` field is a naturally aligned 32-bit pointer; aligned 32-bit
     //     stores are atomic with respect to the DMA bus master, so DMA never sees a
     //     half-written pointer.
-    //  2. At a pass boundary the DMA has consumed the whole chain, so the
-    //     pointers take effect from the start of the next pass. On chips
-    //     where `suc_eof` does not halt the DMA (ESP32/S3), the engine has
-    //     already fetched descriptor 0's `buffer` at the wrap, before this
-    //     ISR runs — plus one extra chunk per descriptor-transfer-time
-    //     (`chunk_bytes / bus_hz`, ~200us at 4KiB/10MHz) of ISR entry
-    //     latency. Those head chunks of the post-swap pass are sourced from
-    //     the old framebuffer. This is a worst-case one-pass visual artifact
-    //     confined to the LSB-first head of the BCM sequence; it is not
-    //     memory-unsafe. The rewrite loop itself is orders of magnitude
-    //     faster than the DMA's per-descriptor advance, so iteration order
-    //     cannot race the engine.
+    //  2. At a pass boundary the DMA has consumed the whole chain, so the pointers
+    //     take effect from the start of the next pass. On chips where `suc_eof`
+    //     does not halt the DMA (ESP32/S3), the engine has already fetched
+    //     descriptor 0's `buffer` at the wrap, before this ISR runs — plus one
+    //     extra chunk per descriptor-transfer-time (`chunk_bytes / bus_hz`, ~200us
+    //     at 4KiB/10MHz) of ISR entry latency. Those head chunks of the post-swap
+    //     pass are sourced from the old framebuffer. This is a worst-case one-pass
+    //     visual artifact confined to the LSB-first head of the BCM sequence; it is
+    //     not memory-unsafe. The rewrite loop itself is orders of magnitude faster
+    //     than the DMA's per-descriptor advance, so iteration order cannot race the
+    //     engine.
     //  3. The delta stays valid because all plane data lives in one contiguous `FB`
     //     allocation and old and new framebuffers have identical layout.
     unsafe {
@@ -421,9 +467,8 @@ fn apply_pending_delta(state: &mut CircularState, delta: isize) {
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
 pub(crate) fn hub75_boundary_isr() {
-    critical_section::with(|cs| {
-        let mut borrow = CIRCULAR_STATE.borrow_ref_mut(cs);
-        let Some(state) = borrow.as_mut() else {
+    CIRCULAR_STATE.with(|state| {
+        let Some(state) = state.as_mut() else {
             return;
         };
 
@@ -439,7 +484,7 @@ pub(crate) fn hub75_boundary_isr() {
         if let Some(delta) = state.pending_delta.take() {
             apply_pending_delta(state, delta);
             state.swap_in_flight = false;
-            signal_swap_done(cs);
+            signal_swap_done();
         }
 
         // Swap-armed boundary handled: disarm until the next swap. The
@@ -462,9 +507,8 @@ pub(crate) fn hub75_boundary_isr() {
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
 pub(crate) fn hub75_boundary_isr() {
-    critical_section::with(|cs| {
-        let mut borrow = CIRCULAR_STATE.borrow_ref_mut(cs);
-        let Some(state) = borrow.as_mut() else {
+    CIRCULAR_STATE.with(|state| {
+        let Some(state) = state.as_mut() else {
             return;
         };
         // Take the transfer: `wait()` consumes it and returns the driver and
@@ -477,7 +521,7 @@ pub(crate) fn hub75_boundary_isr() {
         if let Some(delta) = state.pending_delta.take() {
             apply_pending_delta(state, delta);
             state.swap_in_flight = false;
-            signal_swap_done(cs);
+            signal_swap_done();
         }
 
         // Swap-armed boundary handled: disarm until the next swap; the chain
@@ -503,8 +547,8 @@ pub(crate) fn hub75_boundary_isr() {
 
 #[cfg(all(not(hub75_use_lcd_cam), not(feature = "circular-dma")))]
 pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
-    critical_section::with(|cs| {
-        *ISR_STATE.borrow_ref_mut(cs) = Some(IsrState {
+    ISR_STATE.with(|state| {
+        *state = Some(IsrState {
             transfer: TransferPhase::Idle(tx, buf),
             current_fb_ptr: core::ptr::null(),
             pending_delta: None,
@@ -515,8 +559,8 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
 
 #[cfg(all(hub75_use_lcd_cam, not(feature = "circular-dma")))]
 pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
-    critical_section::with(|cs| {
-        *ISR_STATE.borrow_ref_mut(cs) = Some(IsrState {
+    ISR_STATE.with(|state| {
+        *state = Some(IsrState {
             transfer: TransferPhase::Idle(tx, buf),
             word_size,
             current_fb_ptr: core::ptr::null(),
@@ -538,8 +582,8 @@ pub(crate) fn store_circular_state(
     desc_count: usize,
     fb_ptr: *const (),
 ) {
-    critical_section::with(|cs| {
-        *CIRCULAR_STATE.borrow_ref_mut(cs) = Some(CircularState {
+    CIRCULAR_STATE.with(|state| {
+        *state = Some(CircularState {
             transfer: Some(xfer),
             descriptors: desc_ptr,
             desc_count,
@@ -553,8 +597,7 @@ pub(crate) fn store_circular_state(
         // detector is armed by `swap()` and disarmed by the ISR; no
         // interrupts are enabled in steady state.
         {
-            let mut state_ref = CIRCULAR_STATE.borrow_ref_mut(cs);
-            let state = state_ref.as_mut().expect("just stored");
+            let state = state.as_mut().expect("just stored");
             let transfer = state.transfer.as_ref().expect("transfer kept alive");
             transfer.clear_frame_interrupt();
         }
@@ -627,7 +670,8 @@ pub struct Hub75<DM: esp_hal::DriverMode, FB> {
 }
 
 // SAFETY: Hub75 is a zero-sized handle; all mutable state lives in statics
-// guarded by critical_section, so it is safe to send across threads.
+// guarded by the ISR `STATE_LOCK` (see `Shared`), so it is safe to send
+// across threads.
 // Hub75 is intentionally `!Sync` because concurrent `swap()` calls from
 // multiple threads would race on the shared ISR state.
 unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
@@ -669,9 +713,8 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
     crate::bcm::validate_fb_internal_ram(fb);
 
-    critical_section::with(|cs| {
-        let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-        let state = borrow.as_mut().expect("Hub75 not initialised");
+    ISR_STATE.with(|state| {
+        let state = state.as_mut().expect("Hub75 not initialised");
 
         let (tx, mut buf) =
             match core::mem::replace(&mut state.transfer, TransferPhase::Transitioning) {
@@ -687,7 +730,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
         // when restart() is called would spin forever because HAS_ERROR and
         // SWAP_DONE get cleared below, and no new pending_delta exists to
         // drive a fresh completion signal.
-        signal_swap_done(cs);
+        signal_swap_done();
 
         // Build the cache in-place (restart/re-init path).
         segments_from_fb_into(fb, unsafe { &mut *cache_ptr().cast_mut() });
@@ -787,9 +830,8 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
     pub fn wait(self) -> Result<&'static mut FB, (Hub75Error, &'static mut FB)> {
         loop {
             if HAS_ERROR.load(Ordering::Acquire) {
-                return critical_section::with(|cs| {
-                    let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-                    let state = borrow.as_mut().unwrap();
+                return ISR_STATE.with(|state| {
+                    let state = state.as_mut().unwrap();
                     state.pending_delta = None;
                     state.pending_fb_ptr = core::ptr::null();
                     let err = match &state.transfer {
@@ -841,11 +883,11 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
             if SWAP_DONE.load(Ordering::Acquire) || HAS_ERROR.load(Ordering::Acquire) {
                 return core::task::Poll::Ready(());
             }
-            critical_section::with(|cs| {
+            SWAP_WAKER.with(|waker| {
                 if SWAP_DONE.load(Ordering::Acquire) || HAS_ERROR.load(Ordering::Acquire) {
                     return core::task::Poll::Ready(());
                 }
-                *SWAP_WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
+                *waker = Some(cx.waker().clone());
                 core::task::Poll::Pending
             })
         })
@@ -862,11 +904,11 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
             if SWAP_DONE.load(Ordering::Acquire) {
                 return core::task::Poll::Ready(());
             }
-            critical_section::with(|cs| {
+            SWAP_WAKER.with(|waker| {
                 if SWAP_DONE.load(Ordering::Acquire) {
                     return core::task::Poll::Ready(());
                 }
-                *SWAP_WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
+                *waker = Some(cx.waker().clone());
                 core::task::Poll::Pending
             })
         })
@@ -917,9 +959,8 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
         );
         let new_fb_ptr = core::ptr::from_mut::<FB>(new_fb);
 
-        let old_fb_ptr = critical_section::with(|cs| {
-            let mut borrow = ISR_STATE.borrow_ref_mut(cs);
-            let state = borrow.as_mut().expect("Hub75 not initialised");
+        let old_fb_ptr = ISR_STATE.with(|state| {
+            let state = state.as_mut().expect("Hub75 not initialised");
             if state.pending_delta.is_some() {
                 return Err(new_fb_ptr as *const ());
             }
@@ -985,9 +1026,8 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
         new_fb: &'static mut FB,
     ) -> Result<Hub75Swap<FB>, (Hub75Error, &'static mut FB)> {
         let new_fb_ptr = core::ptr::from_mut::<FB>(new_fb);
-        let old_fb_ptr = critical_section::with(|cs| {
-            let mut borrow = CIRCULAR_STATE.borrow_ref_mut(cs);
-            let state = borrow.as_mut().expect("Hub75 not initialised");
+        let old_fb_ptr = CIRCULAR_STATE.with(|state| {
+            let state = state.as_mut().expect("Hub75 not initialised");
             if state.swap_in_flight {
                 return Err(new_fb_ptr as *const ());
             }

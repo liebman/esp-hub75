@@ -88,7 +88,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // This connects `hub75_isr` to the interrupt and turns on the
         // `out_total_eof` source. The `out_total_eof` interrupt occurs when
         // the DMA finishes the full DMA descriptor chain.
-        i2s_parallel.set_interrupt_handler(crate::isr::hub75_isr);
+        i2s_parallel.set_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::hub75_isr,
+            config.interrupt_priority,
+        ));
         i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
 
         let buf = BcmBuf::new(tx_descriptors.as_slice());
@@ -135,7 +138,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // back to the start of the chain. We checked this on the hardware
         // (ESP32 classic, I2S LCD mode). `out_total_eof` never occurs on a
         // circular chain, because the transfer never ends.
-        i2s_parallel.set_interrupt_handler(crate::isr::hub75_boundary_isr);
+        i2s_parallel.set_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::hub75_boundary_isr,
+            config.interrupt_priority,
+        ));
         i2s_parallel.listen(I2sParallelInterrupt::Eof);
 
         let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);

@@ -101,7 +101,8 @@ pub(crate) fn set_last_suc_eof(descriptors: *mut DmaDescriptor, desc_count: usiz
     }
 }
 
-// SAFETY: All access is serialised by `critical_section::with`.
+// SAFETY: All access is serialised by the ISR state lock (`STATE_LOCK` in
+// `isr.rs`, an `esp_sync::RawMutex`).
 unsafe impl Send for CircularBcmBuf {}
 
 unsafe impl DmaTxBuffer for CircularBcmBuf {

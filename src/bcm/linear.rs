@@ -34,7 +34,7 @@ pub(crate) struct BcmBuf {
     /// Raw pointer to the static segment cache (`SEGMENT_CACHE`).
     /// Dereferenced inline at each use site; the pointer is always
     /// valid because the cache is a `'static` and all access is
-    /// serialised by `critical_section`.
+    /// serialised by the ISR state lock (`STATE_LOCK`).
     cache: *const SegmentCache,
     #[cfg(not(feature = "full-chain-dma"))]
     current_group: usize,
@@ -106,7 +106,7 @@ impl BcmBuf {
     /// both framebuffers are the same type with identical internal layout.
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn apply_delta(&mut self, delta: isize) {
-        // SAFETY: Called from the ISR (inside critical_section). The cache
+        // SAFETY: Called from the ISR (under the ISR `STATE_LOCK`). The cache
         // is not concurrently accessed; `swap()` only reads FB pointers
         // to compute the delta and never writes to the cache.
         let cache = unsafe { &mut *self.cache.cast_mut() };
@@ -137,13 +137,13 @@ impl BcmBuf {
     }
 }
 
-// SAFETY: All access to `BcmBuf` is serialised by `critical_section::with`,
-// which on esp-hal provides a cross-core critical section (interrupt-disable
-// plus a cross-core spinlock on multi-core chips like ESP32 and ESP32-S3).
-// There is therefore no concurrent access. The raw `cache` pointer points
-// to `SEGMENT_CACHE` (a `'static`), which is only mutated under the same
-// critical-section guarantee (by the ISR applying deltas and by
-// `start_internal` rebuilding it).
+// SAFETY: All access to `BcmBuf` is serialised by the ISR state lock
+// (`STATE_LOCK` in `isr.rs`, an `esp_sync::RawMutex`): it disables
+// interrupts on the current core and CAS-spins on an owner word on
+// multi-core chips like ESP32 and ESP32-S3. There is therefore no
+// concurrent access. The raw `cache` pointer points to `SEGMENT_CACHE`
+// (a `'static`), which is only mutated under the same lock (by the ISR
+// applying deltas and by `start_internal` rebuilding it).
 unsafe impl Send for BcmBuf {}
 
 unsafe impl DmaTxBuffer for BcmBuf {

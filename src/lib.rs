@@ -198,6 +198,7 @@
 use core::marker::PhantomData;
 
 use esp_hal::gpio::AnyPin;
+use esp_hal::interrupt::Priority;
 use esp_hal::time::Rate;
 pub use hub75_framebuffer as framebuffer;
 #[doc(hidden)]
@@ -215,19 +216,52 @@ pub(crate) mod bcm;
 pub struct Hub75Config {
     /// The HUB75 pixel-clock frequency.
     pub frequency: Rate,
+    /// Interrupt priority for the HUB75 refresh ISR.
+    ///
+    /// `None` (the default) leaves the ISR at esp-hal's default interrupt
+    /// priority (`Priority::min()`). Raising it lets the refresh ISR preempt
+    /// lower-priority interrupt handlers, which is the main practical
+    /// anti-flicker lever on multi-core chips:
+    ///
+    /// - **ESP32**: Wi-Fi and other long-running interrupt handlers run at low
+    ///   priority and can delay the refresh ISR by hundreds of microseconds,
+    ///   causing visible flicker. Set the priority to `Priority::Priority3`
+    ///   (the maximum) and enable the `iram` feature to keep the ISR resident
+    ///   in instruction RAM.
+    /// - **ESP32-S3**: same treatment, especially when Wi-Fi is active.
+    /// - **Single-core RISC-V chips (C5/C6)**: interrupt priority control is
+    ///   more fine-grained there; raising the priority mainly protects the
+    ///   refresh ISR against other same-core interrupt handlers.
+    ///
+    /// Note that a higher ISR priority increases the latency of everything
+    /// it preempts — including Wi-Fi bookkeeping — so use the lowest value
+    /// that eliminates flicker.
+    pub interrupt_priority: Option<Priority>,
 }
 
 impl Hub75Config {
     /// Creates a new configuration with the given pixel-clock frequency.
     #[must_use]
     pub const fn new(frequency: Rate) -> Self {
-        Self { frequency }
+        Self {
+            frequency,
+            interrupt_priority: None,
+        }
     }
 
     /// Sets the HUB75 pixel-clock frequency.
     #[must_use]
     pub const fn with_frequency(mut self, frequency: Rate) -> Self {
         self.frequency = frequency;
+        self
+    }
+
+    /// Sets the interrupt priority of the HUB75 refresh ISR.
+    ///
+    /// See [`Hub75Config::interrupt_priority`] for guidance.
+    #[must_use]
+    pub const fn with_interrupt_priority(mut self, priority: Priority) -> Self {
+        self.interrupt_priority = Some(priority);
         self
     }
 }
