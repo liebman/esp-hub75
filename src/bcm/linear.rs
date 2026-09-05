@@ -218,7 +218,8 @@ impl BcmBuf {
         let total_descs = cache.descriptor_count();
         super::fill_full_chain(
             &mut self.descriptors[..total_descs],
-            cache,
+            cache.count,
+            |i| cache.segments[i],
             total_descs,
             null_mut(),
         );

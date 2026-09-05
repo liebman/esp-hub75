@@ -198,6 +198,7 @@
 #![warn(clippy::pedantic)]
 
 use core::marker::PhantomData;
+
 use esp_hal::gpio::AnyPin;
 use esp_hal::time::Rate;
 pub use hub75_framebuffer as framebuffer;
@@ -354,10 +355,10 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
 /// DMA descriptor storage bound to a specific framebuffer type.
 ///
 /// The descriptor array is stored inline and sized at compile time from the
-/// framebuffer type `FB` and the enabled DMA features (see [`COUNT`][Self::COUNT]
-/// and [`dma_descriptor_count`]). The type parameter makes it a compile error
-/// to pass descriptor storage built for one framebuffer type to a driver
-/// instance configured for another.
+/// framebuffer type `FB` and the enabled DMA features (see
+/// [`COUNT`][Self::COUNT] and [`dma_descriptor_count`]). The type parameter
+/// makes it a compile error to pass descriptor storage built for one
+/// framebuffer type to a driver instance configured for another.
 ///
 /// Construct only via [`hub75_dma_descriptors!`], which allocates the storage
 /// in a `static_cell::StaticCell` and returns
@@ -433,7 +434,9 @@ macro_rules! hub75_dma_descriptors {
         static __DESC_CELL: $crate::static_cell::StaticCell<
             $crate::Hub75DmaDescriptors<$fb_type, __N>,
         > = $crate::static_cell::StaticCell::new();
-        __DESC_CELL.uninit().write($crate::Hub75DmaDescriptors::new())
+        __DESC_CELL
+            .uninit()
+            .write($crate::Hub75DmaDescriptors::new())
     }};
 }
 

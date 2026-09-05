@@ -29,12 +29,18 @@ impl CircularBcmBuf {
     /// `full-chain-dma`) with two differences:
     /// - The last descriptor's `next` points back to `desc[0]` (circular).
     /// - No descriptor has `suc_eof` set (see the module docs).
-    pub(crate) fn new(
+    ///
+    /// Segments are streamed straight from the framebuffer, so no
+    /// `SegmentCache` is materialised (neither on the stack nor in BSS) —
+    /// the cache is only needed by linear mode, where the ISR walks it at
+    /// runtime. The descriptor count comes from
+    /// [`dma_descriptor_count`](crate::dma_descriptor_count), which computes
+    /// it at compile time from `FB::BCM_SEGMENT_SHAPES`.
+    pub(crate) fn new<FB: FrameBuffer>(
         descriptors: &'static mut [DmaDescriptor],
-        fb: &'static impl FrameBuffer,
+        fb: &'static FB,
     ) -> Self {
-        let cache = super::segments_from_fb(fb);
-        let total_descs = cache.descriptor_count();
+        let total_descs = crate::dma_descriptor_count::<FB>(crate::MAX_DMA_CHUNK_SIZE);
         debug_assert!(
             descriptors.len() >= total_descs,
             "not enough DMA descriptors: have {}, need {}",
@@ -45,7 +51,12 @@ impl CircularBcmBuf {
         let ring_start = descriptors.as_mut_ptr();
         super::fill_full_chain(
             &mut descriptors[..total_descs],
-            &cache,
+            fb.bcm_segment_count(),
+            |i| {
+                let seg = fb.bcm_segment(i);
+                debug_assert!(!seg.ptr.is_null(), "segment {i} returned a null pointer");
+                seg
+            },
             total_descs,
             ring_start,
         );
