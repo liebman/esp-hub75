@@ -226,6 +226,12 @@ static CIRCULAR_STATE: SharedCircularState = Mutex::new(RefCell::new(None));
 // Swap signalling
 // ---------------------------------------------------------------------------
 
+/// Swap-completion flag.
+///
+/// Payload protocol: all state establishing or retiring a swap is written
+/// before a `Release` store to this flag, and every consumer reads it with
+/// `Acquire`. `true` means the DMA no longer reads the old framebuffer and
+/// it is safe to reclaim via [`Hub75Swap::wait`].
 static SWAP_DONE: AtomicBool = AtomicBool::new(false);
 #[cfg(not(feature = "circular-dma"))]
 static HAS_ERROR: AtomicBool = AtomicBool::new(false);
@@ -234,6 +240,9 @@ static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 /// (run-forever design), so this is never reset.
 static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 static SWAP_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
+/// Completed BCM frame counter. Telemetry only (read via
+/// [`Hub75::frame_count`]); `Relaxed` is intentional — no synchronization
+/// intent, the value is approximate by design.
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 
 fn signal_swap_done(cs: critical_section::CriticalSection) {
@@ -710,7 +719,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
             Ok(xfer) => {
                 state.transfer = TransferPhase::InFlight(xfer);
                 HAS_ERROR.store(false, Ordering::Release);
-                SWAP_DONE.store(false, Ordering::Relaxed);
+                SWAP_DONE.store(false, Ordering::Release);
                 Ok(())
             }
             Err((hub_err, tx, buf)) => {
@@ -847,7 +856,7 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
                 return core::task::Poll::Ready(());
             }
             critical_section::with(|cs| {
-                if SWAP_DONE.load(Ordering::Relaxed) || HAS_ERROR.load(Ordering::Relaxed) {
+                if SWAP_DONE.load(Ordering::Acquire) || HAS_ERROR.load(Ordering::Acquire) {
                     return core::task::Poll::Ready(());
                 }
                 *SWAP_WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
@@ -868,7 +877,7 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
                 return core::task::Poll::Ready(());
             }
             critical_section::with(|cs| {
-                if SWAP_DONE.load(Ordering::Relaxed) {
+                if SWAP_DONE.load(Ordering::Acquire) {
                     return core::task::Poll::Ready(());
                 }
                 *SWAP_WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
@@ -936,7 +945,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             let delta = new_fb_ptr as isize - old as isize;
             state.pending_delta = Some(delta);
             state.pending_fb_ptr = new_fb_ptr as *const ();
-            SWAP_DONE.store(false, Ordering::Relaxed);
+            SWAP_DONE.store(false, Ordering::Release);
             Ok(old)
         });
 
