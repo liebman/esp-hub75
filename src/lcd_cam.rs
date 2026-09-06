@@ -120,8 +120,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                 ));
 
                 let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
-                let desc_ptr = buf.descriptors_ptr();
-                let desc_count = buf.desc_count();
+                let descriptor_ptr = buf.descriptors_ptr();
+                let descriptor_count = buf.descriptor_count();
                 let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
                 let xfer = match word_size {
@@ -130,7 +130,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                 }
                 .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-                crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
             }
             _ => {
                 // Bind the BCM refresh ISR to the LCD_CAM interrupt and

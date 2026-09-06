@@ -134,15 +134,15 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         cfg_select! {
             feature = "circular-dma" => {
                 let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
-                let desc_ptr = buf.descriptors_ptr();
-                let desc_count = buf.desc_count();
+                let descriptor_ptr = buf.descriptors_ptr();
+                let descriptor_count = buf.descriptor_count();
                 let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
                 let xfer = parl_io_tx
                     .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
                     .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
 
-                crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
             }
             _ => {
                 let buf = LinearBcmBuf::new(tx_descriptors.as_slice());

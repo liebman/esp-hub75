@@ -19,7 +19,7 @@ use crate::framebuffer::FrameBuffer;
 
 pub(crate) struct CircularBcmBuf {
     descriptors: &'static mut [DmaDescriptor],
-    desc_count: usize,
+    descriptor_count: usize,
 }
 
 impl CircularBcmBuf {
@@ -67,7 +67,7 @@ impl CircularBcmBuf {
 
         Self {
             descriptors,
-            desc_count: total_descs,
+            descriptor_count: total_descs,
         }
     }
 
@@ -78,8 +78,8 @@ impl CircularBcmBuf {
     }
 
     /// Number of active descriptors in the chain.
-    pub(crate) fn desc_count(&self) -> usize {
-        self.desc_count
+    pub(crate) fn descriptor_count(&self) -> usize {
+        self.descriptor_count
     }
 }
 
@@ -93,11 +93,15 @@ impl CircularBcmBuf {
 /// Callable from task and interrupt context; the 32-bit flag write is atomic
 /// with respect to the DMA bus master.
 #[cfg_attr(feature = "iram", ram)]
-pub(crate) fn set_last_suc_eof(descriptors: *mut DmaDescriptor, desc_count: usize, enabled: bool) {
+pub(crate) fn set_last_suc_eof(
+    descriptors: *mut DmaDescriptor,
+    descriptor_count: usize,
+    enabled: bool,
+) {
     // SAFETY: `descriptors` originates from a `&'static mut` descriptor array
     // stored in the ISR state, valid for the driver's lifetime.
     unsafe {
-        (*descriptors.add(desc_count - 1)).set_suc_eof(enabled);
+        (*descriptors.add(descriptor_count - 1)).set_suc_eof(enabled);
     }
 }
 

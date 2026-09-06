@@ -142,7 +142,7 @@ pub(crate) struct State {
     // `FrameInterrupt`).
     pub(crate) transfer: Option<TxTransfer>,
     pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
-    pub(crate) desc_count: usize,
+    pub(crate) descriptor_count: usize,
     pub(crate) current_fb_ptr: *const (),
     /// Pointer delta for a pending swap, applied by the ISR at the next pass
     /// boundary (see `Hub75::swap`).
@@ -190,7 +190,7 @@ fn apply_pending_delta(state: &mut State, delta: isize) {
     //  3. The delta stays valid because all plane data lives in one contiguous `FB`
     //     allocation and old and new framebuffers have identical layout.
     unsafe {
-        for i in 0..state.desc_count {
+        for i in 0..state.descriptor_count {
             let desc = &mut *state.descriptors.add(i);
             desc.buffer = desc.buffer.wrapping_byte_offset(delta);
         }
@@ -244,7 +244,7 @@ cfg_select! {
                 // Swap-armed boundary handled: disarm until the next swap. The
                 // DMA does not halt on `suc_eof` on these chips, so the chain
                 // keeps running.
-                crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
+                crate::bcm::circular::set_last_suc_eof(state.descriptors, state.descriptor_count, false);
                 if let Some(xfer) = state.transfer.as_ref() {
                     xfer.unlisten_frame_interrupt();
                 }
@@ -282,7 +282,7 @@ cfg_select! {
 
                 // Swap-armed boundary handled: disarm until the next swap; the
                 // chain runs suc_eof-free again until the next swap arms it.
-                crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
+                crate::bcm::circular::set_last_suc_eof(state.descriptors, state.descriptor_count, false);
                 xfer.unlisten_frame_interrupt();
 
                 let (_, tx, buf) = xfer.wait();
@@ -314,15 +314,15 @@ pub(crate) const PARL_IO_DUMMY_TRANSFER_LEN: usize = 0;
 
 pub(crate) fn init_state(
     xfer: TxTransfer,
-    desc_ptr: *mut esp_hal::dma::DmaDescriptor,
-    desc_count: usize,
+    descriptor_ptr: *mut esp_hal::dma::DmaDescriptor,
+    descriptor_count: usize,
     fb_ptr: *const (),
 ) {
     STATE.with(|state| {
         *state = Some(State {
             transfer: Some(xfer),
-            descriptors: desc_ptr,
-            desc_count,
+            descriptors: descriptor_ptr,
+            descriptor_count,
             current_fb_ptr: fb_ptr,
             pending_delta: None,
             swap_in_flight: false,
@@ -400,7 +400,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
             // and disarms. On ESP32-C5 the consumed `suc_eof` *halts* the
             // DMA channel; the ISR restarts the transfer (see
             // `isr`).
-            crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, true);
+            crate::bcm::circular::set_last_suc_eof(state.descriptors, state.descriptor_count, true);
             if let Some(xfer) = state.transfer.as_ref() {
                 // Drain any frame-boundary flag latched before the update,
                 // so the ISR cannot attribute a pre-swap boundary to the new
