@@ -18,6 +18,8 @@ use core::task::Waker;
 
 use esp_hal::interrupt::InterruptHandler;
 use esp_hal::interrupt::Priority;
+#[cfg(feature = "iram")]
+use esp_hal::ram;
 use esp_sync::NonReentrantMutex;
 
 use crate::Hub75Error;
@@ -109,6 +111,7 @@ pub(crate) static SWAP_DONE: AtomicBool = AtomicBool::new(false);
 static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 pub(crate) static SWAP_WAKER: Shared<Option<Waker>> = Shared::new(None);
 
+#[cfg_attr(feature = "iram", ram)]
 pub(crate) fn signal_swap_done() {
     SWAP_DONE.store(true, Ordering::Release);
     // Take the waker under the lock but wake outside of it: `wake()` runs

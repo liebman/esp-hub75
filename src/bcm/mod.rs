@@ -119,6 +119,7 @@ impl SegmentCache {
 
     /// Number of DMA transfer groups in this sequence.
     #[cfg(not(feature = "full-chain-dma"))]
+    #[cfg_attr(feature = "iram", ram)]
     pub fn group_count(&self) -> usize {
         self.count / self.segments_per_group
     }

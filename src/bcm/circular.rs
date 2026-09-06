@@ -119,10 +119,12 @@ unsafe impl DmaTxBuffer for CircularBcmBuf {
         super::make_preparation(self.descriptors)
     }
 
+    #[cfg_attr(feature = "iram", ram)]
     fn into_view(self) -> Self::View {
         self
     }
 
+    #[cfg_attr(feature = "iram", ram)]
     fn from_view(view: Self::View) -> Self::Final {
         view
     }

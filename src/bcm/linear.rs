@@ -155,10 +155,12 @@ unsafe impl DmaTxBuffer for LinearBcmBuf {
         self.prepare_descriptors()
     }
 
+    #[cfg_attr(feature = "iram", ram)]
     fn into_view(self) -> Self::View {
         self
     }
 
+    #[cfg_attr(feature = "iram", ram)]
     fn from_view(view: Self::View) -> Self::Final {
         view
     }
