@@ -59,11 +59,12 @@ impl CircularBcmBuf {
             },
             total_descs,
             ring_start,
+            // Free-running ring: no descriptor carries `suc_eof` (a consumed
+            // `suc_eof` would halt the DMA on ESP32-C5 and signal spuriously
+            // on ESP32/S3). The boundary detector arms the last descriptor's
+            // `suc_eof` around a swap via `set_last_suc_eof`.
+            false,
         );
-        // `fill_full_chain` marks the last descriptor with `suc_eof = 1` (the
-        // linear full-chain mode relies on it); clear it for the free-running
-        // ring.
-        descriptors[total_descs - 1].set_suc_eof(false);
 
         Self {
             descriptors,

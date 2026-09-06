@@ -254,8 +254,13 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 ///
 /// The caller provides the `next` pointer for the last descriptor in the
 /// chain: `null_mut()` for linear mode (last `next` = null), `ring_start`
-/// (points back to `desc[0]`) for circular mode. The last descriptor always
-/// has `suc_eof = 1`.
+/// (points back to `desc[0]`) for circular mode.
+///
+/// `last_suc_eof` controls whether the last descriptor is marked with
+/// `suc_eof = 1`: linear full-chain mode passes `true` (the transfer must
+/// end so the ISR can advance/restart it); circular mode passes `false`
+/// (a `suc_eof` in the free-running ring would halt or signal spuriously —
+/// the boundary detector arms it later via `set_last_suc_eof`).
 #[cfg_attr(feature = "iram", ram)]
 pub(super) fn fill_full_chain(
     descriptors: &mut [DmaDescriptor],
@@ -263,6 +268,7 @@ pub(super) fn fill_full_chain(
     get_segment: impl Fn(usize) -> BcmSegment,
     total_descs: usize,
     last_next: *mut DmaDescriptor,
+    last_suc_eof: bool,
 ) {
     let base_ptr = descriptors.as_mut_ptr();
     let mut desc_idx = 0;
@@ -288,7 +294,7 @@ pub(super) fn fill_full_chain(
                 desc.set_size(chunk);
                 desc.set_length(chunk);
                 desc.set_owner(Owner::Dma);
-                desc.set_suc_eof(is_last);
+                desc.set_suc_eof(is_last & last_suc_eof);
                 desc.next = next;
                 remaining -= chunk;
                 offset += chunk;

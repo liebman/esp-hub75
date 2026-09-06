@@ -222,6 +222,9 @@ impl LinearBcmBuf {
             |i| cache.segments[i],
             total_descs,
             null_mut(),
+            // Linear full-chain mode: the last descriptor's `suc_eof` ends
+            // the transfer so the ISR can advance/restart it.
+            true,
         );
         super::make_preparation(self.descriptors)
     }
