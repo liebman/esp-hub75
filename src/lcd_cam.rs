@@ -68,54 +68,6 @@ pub use crate::isr::Hub75;
 // Constructor
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "circular-dma"))]
-impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
-        lcd_cam: LCD_CAM<'static>,
-        hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
-
-        let word_size = hub75_pins.word_size();
-
-        let lcd_cam_dev = LcdCam::new(lcd_cam);
-
-        let lcd_config = {
-            let c = i8080::Config::default().with_frequency(config.frequency);
-            #[cfg(feature = "invert-clock")]
-            let c = c.with_clock_mode(ClockMode {
-                polarity: Polarity::IdleLow,
-                phase: Phase::ShiftHigh,
-            });
-            c
-        };
-
-        let i8080 = I8080::new(lcd_cam_dev.lcd, channel, lcd_config).map_err(Hub75Error::I8080)?;
-        let mut i8080 = hub75_pins.apply(i8080);
-
-        // Bind the BCM refresh ISR to the LCD_CAM interrupt and enable the
-        // `lcd_trans_done` source. `send()` clears a pending `lcd_trans_done`
-        // flag before starting the LCD, so the ISR cannot fire before the
-        // ISR state is initialised below.
-        i8080.set_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::isr,
-            config.interrupt_priority,
-        ));
-        i8080.listen(I8080Interrupt::TransDone);
-
-        let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
-        crate::isr::init_state(i8080, buf, word_size);
-        crate::isr::start_internal(fb)?;
-
-        Ok(Self::from_phantom())
-    }
-}
-
-#[cfg(feature = "circular-dma")]
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
@@ -145,37 +97,58 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, lcd_config).map_err(Hub75Error::I8080)?;
         let mut i8080 = hub75_pins.apply(i8080);
 
-        // In circular mode, the LCD_CAM `lcd_trans_done` interrupt never
-        // fires because the DMA chain loops forever and continuous output
-        // mode never ends. Instead we bind the boundary ISR to the GDMA
-        // TX channel's `out_eof` interrupt, which fires whenever a
-        // descriptor with `suc_eof=1` is encountered, even in a circular
-        // chain.
-        //
-        // Binding the handler unlistens from and clears all DMA TX sources,
-        // so it must happen before the source is enabled. The source is
-        // enabled in `init_state` below, only once the ISR can
-        // service it through the transfer stored there: `send()` starts the
-        // DMA engine, and the first descriptor can complete before the
-        // constructor returns, so enabling the source any earlier could
-        // fire the ISR while it has no transfer to clear the flag through.
-        i8080.set_dma_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::isr,
-            config.interrupt_priority,
-        ));
+        cfg_select! {
+            feature = "circular-dma" => {
+                // In circular mode, the LCD_CAM `lcd_trans_done` interrupt
+                // never fires because the DMA chain loops forever and
+                // continuous output mode never ends. Instead we bind the
+                // boundary ISR to the GDMA TX channel's `out_eof` interrupt,
+                // which fires whenever a descriptor with `suc_eof=1` is
+                // encountered, even in a circular chain.
+                //
+                // Binding the handler unlistens from and clears all DMA TX
+                // sources, so it must happen before the source is enabled.
+                // The source is enabled in `init_state` below, only once the
+                // ISR can service it through the transfer stored there:
+                // `send()` starts the DMA engine, and the first descriptor
+                // can complete before the constructor returns, so enabling
+                // the source any earlier could fire the ISR while it has no
+                // transfer to clear the flag through.
+                i8080.set_dma_interrupt_handler(crate::isr::handler_with_priority(
+                    crate::isr::isr,
+                    config.interrupt_priority,
+                ));
 
-        let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
-        let desc_ptr = buf.descriptors_ptr();
-        let desc_count = buf.desc_count();
-        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
+                let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
+                let desc_ptr = buf.descriptors_ptr();
+                let desc_count = buf.desc_count();
+                let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
-        let xfer = match word_size {
-            WordSize::Eight => i8080.send(Command::<u8>::None, 0, buf),
-            WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, buf),
+                let xfer = match word_size {
+                    WordSize::Eight => i8080.send(Command::<u8>::None, 0, buf),
+                    WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, buf),
+                }
+                .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
+
+                crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+            }
+            _ => {
+                // Bind the BCM refresh ISR to the LCD_CAM interrupt and
+                // enable the `lcd_trans_done` source. `send()` clears a
+                // pending `lcd_trans_done` flag before starting the LCD, so
+                // the ISR cannot fire before the ISR state is initialised
+                // below.
+                i8080.set_interrupt_handler(crate::isr::handler_with_priority(
+                    crate::isr::isr,
+                    config.interrupt_priority,
+                ));
+                i8080.listen(I8080Interrupt::TransDone);
+
+                let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
+                crate::isr::init_state(i8080, buf, word_size);
+                crate::isr::start_internal(fb)?;
+            }
         }
-        .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
-
-        crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
 
         Ok(Self::from_phantom())
     }

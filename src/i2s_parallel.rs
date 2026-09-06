@@ -62,52 +62,6 @@ pub use crate::isr::Hub75;
 // Constructor
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "circular-dma"))]
-impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<
-        T: TxPins<'static> + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
-        I: Instance + 'static,
-        const N: usize,
-    >(
-        i2s: I,
-        hub75_pins: P,
-        channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
-
-        let (pins, clock_pin) = hub75_pins.convert_pins();
-
-        // By default data changes on the falling edge of CLK so it is stable
-        // when the panel latches on the rising edge. The ESP32 I2S peripheral
-        // shifts on the rising edge, so we invert the clock output unless the
-        // user opted into the opposite polarity.
-        #[cfg(not(feature = "invert-clock"))]
-        let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
-
-        let mut i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
-
-        // This connects `isr` to the interrupt and turns on the
-        // `out_total_eof` source. The `out_total_eof` interrupt occurs when
-        // the DMA finishes the full DMA descriptor chain.
-        i2s_parallel.set_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::isr,
-            config.interrupt_priority,
-        ));
-        i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
-
-        let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
-        crate::isr::init_state(i2s_parallel, buf);
-        crate::isr::start_internal(fb)?;
-
-        Ok(Self::from_phantom())
-    }
-}
-
-#[cfg(feature = "circular-dma")]
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
     fn new_internal<
         T: TxPins<'static> + 'static,
@@ -136,29 +90,42 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
 
-        // This connects `isr` to the interrupt and turns
-        // on the per-descriptor `out_eof` source. The `out_eof` interrupt
-        // occurs each time the DMA finds a descriptor with `suc_eof=1`.
-        // This is also true for a circular chain , where `next` points
-        // back to the start of the chain. We checked this on the hardware
-        // (ESP32 classic, I2S LCD mode). `out_total_eof` never occurs on a
-        // circular chain, because the transfer never ends.
+        // This connects `isr` to the interrupt. In linear mode the interrupt
+        // source is `out_total_eof` (the DMA finished the full descriptor
+        // chain). In circular mode it is the per-descriptor `out_eof`,
+        // which occurs each time the DMA finds a descriptor with `suc_eof=1`;
+        // this also works for a circular chain, where `next` points back to
+        // the start of the chain (verified on ESP32 classic, I2S LCD mode).
+        // `out_total_eof` never occurs on a circular chain, because the
+        // transfer never ends.
         i2s_parallel.set_interrupt_handler(crate::isr::handler_with_priority(
             crate::isr::isr,
             config.interrupt_priority,
         ));
-        i2s_parallel.listen(I2sParallelInterrupt::Eof);
 
-        let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
-        let desc_ptr = buf.descriptors_ptr();
-        let desc_count = buf.desc_count();
-        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
+        cfg_select! {
+            feature = "circular-dma" => {
+                i2s_parallel.listen(I2sParallelInterrupt::Eof);
 
-        let xfer = i2s_parallel
-            .send(buf)
-            .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
+                let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
+                let desc_ptr = buf.descriptors_ptr();
+                let desc_count = buf.desc_count();
+                let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
-        crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+                let xfer = i2s_parallel
+                    .send(buf)
+                    .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
+
+                crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+            }
+            _ => {
+                i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
+
+                let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
+                crate::isr::init_state(i2s_parallel, buf);
+                crate::isr::start_internal(fb)?;
+            }
+        }
 
         Ok(Self::from_phantom())
     }

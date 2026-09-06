@@ -68,76 +68,6 @@ use crate::isr::PARL_IO_DUMMY_TRANSFER_LEN;
 // ---------------------------------------------------------------------------
 
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    #[cfg(not(feature = "circular-dma"))]
-    fn new_internal<
-        T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
-        const N: usize,
-    >(
-        parl_io: PARL_IO<'static>,
-        hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
-
-        let (pins, clock_pin) = hub75_pins.convert_pins();
-
-        let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
-
-        parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::isr,
-            config.interrupt_priority,
-        ));
-        parl_io_dev.listen(ParlIoInterrupt::TxEof);
-
-        #[cfg(feature = "invert-clock")]
-        let sample_edge = SampleEdge::Normal;
-        #[cfg(not(feature = "invert-clock"))]
-        let sample_edge = SampleEdge::Invert;
-
-        #[cfg(feature = "invert-blank")]
-        let idle_value = 0x0000;
-        #[cfg(not(feature = "invert-blank"))]
-        let idle_value = 0x0100;
-
-        let tx_config = TxConfig::default()
-            .with_frequency(config.frequency)
-            .with_idle_value(idle_value)
-            .with_sample_edge(sample_edge)
-            .with_bit_order(BitPackOrder::Msb);
-
-        // On the C5 the TX EOF must come from the DMA channel rather than the
-        // peripheral's bit-length counter, or the refresh-loop ISR never fires.
-        #[cfg(esp32c5)]
-        let tx_config = tx_config.with_eof_source(TxEofSource::DmaEof);
-
-        let clk_pin = ClkOutPin::new(clock_pin);
-        let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
-
-        let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
-        crate::isr::init_state(parl_io_tx, buf);
-        crate::isr::start_internal(fb)?;
-
-        Ok(Self::from_phantom())
-    }
-
-    /// Circular-DMA constructor (ESP32-C5 only).
-    ///
-    /// The DMA engine is started once with a looping, `suc_eof`-free
-    /// descriptor chain and never stopped; in steady state no interrupts are
-    /// enabled. A swap arms the boundary detector (`suc_eof` on the last
-    /// descriptor + the `PARL_IO` `TxEof` interrupt); the consumed `suc_eof`
-    /// halts the DMA channel, so the ISR restarts the transfer after
-    /// applying the pending buffer delta (see
-    /// [`crate::isr::isr`]).
-    ///
-    /// The ISR must be bound before the first transfer starts so it can
-    /// never fire without state to service; `init_state` enables
-    /// the interrupt source only once the transfer is stored there.
-    #[cfg(feature = "circular-dma")]
     fn new_internal<
         T: TxPins + ConfigurePins + 'static,
         P: Hub75Pins<'static, T, Word = FB::Word>,
@@ -157,13 +87,22 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
 
-        // Bind the unified swap-boundary ISR to the `PARL_IO` interrupt.
-        // Binding unlistens from and clears all `PARL_IO` interrupt sources,
-        // so nothing fires until a swap arms the `TxEof` source.
+        // Bind the unified refresh ISR to the `PARL_IO` interrupt.
+        //
+        // Linear mode: the `TxEof` source is enabled below (before the TX
+        // configuration consumes `parl_io_dev.tx`) and runs the BCM loop.
+        // Circular mode: binding unlistens from and clears all `PARL_IO`
+        // interrupt sources, so nothing fires until a swap arms the `TxEof`
+        // source.
         parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
             crate::isr::isr,
             config.interrupt_priority,
         ));
+
+        // `listen` must precede `parl_io_dev.tx.with_config`, which partially
+        // moves `parl_io_dev`.
+        #[cfg(not(feature = "circular-dma"))]
+        parl_io_dev.listen(ParlIoInterrupt::TxEof);
 
         #[cfg(feature = "invert-clock")]
         let sample_edge = SampleEdge::Normal;
@@ -182,7 +121,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .with_bit_order(BitPackOrder::Msb);
 
         // On the C5 the TX EOF must come from the DMA channel rather than the
-        // peripheral's bit-length counter. With `DmaEof` and a transfer
+        // peripheral's bit-length counter. In linear mode, or the refresh-loop
+        // ISR never fires; in circular mode, with `DmaEof` and a transfer
         // length of 0 the frame ends at the armed `suc_eof` descriptor
         // regardless of its size.
         #[cfg(esp32c5)]
@@ -191,16 +131,25 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
 
-        let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
-        let desc_ptr = buf.descriptors_ptr();
-        let desc_count = buf.desc_count();
-        let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
+        cfg_select! {
+            feature = "circular-dma" => {
+                let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
+                let desc_ptr = buf.descriptors_ptr();
+                let desc_count = buf.desc_count();
+                let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
-        let xfer = parl_io_tx
-            .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
-            .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
+                let xfer = parl_io_tx
+                    .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
+                    .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
 
-        crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+                crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
+            }
+            _ => {
+                let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
+                crate::isr::init_state(parl_io_tx, buf);
+                crate::isr::start_internal(fb)?;
+            }
+        }
 
         Ok(Self::from_phantom())
     }

@@ -322,7 +322,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
     ///
     /// Returns [`Hub75Error::AlreadyRunning`](crate::Hub75Error::AlreadyRunning)
     /// if called while a transfer is already in flight. Call
-    /// [`Hub75Swap::wait`](crate::Hub75Swap::wait)(crate::Hub75Swap::wait) on the outstanding swap
+    /// [`Hub75Swap::wait`](crate::Hub75Swap::wait) on the outstanding swap
     /// first.
     pub fn restart(&self, fb: &'static FB) -> Result<(), Hub75Error> {
         start_internal(fb)
