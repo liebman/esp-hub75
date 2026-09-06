@@ -47,10 +47,15 @@ use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 use crate::Hub75Pins16;
-#[cfg(feature = "circular-dma")]
-use crate::bcm::circular::CircularBcmBuf;
-#[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::LinearBcmBuf;
+// The DMA buffer type depends on the refresh mode.
+cfg_select! {
+    feature = "circular-dma" => {
+        use crate::bcm::circular::CircularBcmBuf;
+    }
+    _ => {
+        use crate::bcm::linear::LinearBcmBuf;
+    }
+}
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------

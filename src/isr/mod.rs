@@ -23,26 +23,24 @@ use esp_sync::NonReentrantMutex;
 use crate::Hub75Error;
 use crate::framebuffer::FrameBuffer;
 
-#[cfg(feature = "circular-dma")]
-pub(crate) mod circular;
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) mod linear;
-
-// Re-export the active mode's items so callers (`i2s_parallel.rs`,
-// `lcd_cam.rs`, `parl_io.rs`) can refer to them uniformly as
-// `isr::{isr, init_state, ...}` regardless of the active refresh mode.
-#[cfg(all(feature = "circular-dma", hub75_use_parl_io, esp32c5))]
-pub(crate) use circular::PARL_IO_DUMMY_TRANSFER_LEN;
-#[cfg(feature = "circular-dma")]
-pub(crate) use circular::init_state;
-#[cfg(feature = "circular-dma")]
-pub(crate) use circular::isr;
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) use linear::init_state;
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) use linear::isr;
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) use linear::start_internal;
+// Compile in exactly one refresh mode, and re-export its items so callers
+// (`i2s_parallel.rs`, `lcd_cam.rs`, `parl_io.rs`) can refer to them uniformly
+// as `isr::{isr, init_state, ...}` regardless of the active refresh mode.
+cfg_select! {
+    feature = "circular-dma" => {
+        pub(crate) mod circular;
+        pub(crate) use circular::init_state;
+        pub(crate) use circular::isr;
+        #[cfg(all(hub75_use_parl_io, esp32c5))]
+        pub(crate) use circular::PARL_IO_DUMMY_TRANSFER_LEN;
+    }
+    _ => {
+        pub(crate) mod linear;
+        pub(crate) use linear::init_state;
+        pub(crate) use linear::isr;
+        pub(crate) use linear::start_internal;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // ISR shared state
@@ -244,13 +242,13 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
     /// Returns `true` once the DMA is guaranteed to no longer be reading
     /// from the old framebuffer.
     pub fn is_done(&self) -> bool {
-        #[cfg(not(feature = "circular-dma"))]
-        {
-            SWAP_DONE.load(Ordering::Acquire) || linear::HAS_ERROR.load(Ordering::Acquire)
-        }
-        #[cfg(feature = "circular-dma")]
-        {
-            SWAP_DONE.load(Ordering::Acquire)
+        cfg_select! {
+            feature = "circular-dma" => {
+                SWAP_DONE.load(Ordering::Acquire)
+            }
+            _ => {
+                SWAP_DONE.load(Ordering::Acquire) || linear::HAS_ERROR.load(Ordering::Acquire)
+            }
         }
     }
 }

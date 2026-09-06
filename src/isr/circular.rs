@@ -17,9 +17,7 @@ use esp_hal::handler;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
 
-use super::SWAP_DONE;
-use super::Shared;
-use super::signal_swap_done;
+use super::{Shared, SWAP_DONE, signal_swap_done};
 use crate::Hub75Error;
 use crate::bcm::circular::CircularBcmBuf;
 use crate::framebuffer::FrameBuffer;
@@ -28,16 +26,23 @@ use crate::framebuffer::FrameBuffer;
 // Platform-specific type aliases
 // ---------------------------------------------------------------------------
 
-#[cfg(hub75_use_i2s_parallel)]
-pub(crate) type TxTransfer =
-    esp_hal::i2s::parallel::I2sParallelTransfer<'static, CircularBcmBuf, Blocking>;
-
-#[cfg(hub75_use_parl_io)]
-pub(crate) type TxTransfer = esp_hal::parl_io::ParlIoTxTransfer<'static, CircularBcmBuf, Blocking>;
-
-#[cfg(hub75_use_lcd_cam)]
-pub(crate) type TxTransfer =
-    esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, CircularBcmBuf, Blocking>;
+cfg_select! {
+    hub75_use_i2s_parallel => {
+        pub(crate) type TxTransfer =
+            esp_hal::i2s::parallel::I2sParallelTransfer<'static, CircularBcmBuf, Blocking>;
+    }
+    hub75_use_parl_io => {
+        pub(crate) type TxTransfer =
+            esp_hal::parl_io::ParlIoTxTransfer<'static, CircularBcmBuf, Blocking>;
+    }
+    hub75_use_lcd_cam => {
+        pub(crate) type TxTransfer =
+            esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, CircularBcmBuf, Blocking>;
+    }
+    _ => {
+        compile_error!("no HUB75 backend selected: enable exactly one chip feature");
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Frame-boundary interrupt handling
@@ -65,59 +70,63 @@ pub(crate) trait FrameInterrupt {
     fn unlisten_frame_interrupt(&self);
 }
 
-#[cfg(hub75_use_i2s_parallel)]
-impl FrameInterrupt for TxTransfer {
-    fn clear_frame_interrupt(&self) {
-        use esp_hal::i2s::parallel::I2sParallelInterrupt;
-        self.clear_interrupts(I2sParallelInterrupt::Eof);
-    }
+cfg_select! {
+    hub75_use_i2s_parallel => {
+        impl FrameInterrupt for TxTransfer {
+            fn clear_frame_interrupt(&self) {
+                use esp_hal::i2s::parallel::I2sParallelInterrupt;
+                self.clear_interrupts(I2sParallelInterrupt::Eof);
+            }
 
-    fn listen_frame_interrupt(&self) {
-        use esp_hal::i2s::parallel::I2sParallelInterrupt;
-        self.listen(I2sParallelInterrupt::Eof);
-    }
+            fn listen_frame_interrupt(&self) {
+                use esp_hal::i2s::parallel::I2sParallelInterrupt;
+                self.listen(I2sParallelInterrupt::Eof);
+            }
 
-    fn unlisten_frame_interrupt(&self) {
-        use esp_hal::i2s::parallel::I2sParallelInterrupt;
-        self.unlisten(I2sParallelInterrupt::Eof);
+            fn unlisten_frame_interrupt(&self) {
+                use esp_hal::i2s::parallel::I2sParallelInterrupt;
+                self.unlisten(I2sParallelInterrupt::Eof);
+            }
+        }
     }
-}
+    hub75_use_lcd_cam => {
+        impl FrameInterrupt for TxTransfer {
+            fn clear_frame_interrupt(&self) {
+                self.clear_interrupts_dma(DmaTxInterrupt::Eof);
+            }
 
-#[cfg(hub75_use_lcd_cam)]
-impl FrameInterrupt for TxTransfer {
-    fn clear_frame_interrupt(&self) {
-        self.clear_interrupts_dma(DmaTxInterrupt::Eof);
-    }
+            fn listen_frame_interrupt(&self) {
+                self.listen_dma(DmaTxInterrupt::Eof);
+            }
 
-    fn listen_frame_interrupt(&self) {
-        self.listen_dma(DmaTxInterrupt::Eof);
+            fn unlisten_frame_interrupt(&self) {
+                self.unlisten_dma(DmaTxInterrupt::Eof);
+            }
+        }
     }
+    // PARL_IO (ESP32-C5): the boundary source is the peripheral's `TxEof`
+    // interrupt, which fires when the GDMA signals `suc_eof`. A consumed
+    // `suc_eof` also *halts* the DMA channel, so the PARL_IO ISR must restart
+    // the transfer after every boundary.
+    hub75_use_parl_io => {
+        impl FrameInterrupt for TxTransfer {
+            fn clear_frame_interrupt(&self) {
+                use esp_hal::parl_io::ParlIoInterrupt;
+                self.clear_interrupts(ParlIoInterrupt::TxEof);
+            }
 
-    fn unlisten_frame_interrupt(&self) {
-        self.unlisten_dma(DmaTxInterrupt::Eof);
-    }
-}
+            fn listen_frame_interrupt(&self) {
+                use esp_hal::parl_io::ParlIoInterrupt;
+                self.listen(ParlIoInterrupt::TxEof);
+            }
 
-/// PARL_IO (ESP32-C5): the boundary source is the peripheral's `TxEof`
-/// interrupt, which fires when the GDMA signals `suc_eof`. A consumed
-/// `suc_eof` also *halts* the DMA channel, so the PARL_IO ISR must restart
-/// the transfer after every boundary.
-#[cfg(hub75_use_parl_io)]
-impl FrameInterrupt for TxTransfer {
-    fn clear_frame_interrupt(&self) {
-        use esp_hal::parl_io::ParlIoInterrupt;
-        self.clear_interrupts(ParlIoInterrupt::TxEof);
+            fn unlisten_frame_interrupt(&self) {
+                use esp_hal::parl_io::ParlIoInterrupt;
+                self.unlisten(ParlIoInterrupt::TxEof);
+            }
+        }
     }
-
-    fn listen_frame_interrupt(&self) {
-        use esp_hal::parl_io::ParlIoInterrupt;
-        self.listen(ParlIoInterrupt::TxEof);
-    }
-
-    fn unlisten_frame_interrupt(&self) {
-        use esp_hal::parl_io::ParlIoInterrupt;
-        self.unlisten(ParlIoInterrupt::TxEof);
-    }
+    _ => {}
 }
 
 // ---------------------------------------------------------------------------
@@ -188,88 +197,109 @@ fn apply_pending_delta(state: &mut State, delta: isize) {
     }
 }
 
-/// Swap-boundary ISR (I2S / `LCD_CAM`, circular-dma).
-///
-/// The boundary detector is armed only around a swap (see [`Hub75::swap`]);
-/// this handler applies the pending buffer delta at the pass boundary and
-/// disarms the detector again, leaving the chain free-running with no
-/// interrupts enabled in steady state.
-#[cfg(any(hub75_use_lcd_cam, hub75_use_i2s_parallel))]
-#[handler]
-#[cfg_attr(feature = "iram", ram)]
-pub(crate) fn isr() {
-    STATE.with(|state| {
-        let Some(state) = state.as_mut() else {
-            return;
-        };
+// Swap-boundary ISR.
+//
+// The boundary detector is armed only around a swap (see `Hub75::swap`);
+// this handler applies the pending buffer delta at the pass boundary and
+// disarms the detector again, leaving the chain free-running with no
+// interrupts enabled in steady state.
+//
+// Two backend variants:
+// - **I2S / `LCD_CAM` (ESP32, ESP32-S3)**: the DMA does not halt on
+//   `suc_eof`, so the chain keeps running; just clear + disarm.
+// - **PARL_IO (ESP32-C5)**: a consumed `suc_eof` *halts* the DMA channel,
+//   so the ISR must restart the transfer after applying the pending delta.
+cfg_select! {
+    any(hub75_use_lcd_cam, hub75_use_i2s_parallel) => {
+        /// Swap-boundary ISR (I2S / `LCD_CAM`).
+        ///
+        /// The boundary detector is armed only around a swap
+        /// (see [`super::Hub75::swap`]); this handler applies the pending
+        /// buffer delta at the pass boundary and disarms the detector again,
+        /// leaving the chain free-running with no interrupts enabled in
+        /// steady state.
+        #[handler]
+        #[cfg_attr(feature = "iram", ram)]
+        pub(crate) fn isr() {
+            STATE.with(|state| {
+                let Some(state) = state.as_mut() else {
+                    return;
+                };
 
-        // Scope the transfer borrow so the pending delta can be applied to
-        // the state below.
-        {
-            let Some(xfer) = state.transfer.as_ref() else {
-                return;
-            };
-            xfer.clear_frame_interrupt();
+                // Scope the transfer borrow so the pending delta can be
+                // applied to the state below.
+                {
+                    let Some(xfer) = state.transfer.as_ref() else {
+                        return;
+                    };
+                    xfer.clear_frame_interrupt();
+                }
+
+                if let Some(delta) = state.pending_delta.take() {
+                    apply_pending_delta(state, delta);
+                    state.swap_in_flight = false;
+                    signal_swap_done();
+                }
+
+                // Swap-armed boundary handled: disarm until the next swap. The
+                // DMA does not halt on `suc_eof` on these chips, so the chain
+                // keeps running.
+                crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
+                if let Some(xfer) = state.transfer.as_ref() {
+                    xfer.unlisten_frame_interrupt();
+                }
+            });
         }
+    }
+    hub75_use_parl_io => {
+        /// Swap-boundary ISR (PARL_IO / ESP32-C5).
+        ///
+        /// A consumed `suc_eof` *halts* the DMA channel, so this handler must
+        /// restart the transfer after applying the pending delta. The
+        /// detector is armed only around a swap (see [`super::Hub75::swap`]);
+        /// in steady state the chain runs `suc_eof`-free and no interrupts
+        /// are enabled.
+        #[handler]
+        #[cfg_attr(feature = "iram", ram)]
+        pub(crate) fn isr() {
+            STATE.with(|state| {
+                let Some(state) = state.as_mut() else {
+                    return;
+                };
+                // Take the transfer: `wait()` consumes it and returns the driver
+                // and buffer for the restart. `wait()` returns instantly — the
+                // boundary interrupt has already fired — and clears the `tx_eof`
+                // flag.
+                let Some(xfer) = state.transfer.take() else {
+                    return;
+                };
 
-        if let Some(delta) = state.pending_delta.take() {
-            apply_pending_delta(state, delta);
-            state.swap_in_flight = false;
-            signal_swap_done();
+                if let Some(delta) = state.pending_delta.take() {
+                    apply_pending_delta(state, delta);
+                    state.swap_in_flight = false;
+                    signal_swap_done();
+                }
+
+                // Swap-armed boundary handled: disarm until the next swap; the
+                // chain runs suc_eof-free again until the next swap arms it.
+                crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
+                xfer.unlisten_frame_interrupt();
+
+                let (_, tx, buf) = xfer.wait();
+                // Dummy transfer length (`tx_bytelen = 0`): with
+                // `TxEofSource::DmaEof` the frame ends at the armed `suc_eof`
+                // descriptor regardless of the bit-length counter, so there is
+                // no size limit.
+                match tx.write(PARL_IO_DUMMY_TRANSFER_LEN, buf) {
+                    Ok(xfer) => state.transfer = Some(xfer),
+                    // The driver handle and buffer are dropped; the display
+                    // stops.
+                    Err((_, _tx, _buf)) => {}
+                }
+            });
         }
-
-        // Swap-armed boundary handled: disarm until the next swap. The
-        // DMA does not halt on `suc_eof` on these chips, so the chain
-        // keeps running.
-        crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
-        if let Some(xfer) = state.transfer.as_ref() {
-            xfer.unlisten_frame_interrupt();
-        }
-    });
-}
-
-/// Swap-boundary ISR (PARL_IO / ESP32-C5, circular-dma).
-///
-/// A consumed `suc_eof` halts the DMA channel, so the ISR must restart the
-/// transfer after applying the pending delta. The detector is armed only
-/// around a swap (see [`Hub75::swap`]); in steady state the chain runs
-/// `suc_eof`-free and no interrupts are enabled.
-#[cfg(hub75_use_parl_io)]
-#[handler]
-#[cfg_attr(feature = "iram", ram)]
-pub(crate) fn isr() {
-    STATE.with(|state| {
-        let Some(state) = state.as_mut() else {
-            return;
-        };
-        // Take the transfer: `wait()` consumes it and returns the driver and
-        // buffer for the restart. `wait()` returns instantly — the boundary
-        // interrupt has already fired — and clears the `tx_eof` flag.
-        let Some(xfer) = state.transfer.take() else {
-            return;
-        };
-
-        if let Some(delta) = state.pending_delta.take() {
-            apply_pending_delta(state, delta);
-            state.swap_in_flight = false;
-            signal_swap_done();
-        }
-
-        // Swap-armed boundary handled: disarm until the next swap; the chain
-        // runs suc_eof-free again until the next swap arms it.
-        crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, false);
-        xfer.unlisten_frame_interrupt();
-
-        let (_, tx, buf) = xfer.wait();
-        // Dummy transfer length (`tx_bytelen = 0`): with `TxEofSource::DmaEof`
-        // the frame ends at the armed `suc_eof` descriptor regardless of the
-        // bit-length counter, so there is no size limit.
-        match tx.write(PARL_IO_DUMMY_TRANSFER_LEN, buf) {
-            Ok(xfer) => state.transfer = Some(xfer),
-            // The driver handle and buffer are dropped; the display stops.
-            Err((_, _tx, _buf)) => {}
-        }
-    });
+    }
+    _ => {}
 }
 
 /// On ESP32-C5, the GDMA EOF signal is generated by the DMA channel rather
@@ -318,10 +348,10 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
     /// Initiate a framebuffer swap (circular-DMA mode).
     ///
     /// Updates all DMA descriptor buffer pointers immediately and returns a
-    /// [`Hub75Swap`] transfer object. The DMA engine's internal register may
+    /// [`Hub75Swap`](crate::Hub75Swap) transfer object. The DMA engine's internal register may
     /// still be pointing into the old buffer for the currently in-flight
-    /// descriptor. Call [`.wait_for_done()`](Hub75Swap::wait_for_done) then
-    /// [`.wait()`](Hub75Swap::wait), or just `.wait()` directly for blocking.
+    /// descriptor. Call [`.wait_for_done()`](crate::Hub75Swap::wait_for_done) then
+    /// [`.wait()`](crate::Hub75Swap::wait), or just `.wait()` directly for blocking.
     ///
     /// # Swap granularity
     ///
@@ -336,9 +366,9 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
     /// # Errors
     ///
     /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
-    /// if a previous [`Hub75Swap`] is still outstanding. Only one swap may be
+    /// if a previous [`Hub75Swap`](crate::Hub75Swap) is still outstanding. Only one swap may be
     /// in-flight at a time; call `.wait()` (or `.wait_for_done().await` then
-    /// `.wait()`) on the previous [`Hub75Swap`] before calling `swap()` again.
+    /// `.wait()`) on the previous [`Hub75Swap`](crate::Hub75Swap) before calling `swap()` again.
     ///
     /// # Panics
     ///
