@@ -53,7 +53,7 @@ use crate::Hub75Pins16;
 #[cfg(feature = "circular-dma")]
 use crate::bcm::circular::CircularBcmBuf;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
+use crate::bcm::linear::LinearBcmBuf;
 pub use crate::isr::Hub75;
 #[cfg(feature = "circular-dma")]
 use crate::isr::PARL_IO_DUMMY_TRANSFER_LEN;
@@ -83,7 +83,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
 
         parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::hub75_isr,
+            crate::isr::isr,
             config.interrupt_priority,
         ));
         parl_io_dev.listen(ParlIoInterrupt::TxEof);
@@ -112,8 +112,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let clk_pin = ClkOutPin::new(clock_pin);
         let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
 
-        let buf = BcmBuf::new(tx_descriptors.as_slice());
-        crate::isr::init_isr_state(parl_io_tx, buf);
+        let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
+        crate::isr::init_state(parl_io_tx, buf);
         crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
@@ -127,10 +127,10 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
     /// descriptor + the `PARL_IO` `TxEof` interrupt); the consumed `suc_eof`
     /// halts the DMA channel, so the ISR restarts the transfer after
     /// applying the pending buffer delta (see
-    /// [`crate::isr::hub75_boundary_isr`]).
+    /// [`crate::isr::isr`]).
     ///
     /// The ISR must be bound before the first transfer starts so it can
-    /// never fire without state to service; `store_circular_state` enables
+    /// never fire without state to service; `init_state` enables
     /// the interrupt source only once the transfer is stored there.
     #[cfg(feature = "circular-dma")]
     fn new_internal<
@@ -156,7 +156,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // Binding unlistens from and clears all `PARL_IO` interrupt sources,
         // so nothing fires until a swap arms the `TxEof` source.
         parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::hub75_boundary_isr,
+            crate::isr::isr,
             config.interrupt_priority,
         ));
 
@@ -195,7 +195,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
             .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
+        crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
 
         Ok(Self::from_phantom())
     }

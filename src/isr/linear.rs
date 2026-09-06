@@ -20,7 +20,7 @@ use super::Shared;
 use super::signal_swap_done;
 use crate::Hub75Error;
 use crate::bcm::cache_ptr;
-use crate::bcm::linear::BcmBuf;
+use crate::bcm::linear::LinearBcmBuf;
 use crate::bcm::segments_from_fb_into;
 use crate::framebuffer::FrameBuffer;
 #[cfg(hub75_use_lcd_cam)]
@@ -34,32 +34,37 @@ use crate::framebuffer::WordSize;
 pub(crate) type TxDriver = esp_hal::i2s::parallel::I2sParallel<'static, Blocking>;
 
 #[cfg(hub75_use_i2s_parallel)]
-pub(crate) type TxTransfer = esp_hal::i2s::parallel::I2sParallelTransfer<'static, BcmBuf, Blocking>;
+pub(crate) type TxTransfer =
+    esp_hal::i2s::parallel::I2sParallelTransfer<'static, LinearBcmBuf, Blocking>;
 
 #[cfg(hub75_use_parl_io)]
 pub(crate) type TxDriver = esp_hal::parl_io::ParlIoTx<'static, Blocking>;
 
 #[cfg(hub75_use_parl_io)]
-pub(crate) type TxTransfer = esp_hal::parl_io::ParlIoTxTransfer<'static, BcmBuf, Blocking>;
+pub(crate) type TxTransfer = esp_hal::parl_io::ParlIoTxTransfer<'static, LinearBcmBuf, Blocking>;
 
 #[cfg(hub75_use_lcd_cam)]
 pub(crate) type TxDriver = esp_hal::lcd_cam::lcd::i8080::I8080<'static, Blocking>;
 
 #[cfg(hub75_use_lcd_cam)]
-pub(crate) type TxTransfer = esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, BcmBuf, Blocking>;
+pub(crate) type TxTransfer =
+    esp_hal::lcd_cam::lcd::i8080::I8080Transfer<'static, LinearBcmBuf, Blocking>;
 
 // ---------------------------------------------------------------------------
 // ISR shared state
 // ---------------------------------------------------------------------------
 
 pub(crate) enum TransferPhase {
-    Idle(TxDriver, BcmBuf),
+    Idle(TxDriver, LinearBcmBuf),
     InFlight(TxTransfer),
-    Error(Hub75Error, TxDriver, BcmBuf),
+    Error(Hub75Error, TxDriver, LinearBcmBuf),
     Transitioning,
 }
 
-pub(crate) struct IsrState {
+/// Linear-mode ISR state. Mirror of [`super::circular::State`]: both carry
+/// `current_fb_ptr` + `pending_delta` for the pointer-delta swap protocol;
+/// the fields above those two are mode-specific.
+pub(crate) struct State {
     pub(crate) transfer: TransferPhase,
     #[cfg(hub75_use_lcd_cam)]
     pub(crate) word_size: crate::framebuffer::WordSize,
@@ -67,22 +72,23 @@ pub(crate) struct IsrState {
     pub(crate) current_fb_ptr: *const (),
     /// Byte offset from the current to the pending framebuffer, set by
     /// `swap()`. The ISR applies this delta to every cached segment
-    /// pointer at the frame boundary, then clears it to `None`.
+    /// pointer at the frame boundary, then clears it to `None`. The new
+    /// framebuffer pointer is derived from this delta, so no separate
+    /// `pending_fb_ptr` field is needed (mirroring `circular::State`).
     pub(crate) pending_delta: Option<isize>,
-    pub(crate) pending_fb_ptr: *const (),
 }
 
 // SAFETY (`Send`): required so the `Mutex<RefCell<Option<_>>>` statics below
 // are `Sync`. All access to the inner value is serialised by the embassy
 // mutex (which disables interrupts and CAS-spins on an owner word on
-// multi-core chips). The raw pointers (`current_fb_ptr`, `pending_fb_ptr`)
-// are only dereferenced inside lock closures, so they are never accessed
-// concurrently from multiple cores.
-unsafe impl Send for IsrState {}
+// multi-core chips). The raw pointer `current_fb_ptr` is only dereferenced
+// inside lock closures, so it is never accessed concurrently from multiple
+// cores.
+unsafe impl Send for State {}
 
-type SharedIsrState = Shared<Option<IsrState>>;
+type SharedState = Shared<Option<State>>;
 
-static ISR_STATE: SharedIsrState = Shared::new(None);
+static STATE: SharedState = Shared::new(None);
 
 /// DMA error flag, set by the ISR when a transfer fails. Cleared by
 /// `start_internal` when refresh is (re)started. Consumers treat it as an
@@ -95,14 +101,17 @@ pub(crate) static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 
 #[cfg(hub75_use_i2s_parallel)]
 #[cfg_attr(feature = "iram", ram)]
-fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
+fn start_transfer(
+    tx: TxDriver,
+    buf: LinearBcmBuf,
+) -> Result<TxTransfer, (Hub75Error, TxDriver, LinearBcmBuf)> {
     tx.send(buf)
         .map_err(|(err, tx, buf)| (Hub75Error::Dma(err), tx, buf))
 }
 
 #[cfg(hub75_use_i2s_parallel)]
 #[cfg_attr(feature = "iram", ram)]
-fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
+fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, LinearBcmBuf) {
     let (tx, buf) = xfer.wait();
     (Ok(()), tx, buf)
 }
@@ -114,7 +123,10 @@ pub(crate) const PARL_IO_DUMMY_TRANSFER_LEN: usize = 0;
 
 #[cfg(hub75_use_parl_io)]
 #[cfg_attr(feature = "iram", ram)]
-fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
+fn start_transfer(
+    tx: TxDriver,
+    buf: LinearBcmBuf,
+) -> Result<TxTransfer, (Hub75Error, TxDriver, LinearBcmBuf)> {
     #[cfg(esp32c5)]
     let transfer_len = PARL_IO_DUMMY_TRANSFER_LEN;
     #[cfg(not(esp32c5))]
@@ -126,7 +138,7 @@ fn start_transfer(tx: TxDriver, buf: BcmBuf) -> Result<TxTransfer, (Hub75Error, 
 
 #[cfg(hub75_use_parl_io)]
 #[cfg_attr(feature = "iram", ram)]
-fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
+fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, LinearBcmBuf) {
     let (result, tx, buf) = xfer.wait();
     (result.map_err(Hub75Error::Dma), tx, buf)
 }
@@ -135,9 +147,9 @@ fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBu
 #[cfg_attr(feature = "iram", ram)]
 fn start_transfer(
     tx: TxDriver,
-    buf: BcmBuf,
+    buf: LinearBcmBuf,
     word_size: WordSize,
-) -> Result<TxTransfer, (Hub75Error, TxDriver, BcmBuf)> {
+) -> Result<TxTransfer, (Hub75Error, TxDriver, LinearBcmBuf)> {
     use esp_hal::lcd_cam::lcd::i8080::Command;
 
     let result = match word_size {
@@ -153,8 +165,8 @@ fn start_transfer(
 
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
-pub(crate) fn hub75_isr() {
-    ISR_STATE.with(|state| {
+pub(crate) fn isr() {
+    STATE.with(|state| {
         let Some(state) = state.as_mut() else { return };
 
         let xfer = match core::mem::replace(&mut state.transfer, TransferPhase::Transitioning) {
@@ -178,8 +190,7 @@ pub(crate) fn hub75_isr() {
         let frame_boundary = buf.advance();
 
         if frame_boundary && let Some(delta) = state.pending_delta.take() {
-            state.current_fb_ptr = state.pending_fb_ptr;
-            state.pending_fb_ptr = core::ptr::null();
+            state.current_fb_ptr = state.current_fb_ptr.wrapping_byte_offset(delta);
             buf.apply_delta(delta);
             signal_swap_done();
         }
@@ -207,26 +218,24 @@ pub(crate) fn hub75_isr() {
 // ---------------------------------------------------------------------------
 
 #[cfg(not(hub75_use_lcd_cam))]
-pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf) {
-    ISR_STATE.with(|state| {
-        *state = Some(IsrState {
+pub(crate) fn init_state(tx: TxDriver, buf: LinearBcmBuf) {
+    STATE.with(|state| {
+        *state = Some(State {
             transfer: TransferPhase::Idle(tx, buf),
             current_fb_ptr: core::ptr::null(),
             pending_delta: None,
-            pending_fb_ptr: core::ptr::null(),
         });
     });
 }
 
 #[cfg(hub75_use_lcd_cam)]
-pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
-    ISR_STATE.with(|state| {
-        *state = Some(IsrState {
+pub(crate) fn init_state(tx: TxDriver, buf: LinearBcmBuf, word_size: WordSize) {
+    STATE.with(|state| {
+        *state = Some(State {
             transfer: TransferPhase::Idle(tx, buf),
             word_size,
             current_fb_ptr: core::ptr::null(),
             pending_delta: None,
-            pending_fb_ptr: core::ptr::null(),
         });
     });
 }
@@ -238,7 +247,7 @@ pub(crate) fn init_isr_state(tx: TxDriver, buf: BcmBuf, word_size: WordSize) {
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
     crate::bcm::validate_fb_internal_ram(fb);
 
-    ISR_STATE.with(|state| {
+    STATE.with(|state| {
         let state = state.as_mut().expect("Hub75 not initialised");
 
         let (tx, mut buf) =
@@ -262,7 +271,6 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
         buf.reset_with_cache();
         state.current_fb_ptr = core::ptr::from_ref(fb).cast::<()>();
         state.pending_delta = None;
-        state.pending_fb_ptr = core::ptr::null();
 
         #[cfg(hub75_use_lcd_cam)]
         let xfer_result = start_transfer(tx, buf, state.word_size);
@@ -287,7 +295,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
 
 #[cfg(hub75_use_lcd_cam)]
 #[cfg_attr(feature = "iram", ram)]
-fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, BcmBuf) {
+fn finish_transfer(xfer: TxTransfer) -> (Result<(), Hub75Error>, TxDriver, LinearBcmBuf) {
     let (result, tx, buf) = xfer.wait();
     (result.map_err(Hub75Error::Dma), tx, buf)
 }
@@ -360,7 +368,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
         );
         let new_fb_ptr = core::ptr::from_mut::<FB>(new_fb);
 
-        let old_fb_ptr = ISR_STATE.with(|state| {
+        let old_fb_ptr = STATE.with(|state| {
             let state = state.as_mut().expect("Hub75 not initialised");
             if state.pending_delta.is_some() {
                 return Err(new_fb_ptr as *const ());
@@ -372,7 +380,6 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
             // FB.
             let delta = new_fb_ptr as isize - old as isize;
             state.pending_delta = Some(delta);
-            state.pending_fb_ptr = new_fb_ptr as *const ();
             SWAP_DONE.store(false, Ordering::Release);
             Ok(old)
         });
@@ -414,10 +421,9 @@ impl<FB: FrameBuffer + 'static> super::Hub75Swap<FB> {
     pub fn wait(self) -> Result<&'static mut FB, (Hub75Error, &'static mut FB)> {
         loop {
             if HAS_ERROR.load(Ordering::Acquire) {
-                return ISR_STATE.with(|state| {
+                return STATE.with(|state| {
                     let state = state.as_mut().unwrap();
                     state.pending_delta = None;
-                    state.pending_fb_ptr = core::ptr::null();
                     let err = match &state.transfer {
                         TransferPhase::Error(err, _, _) => *err,
                         _ => Hub75Error::Dma(esp_hal::dma::DmaError::DescriptorError),

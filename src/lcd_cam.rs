@@ -55,7 +55,7 @@ use crate::Hub75Pins16;
 #[cfg(feature = "circular-dma")]
 use crate::bcm::circular::CircularBcmBuf;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
+use crate::bcm::linear::LinearBcmBuf;
 use crate::framebuffer::WordSize;
 pub use crate::isr::Hub75;
 
@@ -97,13 +97,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         // flag before starting the LCD, so the ISR cannot fire before the
         // ISR state is initialised below.
         i8080.set_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::hub75_isr,
+            crate::isr::isr,
             config.interrupt_priority,
         ));
         i8080.listen(I8080Interrupt::TransDone);
 
-        let buf = BcmBuf::new(tx_descriptors.as_slice());
-        crate::isr::init_isr_state(i8080, buf, word_size);
+        let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
+        crate::isr::init_state(i8080, buf, word_size);
         crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
@@ -149,13 +149,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         //
         // Binding the handler unlistens from and clears all DMA TX sources,
         // so it must happen before the source is enabled. The source is
-        // enabled in `store_circular_state` below, only once the ISR can
+        // enabled in `init_state` below, only once the ISR can
         // service it through the transfer stored there: `send()` starts the
         // DMA engine, and the first descriptor can complete before the
         // constructor returns, so enabling the source any earlier could
         // fire the ISR while it has no transfer to clear the flag through.
         i8080.set_dma_interrupt_handler(crate::isr::handler_with_priority(
-            crate::isr::hub75_boundary_isr,
+            crate::isr::isr,
             config.interrupt_priority,
         ));
 
@@ -170,7 +170,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         }
         .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-        crate::isr::store_circular_state(xfer, desc_ptr, desc_count, fb_ptr);
+        crate::isr::init_state(xfer, desc_ptr, desc_count, fb_ptr);
 
         Ok(Self::from_phantom())
     }

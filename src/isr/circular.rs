@@ -51,7 +51,7 @@ pub(crate) type TxTransfer =
 // are enabled on any backend.
 
 /// Per-backend frame-boundary interrupt management, through the transfer
-/// kept alive in [`CircularState`], so no `DMA::steal()` or stored closure is
+/// kept alive in [`State`], so no `DMA::steal()` or stored closure is
 /// needed on any backend.
 pub(crate) trait FrameInterrupt {
     /// Clear a pending frame-boundary flag. Called when arming (to drain
@@ -124,7 +124,10 @@ impl FrameInterrupt for TxTransfer {
 // ISR shared state
 // ---------------------------------------------------------------------------
 
-pub(crate) struct CircularState {
+/// Circular-mode ISR state. Mirror of [`super::linear::State`]: both carry
+/// `current_fb_ptr` + `pending_delta` for the pointer-delta swap protocol;
+/// the other fields are mode-specific.
+pub(crate) struct State {
     // Kept alive to prevent the DMA from stopping. All backends also use
     // the stored transfer to manage the frame-boundary interrupt (see
     // `FrameInterrupt`).
@@ -140,14 +143,14 @@ pub(crate) struct CircularState {
     pub(crate) swap_in_flight: bool,
 }
 
-// SAFETY (`Send`): same justification as `IsrState` — required so the
+// SAFETY (`Send`): same justification as `linear::State` — required so the
 // `Mutex<RefCell<Option<_>>>` static is `Sync`; all access is serialised by
 // the embassy mutex.
-unsafe impl Send for CircularState {}
+unsafe impl Send for State {}
 
-type SharedCircularState = Shared<Option<CircularState>>;
+type SharedState = Shared<Option<State>>;
 
-static CIRCULAR_STATE: SharedCircularState = Shared::new(None);
+static STATE: SharedState = Shared::new(None);
 
 // ---------------------------------------------------------------------------
 // Pass-boundary handling
@@ -156,7 +159,7 @@ static CIRCULAR_STATE: SharedCircularState = Shared::new(None);
 /// Apply a pending framebuffer pointer delta to every descriptor, at a pass
 /// boundary. Shared by the per-backend ISRs.
 #[cfg_attr(feature = "iram", ram)]
-fn apply_pending_delta(state: &mut CircularState, delta: isize) {
+fn apply_pending_delta(state: &mut State, delta: isize) {
     // SAFETY: `descriptors` points to a `&'static mut` descriptor
     // array that outlives everything. The DMA engine may be reading
     // descriptor fields while we rewrite the `buffer` pointers here;
@@ -194,8 +197,8 @@ fn apply_pending_delta(state: &mut CircularState, delta: isize) {
 #[cfg(any(hub75_use_lcd_cam, hub75_use_i2s_parallel))]
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
-pub(crate) fn hub75_boundary_isr() {
-    CIRCULAR_STATE.with(|state| {
+pub(crate) fn isr() {
+    STATE.with(|state| {
         let Some(state) = state.as_mut() else {
             return;
         };
@@ -234,8 +237,8 @@ pub(crate) fn hub75_boundary_isr() {
 #[cfg(hub75_use_parl_io)]
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
-pub(crate) fn hub75_boundary_isr() {
-    CIRCULAR_STATE.with(|state| {
+pub(crate) fn isr() {
+    STATE.with(|state| {
         let Some(state) = state.as_mut() else {
             return;
         };
@@ -279,14 +282,14 @@ pub(crate) const PARL_IO_DUMMY_TRANSFER_LEN: usize = 0;
 // DMA)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn store_circular_state(
+pub(crate) fn init_state(
     xfer: TxTransfer,
     desc_ptr: *mut esp_hal::dma::DmaDescriptor,
     desc_count: usize,
     fb_ptr: *const (),
 ) {
-    CIRCULAR_STATE.with(|state| {
-        *state = Some(CircularState {
+    STATE.with(|state| {
+        *state = Some(State {
             transfer: Some(xfer),
             descriptors: desc_ptr,
             desc_count,
@@ -346,7 +349,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
         new_fb: &'static mut FB,
     ) -> Result<super::Hub75Swap<FB>, (Hub75Error, &'static mut FB)> {
         let new_fb_ptr = core::ptr::from_mut::<FB>(new_fb);
-        let old_fb_ptr = CIRCULAR_STATE.with(|state| {
+        let old_fb_ptr = STATE.with(|state| {
             let state = state.as_mut().expect("Hub75 not initialised");
             if state.swap_in_flight {
                 return Err(new_fb_ptr as *const ());
@@ -366,7 +369,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> super::Hub75<DM, FB> {
             // purely a marker for the next pass boundary; the ISR clears it
             // and disarms. On ESP32-C5 the consumed `suc_eof` *halts* the
             // DMA channel; the ISR restarts the transfer (see
-            // `hub75_boundary_isr`).
+            // `isr`).
             crate::bcm::circular::set_last_suc_eof(state.descriptors, state.desc_count, true);
             if let Some(xfer) = state.transfer.as_ref() {
                 // Drain any frame-boundary flag latched before the update,

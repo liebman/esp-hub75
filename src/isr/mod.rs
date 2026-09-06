@@ -28,19 +28,19 @@ pub(crate) mod circular;
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) mod linear;
 
-// Re-export the active mode's items under their original paths so callers
-// (`i2s_parallel.rs`, `lcd_cam.rs`, `parl_io.rs`) are unaffected by the
-// module split.
+// Re-export the active mode's items so callers (`i2s_parallel.rs`,
+// `lcd_cam.rs`, `parl_io.rs`) can refer to them uniformly as
+// `isr::{isr, init_state, ...}` regardless of the active refresh mode.
 #[cfg(all(feature = "circular-dma", hub75_use_parl_io, esp32c5))]
 pub(crate) use circular::PARL_IO_DUMMY_TRANSFER_LEN;
 #[cfg(feature = "circular-dma")]
-pub(crate) use circular::hub75_boundary_isr;
+pub(crate) use circular::init_state;
 #[cfg(feature = "circular-dma")]
-pub(crate) use circular::store_circular_state;
+pub(crate) use circular::isr;
 #[cfg(not(feature = "circular-dma"))]
-pub(crate) use linear::hub75_isr;
+pub(crate) use linear::init_state;
 #[cfg(not(feature = "circular-dma"))]
-pub(crate) use linear::init_isr_state;
+pub(crate) use linear::isr;
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) use linear::start_internal;
 
