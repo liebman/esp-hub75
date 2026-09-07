@@ -116,7 +116,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                     .send(buf)
                     .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
+                crate::isr::init_state(
+                    xfer,
+                    descriptor_ptr,
+                    descriptor_count,
+                    fb_ptr,
+                    crate::framebuffer::WordSize::Sixteen,
+                );
             }
             _ => {
                 i2s_parallel.listen(I2sParallelInterrupt::TotalEof);

@@ -142,7 +142,13 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                     .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
                     .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
 
-                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
+                crate::isr::init_state(
+                    xfer,
+                    descriptor_ptr,
+                    descriptor_count,
+                    fb_ptr,
+                    crate::framebuffer::WordSize::Eight,
+                );
             }
             _ => {
                 let buf = LinearBcmBuf::new(tx_descriptors.as_slice());

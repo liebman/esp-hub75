@@ -55,14 +55,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   segments. Use them to sanity-check panel geometry, BCM depth, and pixel
   clock before committing to a configuration.
 * `circular-dma` support for ESP32-C5 (PARL_IO). The circular chain carries no
-  `suc_eof` (a `suc_eof` descriptor terminates the PARL_IO transfer); a swap
-  arms the boundary detector (`suc_eof` on the last descriptor + the
-  `PARL_IO` `TxEof` interrupt), the ISR applies the pending buffer delta at
-  the pass boundary and restarts the halted transfer. Requires the local
-  `esp-hal` with the PARL_IO transfer interrupt API.
+  `suc_eof` in the ring (a `suc_eof` descriptor terminates the PARL_IO
+  transfer); a swap relinks the second-to-last descriptor to a spare boundary
+  descriptor (`suc_eof` + `NULL` next) with a single atomic write and enables
+  the `PARL_IO` `TxEof` interrupt, the ISR applies the pending buffer delta
+  at the pass boundary, relinks the ring, and restarts the halted transfer.
+  Requires the local `esp-hal` with the PARL_IO transfer interrupt API.
 * In circular-DMA mode the swap delta is now applied by the ISR at the pass
   boundary instead of immediately in `swap()`, eliminating the mid-frame
   tear the previous implementation could produce.
+
+### Changed
+
+* circular-DMA swaps are now exact on all backends (ESP32, ESP32-S3,
+  ESP32-C5). Arming a swap copies the last ring descriptor's buffer/length
+  into a spare *boundary descriptor* (`suc_eof` set, `next = NULL`, owned by
+  the driver in internal SRAM — the `dma_descriptor_count` API and
+  descriptor-array sizes are unchanged) and relinks the second-to-last ring
+  descriptor to it with a single atomic write. The chain therefore ends at
+  the next pass boundary exactly like a normal end-of-transfer everywhere;
+  the boundary ISR applies the pointer delta while the DMA is stopped,
+  relinks the ring, and restarts the transfer. Previously the detector only
+  marked the last descriptor with `suc_eof`, which halted the DMA on
+  ESP32-C5 but merely signalled on ESP32/ESP32-S3, where the wrap-time
+  prefetch of descriptor 0 still sourced the head of the post-swap pass from
+  the old framebuffer (a visible LSB-plane artifact) and the old framebuffer
+  was reclaimed while the DMA could still be reading it.
 
 
 ## [0.16.0] - 2026-09-02
