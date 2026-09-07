@@ -111,18 +111,18 @@ cfg_select! {
     hub75_use_parl_io => {
         impl FrameInterrupt for TxTransfer {
             fn clear_frame_interrupt(&self) {
-                use esp_hal::parl_io::ParlIoInterrupt;
-                self.clear_interrupts(ParlIoInterrupt::TxEof);
+                use esp_hal::parl_io::ParlIoTxInterrupt;
+                self.clear_interrupts(ParlIoTxInterrupt::Eof);
             }
 
             fn listen_frame_interrupt(&self) {
-                use esp_hal::parl_io::ParlIoInterrupt;
-                self.listen(ParlIoInterrupt::TxEof);
+                use esp_hal::parl_io::ParlIoTxInterrupt;
+                self.listen(ParlIoTxInterrupt::Eof);
             }
 
             fn unlisten_frame_interrupt(&self) {
-                use esp_hal::parl_io::ParlIoInterrupt;
-                self.unlisten(ParlIoInterrupt::TxEof);
+                use esp_hal::parl_io::ParlIoTxInterrupt;
+                self.unlisten(ParlIoTxInterrupt::Eof);
             }
         }
     }
