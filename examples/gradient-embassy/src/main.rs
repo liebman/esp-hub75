@@ -65,10 +65,6 @@ esp_bootloader_esp_idf::esp_app_desc!();
 // ---- board selection check ----
 // `esp32-trinity` implies `esp32`, so the chip features alone determine
 // exclusivity.
-#[cfg(not(any(feature = "esp32", feature = "esp32s3", feature = "esp32c6")))]
-compile_error!(
-    "no board selected; enable exactly one of: `esp32`, `esp32s3`, `esp32c6`, `esp32-trinity`"
-);
 #[cfg(any(
     all(feature = "esp32", feature = "esp32s3"),
     all(feature = "esp32", feature = "esp32c6"),
@@ -98,10 +94,14 @@ const NROWS: usize = compute_rows(ROWS);
 // esp32c6 can only do 5 planes without the row feature
 // this is due to limitations on the length of a transfer in the PARL_IO
 // peripheral
-#[cfg(all(feature = "esp32c6", not(feature = "row")))]
-const PLANES: usize = 5;
-#[cfg(any(not(feature = "esp32c6"), feature = "row"))]
-const PLANES: usize = 6;
+cfg_select! {
+    all(feature = "esp32c6", not(feature = "row")) => {
+        const PLANES: usize = 5;
+    }
+    _ => {
+        const PLANES: usize = 6;
+    }
+}
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;
@@ -110,14 +110,19 @@ const NBARS: i32 = ROWS as i32 / 8;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 
-// Pixel-clock frequency, selected by the `20mhz` feature (the ESP32's I2S
-// peripheral tops out at 19 MHz).
-#[cfg(all(feature = "20mhz", not(feature = "esp32")))]
-const RATE: Rate = Rate::from_mhz(20);
-#[cfg(all(feature = "20mhz", feature = "esp32"))]
-const RATE: Rate = Rate::from_mhz(19);
-#[cfg(not(feature = "20mhz"))]
-const RATE: Rate = Rate::from_mhz(10);
+// Pixel-clock frequency, selected by the `20mhz` feature
+cfg_select! {
+    all(feature = "20mhz", feature = "esp32") => {
+        // the ESP32's I2S peripheral seems to top out at 19 MHz.
+        const RATE: Rate = Rate::from_mhz(19);
+    }
+    feature = "20mhz" => {
+        const RATE: Rate = Rate::from_mhz(20);
+    }
+    _ => {
+        const RATE: Rate = Rate::from_mhz(10);
+    }
+}
 
 // Theoretical refresh rate for this configuration, computed at compile time
 // from the framebuffer's BCM sequence and the pixel clock above.
@@ -249,107 +254,105 @@ async fn main(spawner: Spawner) {
         core::mem::size_of_val(tx_descriptors)
     );
 
-    #[cfg(feature = "esp32c6")]
-    let pins = Hub75Pins16 {
-        red1: peripherals.GPIO19.degrade(),
-        grn1: peripherals.GPIO20.degrade(),
-        blu1: peripherals.GPIO21.degrade(),
-        red2: peripherals.GPIO22.degrade(),
-        grn2: peripherals.GPIO23.degrade(),
-        blu2: peripherals.GPIO15.degrade(),
-        addr0: peripherals.GPIO10.degrade(),
-        addr1: peripherals.GPIO8.degrade(),
-        addr2: peripherals.GPIO1.degrade(),
-        addr3: peripherals.GPIO0.degrade(),
-        addr4: peripherals.GPIO11.degrade(),
-        blank: peripherals.GPIO5.degrade(),
-        clock: peripherals.GPIO7.degrade(),
-        latch: peripherals.GPIO6.degrade(),
-    };
+    // Board selection. `esp32-trinity` implies `esp32`, so its arm must
+    // precede the plain `esp32` arm: cfg_select stops at the first match.
+    cfg_select! {
+        feature = "esp32c6" => {
+            let pins = Hub75Pins16 {
+                red1: peripherals.GPIO19.degrade(),
+                grn1: peripherals.GPIO20.degrade(),
+                blu1: peripherals.GPIO21.degrade(),
+                red2: peripherals.GPIO22.degrade(),
+                grn2: peripherals.GPIO23.degrade(),
+                blu2: peripherals.GPIO15.degrade(),
+                addr0: peripherals.GPIO10.degrade(),
+                addr1: peripherals.GPIO8.degrade(),
+                addr2: peripherals.GPIO1.degrade(),
+                addr3: peripherals.GPIO0.degrade(),
+                addr4: peripherals.GPIO11.degrade(),
+                blank: peripherals.GPIO5.degrade(),
+                clock: peripherals.GPIO7.degrade(),
+                latch: peripherals.GPIO6.degrade(),
+            };
+            let hub75_peripheral = peripherals.PARL_IO;
+            let hub75_dma = peripherals.DMA_CH0;
+        }
 
-    #[cfg(feature = "esp32s3")]
-    let pins = Hub75Pins16 {
-        red1: peripherals.GPIO38.degrade(),
-        grn1: peripherals.GPIO42.degrade(),
-        blu1: peripherals.GPIO48.degrade(),
-        red2: peripherals.GPIO47.degrade(),
-        grn2: peripherals.GPIO2.degrade(),
-        blu2: peripherals.GPIO21.degrade(),
-        addr0: peripherals.GPIO14.degrade(),
-        addr1: peripherals.GPIO46.degrade(),
-        addr2: peripherals.GPIO13.degrade(),
-        addr3: peripherals.GPIO9.degrade(),
-        addr4: peripherals.GPIO3.degrade(),
-        blank: peripherals.GPIO11.degrade(),
-        clock: peripherals.GPIO12.degrade(),
-        latch: peripherals.GPIO10.degrade(),
-    };
+        feature = "esp32s3" => {
+            let pins = Hub75Pins16 {
+                red1: peripherals.GPIO38.degrade(),
+                grn1: peripherals.GPIO42.degrade(),
+                blu1: peripherals.GPIO48.degrade(),
+                red2: peripherals.GPIO47.degrade(),
+                grn2: peripherals.GPIO2.degrade(),
+                blu2: peripherals.GPIO21.degrade(),
+                addr0: peripherals.GPIO14.degrade(),
+                addr1: peripherals.GPIO46.degrade(),
+                addr2: peripherals.GPIO13.degrade(),
+                addr3: peripherals.GPIO9.degrade(),
+                addr4: peripherals.GPIO3.degrade(),
+                blank: peripherals.GPIO11.degrade(),
+                clock: peripherals.GPIO12.degrade(),
+                latch: peripherals.GPIO10.degrade(),
+            };
+            let hub75_peripheral = peripherals.LCD_CAM;
+            let hub75_dma = peripherals.DMA_CH0;
+        }
 
-    #[cfg(all(feature = "esp32", not(feature = "esp32-trinity")))]
-    let pins = Hub75Pins16 {
-        red1: peripherals.GPIO16.degrade(),
-        grn1: peripherals.GPIO4.degrade(),
-        blu1: peripherals.GPIO17.degrade(),
-        red2: peripherals.GPIO18.degrade(),
-        grn2: peripherals.GPIO5.degrade(),
-        blu2: peripherals.GPIO19.degrade(),
-        addr0: peripherals.GPIO15.degrade(),
-        addr1: peripherals.GPIO13.degrade(),
-        addr2: peripherals.GPIO12.degrade(),
-        addr3: peripherals.GPIO14.degrade(),
-        addr4: peripherals.GPIO2.degrade(),
-        blank: peripherals.GPIO25.degrade(),
-        clock: peripherals.GPIO27.degrade(),
-        latch: peripherals.GPIO26.degrade(),
-    };
+        feature = "esp32-trinity" => {
+            let pins = Hub75Pins16 {
+                red1: peripherals.GPIO25.degrade(),
+                grn1: peripherals.GPIO26.degrade(),
+                blu1: peripherals.GPIO27.degrade(),
+                red2: peripherals.GPIO14.degrade(),
+                grn2: peripherals.GPIO12.degrade(),
+                blu2: peripherals.GPIO13.degrade(),
+                addr0: peripherals.GPIO23.degrade(),
+                addr1: peripherals.GPIO19.degrade(),
+                addr2: peripherals.GPIO5.degrade(),
+                addr3: peripherals.GPIO17.degrade(),
+                addr4: peripherals.GPIO18.degrade(),
+                blank: peripherals.GPIO15.degrade(),
+                clock: peripherals.GPIO16.degrade(),
+                latch: peripherals.GPIO4.degrade(),
+            };
+            let hub75_peripheral = peripherals.I2S0;
+            let hub75_dma = peripherals.DMA_I2S0;
+        }
 
-    #[cfg(feature = "esp32-trinity")]
-    let pins = Hub75Pins16 {
-        red1: peripherals.GPIO25.degrade(),
-        grn1: peripherals.GPIO26.degrade(),
-        blu1: peripherals.GPIO27.degrade(),
-        red2: peripherals.GPIO14.degrade(),
-        grn2: peripherals.GPIO12.degrade(),
-        blu2: peripherals.GPIO13.degrade(),
-        addr0: peripherals.GPIO23.degrade(),
-        addr1: peripherals.GPIO19.degrade(),
-        addr2: peripherals.GPIO5.degrade(),
-        addr3: peripherals.GPIO17.degrade(),
-        addr4: peripherals.GPIO18.degrade(),
-        blank: peripherals.GPIO15.degrade(),
-        clock: peripherals.GPIO16.degrade(),
-        latch: peripherals.GPIO4.degrade(),
-    };
+        feature = "esp32" => {
+            let pins = Hub75Pins16 {
+                red1: peripherals.GPIO16.degrade(),
+                grn1: peripherals.GPIO4.degrade(),
+                blu1: peripherals.GPIO17.degrade(),
+                red2: peripherals.GPIO18.degrade(),
+                grn2: peripherals.GPIO5.degrade(),
+                blu2: peripherals.GPIO19.degrade(),
+                addr0: peripherals.GPIO15.degrade(),
+                addr1: peripherals.GPIO13.degrade(),
+                addr2: peripherals.GPIO12.degrade(),
+                addr3: peripherals.GPIO14.degrade(),
+                addr4: peripherals.GPIO2.degrade(),
+                blank: peripherals.GPIO25.degrade(),
+                clock: peripherals.GPIO27.degrade(),
+                latch: peripherals.GPIO26.degrade(),
+            };
+            let hub75_peripheral = peripherals.I2S0;
+            let hub75_dma = peripherals.DMA_I2S0;
+        }
 
-    #[cfg(feature = "esp32c6")]
+        _ => {
+            compile_error!(
+                "no board selected; enable exactly one of: `esp32`, `esp32s3`, `esp32c6`, \
+                 `esp32-trinity`"
+            );
+        }
+    }
+
     let hub75 = Hub75::new_async(
-        peripherals.PARL_IO,
+        hub75_peripheral,
         pins,
-        peripherals.DMA_CH0,
-        tx_descriptors,
-        Hub75Config::new(RATE),
-        &*fb0,
-    )
-    .expect("failed to create Hub75");
-
-    #[cfg(feature = "esp32s3")]
-    let hub75 = Hub75::new_async(
-        peripherals.LCD_CAM,
-        pins,
-        peripherals.DMA_CH0,
-        tx_descriptors,
-        Hub75Config::new(RATE),
-        &*fb0,
-    )
-    .expect("failed to create Hub75");
-
-    // `esp32-trinity` implies `esp32`, so both ESP32 boards share the I2S0
-    // peripheral path.
-    #[cfg(feature = "esp32")]
-    let hub75 = Hub75::new_async(
-        peripherals.I2S0,
-        pins,
-        peripherals.DMA_I2S0,
+        hub75_dma,
         tx_descriptors,
         Hub75Config::new(RATE),
         &*fb0,
