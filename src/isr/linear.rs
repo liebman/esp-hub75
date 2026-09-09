@@ -17,7 +17,7 @@ use super::start_transfer;
 use super::State;
 use super::TransferPhase;
 use super::TxDriver;
-use super::{HAS_ERROR, STATE, SWAP_DONE, signal_swap_done};
+use super::{HAS_ERROR, STATE, SWAP_DONE, SWAP_WAKER};
 #[cfg(all(hub75_use_parl_io, esp32c5))]
 use super::PARL_IO_DUMMY_TRANSFER_LEN;
 use crate::Hub75Error;
@@ -58,7 +58,11 @@ pub(crate) fn init_state(
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
     crate::bcm::validate_fb_internal_ram(fb);
 
-    STATE.with(|state| {
+    // Collect the swap waker under the lock and wake it after release (see
+    // the swap-completion protocol in `isr`). `return` inside the closure
+    // only exits the closure, so the wake below always runs.
+    let mut wake = None;
+    let result = STATE.with(|state| {
         let state = state.as_mut().expect("Hub75 not initialised");
 
         let (tx, mut buf) =
@@ -75,7 +79,10 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
         // when restart() is called would spin forever because HAS_ERROR and
         // SWAP_DONE get cleared below, and no new pending_delta exists to
         // drive a fresh completion signal.
-        signal_swap_done();
+        SWAP_DONE.store(true, Ordering::Release);
+        if wake.is_none() {
+            wake = SWAP_WAKER.with(Option::take);
+        }
 
         // Build the cache in-place (restart/re-init path).
         segments_from_fb_into(fb, unsafe { &mut *cache_ptr().cast_mut() });
@@ -113,7 +120,12 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
                 Err(hub_err)
             }
         }
-    })
+    });
+
+    if let Some(waker) = wake {
+        waker.wake();
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------

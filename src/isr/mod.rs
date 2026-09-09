@@ -107,27 +107,19 @@ pub(crate) fn handler_with_priority(
 /// before a `Release` store to this flag, and every consumer reads it with
 /// `Acquire`. `true` means the swap has been applied at a pass boundary and
 /// it is safe to reclaim the old framebuffer via [`Hub75Swap::wait`].
-/// Note (ESP32/S3): the first chunk of the just-started pass may still be
-/// clocked out from the old buffer for up to one descriptor transfer time
-/// (~200us at 4KiB/10MHz) after this flag is set; reclaim is still sound
-/// because the old buffer remains valid, just briefly shared.
+///
+/// Reclaim-safety note: once this flag is set the transfer that reached the
+/// boundary has fully finished (the ISR consumed it via [`finish_transfer`],
+/// whose `wait()` confirms the peripheral is idle), the pointer delta has been
+/// applied, and the DMA has been restarted sourcing the new framebuffer — so
+/// it will never read the old buffer again. Reclaiming the old buffer via
+/// [`Hub75Swap::wait`] is therefore sound.
 pub(crate) static SWAP_DONE: AtomicBool = AtomicBool::new(false);
 /// Set to true once a Hub75 instance has been created. Prevents a second
 /// constructor from overwriting the ISR state statics. Hub75 has no Drop
 /// (run-forever design), so this is never reset.
 static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 pub(crate) static SWAP_WAKER: Shared<Option<Waker>> = Shared::new(None);
-
-#[cfg_attr(feature = "iram", ram)]
-pub(crate) fn signal_swap_done() {
-    SWAP_DONE.store(true, Ordering::Release);
-    // Take the waker under the lock but wake outside of it: `wake()` runs
-    // arbitrary executor code that must not run while a mutex is held.
-    let waker = SWAP_WAKER.with(Option::take);
-    if let Some(waker) = waker {
-        waker.wake();
-    }
-}
 
 /// DMA error flag, set by the ISR (either refresh mode) when a transfer
 /// fails. Cleared by linear-mode `start_internal` when refresh is
@@ -246,15 +238,18 @@ cfg_select! {
 /// `wait()` calls still check peripheral state, so this is safe from ISR
 /// context on every backend.
 ///
-/// Per-backend flag-timing rules (including the circular-only additions):
-/// - **I2S / `LCD_CAM`**: `wait()` polls peripheral *state* registers
-///   (`tx_idle` / `lcd_start`), not interrupt flags.
-/// - **`PARL_IO`**: `wait()` polls `INT_RAW.tx_eof` — the very flag that fired
-///   the circular boundary ISR (`suc_eof` on the boundary descriptor drives the
-///   peripheral's `tx_eof` via `TxEofSource::DmaEof`). It must **not** be
-///   cleared beforehand: `clear_frame_interrupt` writes `INT_CLR`, which clears
-///   `INT_RAW` (write-to-clear) and would leave `wait()` spinning on a flag
-///   that no longer exists. `wait()` itself clears it on completion.
+/// Per-backend completion/flag semantics:
+///
+/// | Backend | `is_done()` polls | `wait()` polls & clears |
+/// |---|---|---|
+/// | I2S (ESP32) | `state.tx_idle` | polls `tx_idle`; clears `out_done`/`out_total_eof` in `INT_CLR` |
+/// | `LCD_CAM` (S3) | `lcd_start == 0` | polls `lcd_start`; clears `lcd_trans_done` in `LC_DMA_INT_CLR` |
+/// | `PARL_IO` (C5) | (via `wait`) | polls `INT_RAW.tx_eof` and clears it itself |
+///
+/// The `PARL_IO` case is the reason the circular ISR must **not** clear
+/// `INT_RAW.tx_eof` beforehand: `clear_frame_interrupt` writes `INT_CLR`, which
+/// write-clears `INT_RAW` and would leave `wait()` spinning on a flag that no
+/// longer exists.
 ///
 /// Circular mode additionally (compiled only with `circular-dma`) asserts
 /// `is_done()`: the armed chain ends on the spare boundary descriptor, so the
@@ -380,6 +375,11 @@ pub(crate) static STATE: SharedState = Shared::new(None);
 #[handler]
 #[cfg_attr(feature = "iram", ram)]
 pub(crate) fn isr() {
+    // The swap waker is collected under the lock and woken after it is
+    // released (`wake()` runs executor code that must not run while `STATE`
+    // is held). `return` inside the closure only exits the closure, so the
+    // wake below always runs.
+    let mut wake = None;
     STATE.with(|state| {
         let Some(state) = state.as_mut() else { return };
 
@@ -424,7 +424,10 @@ pub(crate) fn isr() {
         if let Err(err) = result {
             state.transfer = TransferPhase::Error(err, tx, buf);
             HAS_ERROR.store(true, Ordering::Release);
-            signal_swap_done();
+            SWAP_DONE.store(true, Ordering::Release);
+            if wake.is_none() {
+                wake = SWAP_WAKER.with(Option::take);
+            }
             return;
         }
 
@@ -448,7 +451,12 @@ pub(crate) fn isr() {
             circular::apply_pending_delta(state, delta);
             // Linear: the swap completes at this frame boundary.
             #[cfg(not(feature = "circular-dma"))]
-            signal_swap_done();
+            {
+                SWAP_DONE.store(true, Ordering::Release);
+                if wake.is_none() {
+                    wake = SWAP_WAKER.with(Option::take);
+                }
+            }
         }
 
         // Circular only: swap-armed boundary handled — disarm until the next
@@ -484,15 +492,31 @@ pub(crate) fn isr() {
                 // Linear: resolve a pending swap as failed. Circular signals
                 // unconditionally below.
                 #[cfg(not(feature = "circular-dma"))]
-                signal_swap_done();
+                {
+                    SWAP_DONE.store(true, Ordering::Release);
+                    if wake.is_none() {
+                        wake = SWAP_WAKER.with(Option::take);
+                    }
+                }
             }
         }
 
         // Circular only: the DMA is provably no longer reading the old
         // framebuffer now that the restart is issued (or has failed).
         #[cfg(feature = "circular-dma")]
-        signal_swap_done();
+        {
+            SWAP_DONE.store(true, Ordering::Release);
+            if wake.is_none() {
+                wake = SWAP_WAKER.with(Option::take);
+            }
+        }
     });
+
+    // Wake outside of `STATE`: `wake()` runs arbitrary executor code that
+    // must not run while a mutex is held.
+    if let Some(waker) = wake {
+        waker.wake();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -545,12 +569,17 @@ pub struct Hub75<DM: esp_hal::DriverMode, FB> {
     _not_sync: core::marker::PhantomData<*const ()>,
 }
 
-// SAFETY: Hub75 is a zero-sized handle; all mutable state lives in statics
-// guarded by the ISR state lock (`STATE`) (see `Shared`), so it is safe to send
-// across threads.
-// Hub75 is intentionally `!Sync` because concurrent `swap()` calls from
-// multiple threads would race on the shared ISR state.
-unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
+// `Send` is derived automatically: every field is a `PhantomData` over a
+// `Send` type (`*const ()` is `Send`, `fn() -> FB` is `Send`, and `DM` is
+// always `Blocking` or `Async`, both `Send`), so no manual `unsafe impl Send`
+// is needed.
+//
+// Hub75 is intentionally `!Sync` via the `_not_sync: PhantomData<*const ()>`
+// field. Even though `swap()` takes `&self` and `STATE` would serialise
+// concurrent callers, sharing a `&Hub75` across cores would let two threads
+// race to be the one outstanding swap and would make the single-waker-slot
+// protocol in `SWAP_WAKER` ambiguous. Requiring ownership (`Send` but not
+// `Sync`) keeps the driver single-owner by construction.
 
 impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
     pub(crate) fn from_phantom() -> Self {
@@ -698,7 +727,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     ///   new framebuffer. The swap is exact, with no pass boundary ever sourced
     ///   from the old buffer after the delta is applied, and takes up to one
     ///   pass period to complete. The output is blanked for the (very brief)
-    ///   peripheral-drain window at the boundary.
+    ///   halt at the pass boundary.
     /// - **Linear**: the delta is applied by the ISR to every cached segment
     ///   pointer at the next frame boundary. Both framebuffers are the same
     ///   type with identical internal layout, so the single delta shifts every

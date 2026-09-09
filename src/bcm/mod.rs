@@ -177,19 +177,31 @@ impl SegmentCache {
     }
 }
 
-/// Debug-assert that a framebuffer resides in internal DRAM, not PSRAM.
+/// Assert that a framebuffer and every BCM segment it exposes reside in
+/// internal DRAM, not PSRAM.
 ///
-/// PSRAM requires explicit cache writeback before DMA reads, which the
-/// custom `LinearBcmBuf` / `CircularBcmBuf` paths do not perform. Zero-cost in
-/// release builds.
+/// PSRAM requires an explicit cache writeback before DMA reads, which the
+/// custom `LinearBcmBuf` / `CircularBcmBuf` paths never perform. The DMA reads
+/// the *segment* buffers, not the `FrameBuffer` object itself, so each segment
+/// pointer is checked too. This runs once per constructor, so it is a hard
+/// `assert!` (not `debug_assert!`): a PSRAM framebuffer must fail loudly here
+/// rather than corrupt the display silently in release builds.
 pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
-    let addr = core::ptr::from_ref(fb).cast::<()>() as usize;
+    fn assert_in_dram(dram: &core::ops::Range<usize>, ptr: *const (), what: &str) {
+        let addr = ptr as usize;
+        assert!(
+            dram.contains(&addr),
+            "{what} at {addr:#010X} is not in internal DRAM ({dram:#010X?}); \
+             PSRAM is not supported for DMA framebuffers"
+        );
+    }
+
     let dram = esp_metadata_generated::memory_range!("DRAM");
-    debug_assert!(
-        dram.contains(&addr),
-        "framebuffer at {addr:#010X} is not in internal DRAM ({dram:#010X?}); \
-         PSRAM is not supported for DMA framebuffers"
-    );
+    assert_in_dram(&dram, core::ptr::from_ref(fb).cast::<()>(), "framebuffer");
+    for i in 0..fb.bcm_segment_count() {
+        let seg = fb.bcm_segment(i);
+        assert_in_dram(&dram, seg.ptr.cast::<()>(), "BCM segment");
+    }
 }
 
 /// Extract BCM segments from a framebuffer into an existing [`SegmentCache`].
@@ -237,6 +249,11 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
     // `EmptyBuf` provides a `Preparation` with safe defaults; we override
     // the fields relevant to our descriptor chain. If `Preparation` gains
     // new fields in a future esp-hal release, review them here.
+    //
+    // `check_owner = Some(false)` and `auto_write_back = false` below are
+    // load-bearing for the circular ring: the DMA must neither require the
+    // `owner` bit before consuming a descriptor nor clear it afterwards,
+    // otherwise the free-running chain stalls after one lap.
     let mut empty = EmptyBuf;
     let mut prep: Preparation = empty.prepare();
     prep.start = descriptors.as_mut_ptr();

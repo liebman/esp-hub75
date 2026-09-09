@@ -466,15 +466,9 @@ impl<FB: framebuffer::FrameBuffer, const N: usize> Hub75DmaDescriptors<FB, N> {
 
     /// Number of descriptors held (equal to [`Self::COUNT`] by construction).
     #[must_use]
+    #[allow(clippy::len_without_is_empty)] // the count is compile-time, never zero
     pub const fn len(&self) -> usize {
         self.descriptors.len()
-    }
-
-    /// Always `false`: the array is sized at compile time to the required
-    /// non-zero count. Present so `len()` is not flagged by Clippy.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        false
     }
 
     /// Mutable view of the descriptor array for the driver internals.

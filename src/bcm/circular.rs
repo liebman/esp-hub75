@@ -166,9 +166,16 @@ pub(crate) fn disarm_boundary(descriptors: *mut DmaDescriptor, descriptor_count:
         "the circular chain needs at least two descriptors"
     );
 
-    // SAFETY: same as `arm_boundary`.
+    // SAFETY: same as `arm_boundary`. `descriptors` is the `&'static mut`
+    // descriptor ring stored in the ISR state, valid for the driver's lifetime,
+    // and all access is serialised by the ISR state lock.
     unsafe {
-        (*descriptors.add(descriptor_count - 2)).next = descriptors;
+        // Restore the free-running ring by pointing the second-to-last
+        // descriptor back at the REAL last descriptor (whose own `next` still
+        // wraps to the head). Pointing straight at the head instead would drop
+        // `descriptors[count-1]` from the loop permanently, losing its data on
+        // every frame after the first swap.
+        (*descriptors.add(descriptor_count - 2)).next = descriptors.add(descriptor_count - 1);
     }
 }
 
