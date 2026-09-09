@@ -34,7 +34,6 @@ use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ConfigurePins;
 use esp_hal::parl_io::ParlIo;
 use esp_hal::parl_io::ParlIoDmaChannel;
-#[cfg(not(feature = "circular-dma"))]
 use esp_hal::parl_io::ParlIoInterrupt;
 use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
@@ -87,13 +86,14 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
 
-        // Bind the unified refresh ISR to the `PARL_IO` interrupt.
+        // Bind the unified refresh ISR to the `PARL_IO` interrupt, and enable
+        // the `TxEof` source for both refresh modes (before the TX
+        // configuration consumes `parl_io_dev.tx`):
         //
-        // Linear mode: the `TxEof` source is enabled below (before the TX
-        // configuration consumes `parl_io_dev.tx`) and runs the BCM loop.
-        // Circular mode: binding unlistens from and clears all `PARL_IO`
-        // interrupt sources, so nothing fires until a swap arms the `TxEof`
-        // source.
+        // - Linear mode: the `TxEof` source runs the BCM loop.
+        // - Circular mode: the ring carries no `suc_eof`, so nothing fires until a swap
+        //   arms the pass-boundary detector; the source stays enabled for the driver's
+        //   lifetime.
         parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
             crate::isr::isr,
             config.interrupt_priority,
@@ -101,7 +101,6 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         // `listen` must precede `parl_io_dev.tx.with_config`, which partially
         // moves `parl_io_dev`.
-        #[cfg(not(feature = "circular-dma"))]
         parl_io_dev.listen(ParlIoInterrupt::TxEof);
 
         #[cfg(feature = "invert-clock")]
@@ -142,13 +141,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                     .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
                     .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
 
-                crate::isr::init_state(
-                    xfer,
-                    descriptor_ptr,
-                    descriptor_count,
-                    fb_ptr,
-                    crate::framebuffer::WordSize::Eight,
-                );
+                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
             }
             _ => {
                 let buf = LinearBcmBuf::new(tx_descriptors.as_slice());

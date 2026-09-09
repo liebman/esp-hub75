@@ -42,7 +42,6 @@ use esp_hal::lcd_cam::lcd::i8080;
 #[cfg(feature = "circular-dma")]
 use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
-#[cfg(not(feature = "circular-dma"))]
 use esp_hal::lcd_cam::lcd::i8080::I8080Interrupt;
 use esp_hal::peripherals::LCD_CAM;
 
@@ -98,24 +97,26 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let mut i8080 = hub75_pins.apply(i8080);
 
         // Bind the boundary/refresh ISR to the LCD_CAM peripheral interrupt
-        // (both DMA modes). `send()` clears a pending `lcd_trans_done` flag
-        // before starting the LCD, and `init_state` drains any stale flag
-        // once the transfer is stored, so the ISR cannot fire before the ISR
-        // state is initialised.
+        // and enable the `lcd_trans_done` source (both DMA modes), before
+        // the first transfer starts; the source stays enabled for the
+        // driver's lifetime.
+        //
+        // - Linear: every chain ends with `suc_eof` + `NULL` next, so `lcd_trans_done`
+        //   fires at every segment-group boundary and runs the BCM loop.
+        // - Circular: the ring carries no `suc_eof`, so nothing fires in steady state.
+        //   A swap relinks the second-to-last ring descriptor to the spare boundary
+        //   descriptor (`suc_eof` + `NULL` next) — from the LCD_CAM's point of view
+        //   that is a normal end-of-transfer (identical to linear mode), so
+        //   `lcd_trans_done` fires at the armed pass boundary and the ISR consumes and
+        //   restarts the transfer.
         i8080.set_interrupt_handler(crate::isr::handler_with_priority(
             crate::isr::isr,
             config.interrupt_priority,
         ));
+        i8080.listen(I8080Interrupt::TransDone);
 
         cfg_select! {
             feature = "circular-dma" => {
-                // The circular ring itself carries no `suc_eof`, so nothing
-                // fires in steady state. A swap relinks the second-to-last
-                // ring descriptor to the spare boundary descriptor (`suc_eof`
-                // + `NULL` next) — from the LCD_CAM's point of view that is a
-                // normal end-of-transfer (identical to linear mode), so
-                // `lcd_trans_done` fires at the armed pass boundary and the
-                // boundary ISR consumes and restarts the transfer.
                 let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
                 let descriptor_ptr = buf.descriptors_ptr();
                 let descriptor_count = buf.descriptor_count();
@@ -130,10 +131,6 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                 crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr, word_size);
             }
             _ => {
-                // Linear mode: enable the `lcd_trans_done` source; the refresh
-                // ISR runs the BCM loop. (The handler itself is bound above.)
-                i8080.listen(I8080Interrupt::TransDone);
-
                 let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
                 crate::isr::init_state(i8080, buf, word_size);
                 crate::isr::start_internal(fb)?;

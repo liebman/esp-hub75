@@ -1,10 +1,11 @@
 //! HUB75 driver for I2S Parallel peripherals (ESP32).
 //!
-//! The I2S DMA `out_total_eof` interrupt runs the BCM loop . In
-//! circular-DMA mode, the per-descriptor `out_eof` interrupt runs the
-//! loop. The loop sends the framebuffer data to the panel again and
-//! again. The panel shows the current framebuffer by itself. A buffer
-//! swap starts at a frame boundary.
+//! The I2S DMA `out_total_eof` interrupt runs the BCM loop in both refresh
+//! modes: linear chains end with `suc_eof` + `NULL` next, and a circular
+//! chain ends the same way while a swap has armed the pass-boundary
+//! detector. The loop sends the framebuffer data to the panel again and
+//! again. The panel shows the current framebuffer by itself. A buffer swap
+//! starts at a frame boundary.
 //!
 //! # Blocking example
 //!
@@ -90,23 +91,29 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
 
-        // This connects `isr` to the interrupt. In linear mode the interrupt
-        // source is `out_total_eof` (the DMA finished the full descriptor
-        // chain). In circular mode it is the per-descriptor `out_eof`,
-        // which occurs each time the DMA finds a descriptor with `suc_eof=1`;
-        // this also works for a circular chain, where `next` points back to
-        // the start of the chain (verified on ESP32 classic, I2S LCD mode).
-        // `out_total_eof` never occurs on a circular chain, because the
-        // transfer never ends.
+        // This connects `isr` to the interrupt. Both refresh modes use the
+        // same source, `out_total_eof` (the DMA finished the descriptor
+        // chain):
+        //
+        // - Linear: every chain ends with `suc_eof` + `NULL` next, so `out_total_eof`
+        //   fires at every segment-group boundary and runs the BCM loop.
+        // - Circular: the free-running ring carries no `suc_eof` and never ends, so
+        //   `out_total_eof` never fires in steady state. A swap arms the boundary
+        //   detector by relinking the second-to-last ring descriptor to the spare
+        //   boundary descriptor (`suc_eof` + `NULL` next) — from the DMA's point of
+        //   view that is a normal end-of-transfer, so `out_total_eof` fires exactly at
+        //   the armed pass boundary.
         i2s_parallel.set_interrupt_handler(crate::isr::handler_with_priority(
             crate::isr::isr,
             config.interrupt_priority,
         ));
 
+        // Enable the source before the first transfer starts; it stays
+        // enabled for the driver's lifetime in both modes.
+        i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
+
         cfg_select! {
             feature = "circular-dma" => {
-                i2s_parallel.listen(I2sParallelInterrupt::Eof);
-
                 let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
                 let descriptor_ptr = buf.descriptors_ptr();
                 let descriptor_count = buf.descriptor_count();
@@ -116,17 +123,9 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                     .send(buf)
                     .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
 
-                crate::isr::init_state(
-                    xfer,
-                    descriptor_ptr,
-                    descriptor_count,
-                    fb_ptr,
-                    crate::framebuffer::WordSize::Sixteen,
-                );
+                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
             }
             _ => {
-                i2s_parallel.listen(I2sParallelInterrupt::TotalEof);
-
                 let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
                 crate::isr::init_state(i2s_parallel, buf);
                 crate::isr::start_internal(fb)?;
