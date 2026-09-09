@@ -47,6 +47,7 @@ use esp_hal::time::Instant;
 use esp_hal::time::Rate;
 use esp_hub75::Color;
 use esp_hub75::Hub75;
+use esp_hub75::Hub75Config;
 use esp_hub75::Hub75Pins8;
 #[cfg(not(feature = "row"))]
 use esp_hub75::framebuffer::bitplane::latched::DmaFrameBuffer;
@@ -60,15 +61,6 @@ use log::info;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 // ---- board selection check ----
-#[cfg(not(any(
-    feature = "esp32",
-    feature = "esp32s3",
-    feature = "esp32c6",
-    feature = "esp32c5"
-)))]
-compile_error!(
-    "no board selected; enable exactly one of: `esp32`, `esp32s3`, `esp32c6`, `esp32c5`"
-);
 #[cfg(any(
     all(feature = "esp32", feature = "esp32s3"),
     all(feature = "esp32", feature = "esp32c6"),
@@ -94,7 +86,16 @@ macro_rules! mk_static {
 const ROWS: usize = 64;
 const COLS: usize = 64;
 const NROWS: usize = compute_rows(ROWS);
-const PLANES: usize = 6;
+cfg_select! {
+    all(feature = "esp32c6", feature = "full-chain-dma") => {
+        // esp32c6 PARL_IO is limited to 65536 bytes in a DMA transfer so we
+        // 4 planes
+        const PLANES: usize = 4;
+    }
+    _ => {
+        const PLANES: usize = 6;
+    }
+}
 
 const LINE1: i32 = ROWS as i32 - 1 - 14;
 const LINE2: i32 = ROWS as i32 - 1 - 7;
@@ -102,6 +103,24 @@ const LINE3: i32 = ROWS as i32 - 1;
 const NBARS: i32 = ROWS as i32 / 8;
 
 type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
+
+// Pixel-clock frequency, selected by the `20mhz` feature
+cfg_select! {
+    all(feature = "20mhz", feature = "esp32") => {
+        // the ESP32's I2S peripheral seems to top out at 19 MHz.
+        const RATE: Rate = Rate::from_mhz(19);
+    }
+    feature = "20mhz" => {
+        const RATE: Rate = Rate::from_mhz(20);
+    }
+    _ => {
+        const RATE: Rate = Rate::from_mhz(10);
+    }
+}
+
+// Theoretical refresh rate for this configuration, computed at compile time
+// from the framebuffer's BCM sequence and the pixel clock above.
+const REFRESH_RATE: u32 = esp_hub75::refresh_hz::<FBType>(RATE);
 
 unsafe extern "C" {
     static _stack_end_cpu0: u32;
@@ -121,6 +140,7 @@ fn main() -> ! {
     info!("ROWS: {}", ROWS);
     info!("COLS: {}", COLS);
     info!("PLANES: {}", PLANES);
+    info!("Refresh rate: {} Hz", REFRESH_RATE);
     info!("FB size: {}", core::mem::size_of::<FBType>());
 
     info!("init framebuffers");
@@ -137,105 +157,95 @@ fn main() -> ! {
         core::mem::size_of_val(tx_descriptors)
     );
 
-    #[cfg(feature = "esp32")]
-    let pins = Hub75Pins8 {
-        red1: peripherals.GPIO16.degrade(),
-        grn1: peripherals.GPIO4.degrade(),
-        blu1: peripherals.GPIO17.degrade(),
-        red2: peripherals.GPIO18.degrade(),
-        grn2: peripherals.GPIO5.degrade(),
-        blu2: peripherals.GPIO19.degrade(),
-        blank: peripherals.GPIO26.degrade(),
-        clock: peripherals.GPIO25.degrade(),
-        latch: peripherals.GPIO2.degrade(),
-    };
+    cfg_select! {
+        feature = "esp32" => {
+            let pins = Hub75Pins8 {
+                red1: peripherals.GPIO16.degrade(),
+                grn1: peripherals.GPIO4.degrade(),
+                blu1: peripherals.GPIO17.degrade(),
+                red2: peripherals.GPIO18.degrade(),
+                grn2: peripherals.GPIO5.degrade(),
+                blu2: peripherals.GPIO19.degrade(),
+                blank: peripherals.GPIO26.degrade(),
+                clock: peripherals.GPIO25.degrade(),
+                latch: peripherals.GPIO2.degrade(),
+            };
+            let pwm_pin = peripherals.GPIO27;
+            // NOTE: the ESP32's I2S0 does not support true 8-bit parallel output (it
+            // drops every odd byte), so the 8-bit latched framebuffer must use I2S1.
+            let hub75_peripheral = peripherals.I2S1;
+            let hub75_dma = peripherals.DMA_I2S1;
+        }
 
-    #[cfg(feature = "esp32s3")]
-    let pins = Hub75Pins8 {
-        red1: peripherals.GPIO10.degrade(),
-        grn1: peripherals.GPIO11.degrade(),
-        blu1: peripherals.GPIO12.degrade(),
-        red2: peripherals.GPIO13.degrade(),
-        grn2: peripherals.GPIO9.degrade(),
-        blu2: peripherals.GPIO14.degrade(),
-        blank: peripherals.GPIO45.degrade(),
-        clock: peripherals.GPIO47.degrade(),
-        latch: peripherals.GPIO21.degrade(),
-    };
+        feature = "esp32s3" => {
+            let pins = Hub75Pins8 {
+                red1: peripherals.GPIO10.degrade(),
+                grn1: peripherals.GPIO11.degrade(),
+                blu1: peripherals.GPIO12.degrade(),
+                red2: peripherals.GPIO13.degrade(),
+                grn2: peripherals.GPIO9.degrade(),
+                blu2: peripherals.GPIO14.degrade(),
+                blank: peripherals.GPIO45.degrade(),
+                clock: peripherals.GPIO47.degrade(),
+                latch: peripherals.GPIO21.degrade(),
+            };
+            let pwm_pin = peripherals.GPIO48;
+            let hub75_peripheral = peripherals.LCD_CAM;
+            let hub75_dma = peripherals.DMA_CH0;
+        }
 
-    #[cfg(feature = "esp32c6")]
-    let pins = Hub75Pins8 {
-        red1: peripherals.GPIO10.degrade(),
-        grn1: peripherals.GPIO8.degrade(),
-        blu1: peripherals.GPIO1.degrade(),
-        red2: peripherals.GPIO0.degrade(),
-        grn2: peripherals.GPIO11.degrade(),
-        blu2: peripherals.GPIO7.degrade(),
-        blank: peripherals.GPIO21.degrade(),
-        clock: peripherals.GPIO19.degrade(),
-        latch: peripherals.GPIO18.degrade(),
-    };
+        feature = "esp32c6" => {
+            let pins = Hub75Pins8 {
+                red1: peripherals.GPIO10.degrade(),
+                grn1: peripherals.GPIO8.degrade(),
+                blu1: peripherals.GPIO1.degrade(),
+                red2: peripherals.GPIO0.degrade(),
+                grn2: peripherals.GPIO11.degrade(),
+                blu2: peripherals.GPIO7.degrade(),
+                blank: peripherals.GPIO21.degrade(),
+                clock: peripherals.GPIO19.degrade(),
+                latch: peripherals.GPIO18.degrade(),
+            };
+            let pwm_pin = peripherals.GPIO20;
+            let hub75_peripheral = peripherals.PARL_IO;
+            let hub75_dma = peripherals.DMA_CH0;
+        }
 
-    #[cfg(feature = "esp32c5")]
-    let pins = Hub75Pins8 {
-        red1: peripherals.GPIO9.degrade(),
-        grn1: peripherals.GPIO8.degrade(),
-        blu1: peripherals.GPIO7.degrade(),
-        red2: peripherals.GPIO6.degrade(),
-        grn2: peripherals.GPIO10.degrade(),
-        blu2: peripherals.GPIO1.degrade(),
-        blank: peripherals.GPIO27.degrade(),
-        clock: peripherals.GPIO5.degrade(),
-        latch: peripherals.GPIO26.degrade(),
-    };
+        feature = "esp32c5" => {
+            let pins = Hub75Pins8 {
+                red1: peripherals.GPIO9.degrade(),
+                grn1: peripherals.GPIO8.degrade(),
+                blu1: peripherals.GPIO7.degrade(),
+                red2: peripherals.GPIO6.degrade(),
+                grn2: peripherals.GPIO10.degrade(),
+                blu2: peripherals.GPIO1.degrade(),
+                blank: peripherals.GPIO27.degrade(),
+                clock: peripherals.GPIO5.degrade(),
+                latch: peripherals.GPIO26.degrade(),
+            };
+            let pwm_pin = peripherals.GPIO4;
+            let hub75_peripheral = peripherals.PARL_IO;
+            let hub75_dma = peripherals.DMA_CH0;
+        }
 
-    #[cfg(feature = "esp32")]
-    let _oe_pwm = Output::new(peripherals.GPIO27, Level::High, OutputConfig::default());
-    #[cfg(feature = "esp32s3")]
-    let _oe_pwm = Output::new(peripherals.GPIO48, Level::High, OutputConfig::default());
-    #[cfg(feature = "esp32c6")]
-    let _oe_pwm = Output::new(peripherals.GPIO20, Level::High, OutputConfig::default());
-    #[cfg(feature = "esp32c5")]
-    let _oe_pwm = Output::new(peripherals.GPIO4, Level::High, OutputConfig::default());
+        _ => {
+            compile_error!(
+                "no board selected; enable exactly one of: `esp32`, `esp32s3`, `esp32c6`, `esp32c5`"
+            );
 
-    #[cfg(all(feature = "20mhz", not(feature = "esp32")))]
-    let rate = Rate::from_mhz(20);
-    #[cfg(all(feature = "20mhz", feature = "esp32"))]
-    let rate = Rate::from_mhz(19);
-    #[cfg(not(feature = "20mhz"))]
-    let rate = Rate::from_mhz(10);
+        }
+    }
 
-    // NOTE: the ESP32's I2S0 does not support true 8-bit parallel output (it
-    // drops every odd byte), so the 8-bit latched framebuffer must use I2S1.
-    #[cfg(feature = "esp32")]
+    // latch hardware can adjust display brightness via pwm, for the exampe we just
+    // turn it full on.
+    let _oe_pwm = Output::new(pwm_pin, Level::High, OutputConfig::default());
+
     let hub75 = Hub75::new(
-        peripherals.I2S1,
+        hub75_peripheral,
         pins,
-        peripherals.DMA_I2S1,
+        hub75_dma,
         tx_descriptors,
-        rate,
-        &*fb0,
-    )
-    .expect("failed to create Hub75");
-
-    #[cfg(feature = "esp32s3")]
-    let hub75 = Hub75::new(
-        peripherals.LCD_CAM,
-        pins,
-        peripherals.DMA_CH0,
-        tx_descriptors,
-        rate,
-        &*fb0,
-    )
-    .expect("failed to create Hub75");
-
-    #[cfg(any(feature = "esp32c6", feature = "esp32c5"))]
-    let hub75 = Hub75::new(
-        peripherals.PARL_IO,
-        pins,
-        peripherals.DMA_CH0,
-        tx_descriptors,
-        rate,
+        Hub75Config::new(RATE),
         &*fb0,
     )
     .expect("failed to create Hub75");
@@ -250,9 +260,7 @@ fn main() -> ! {
         .build();
 
     let mut render_count = 0u32;
-    let mut refresh_count_start = hub75.frame_count();
     let mut start = Instant::now();
-    let mut refresh_rate = 0u32;
     let mut render_rate = 0u32;
 
     let mut simple_counter = 0u32;
@@ -279,7 +287,7 @@ fn main() -> ! {
 
         let mut buffer: String<64> = String::new();
 
-        fmt::write(&mut buffer, format_args!("Refresh: {:4}", refresh_rate)).unwrap();
+        fmt::write(&mut buffer, format_args!("Refresh: {:4}", REFRESH_RATE)).unwrap();
         Text::with_alignment(
             buffer.as_str(),
             Point::new(0, LINE3),
@@ -320,9 +328,6 @@ fn main() -> ! {
         render_count += 1;
         if start.elapsed() > Duration::from_secs(1) {
             render_rate = render_count;
-            let current_frame_count = hub75.frame_count();
-            refresh_rate = current_frame_count.wrapping_sub(refresh_count_start);
-            refresh_count_start = current_frame_count;
             render_count = 0;
             start = Instant::now();
         }
