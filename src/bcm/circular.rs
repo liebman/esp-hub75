@@ -102,7 +102,7 @@ impl CircularBcmBuf {
 /// Written by `arm_boundary` (task context) and read by the DMA only while it
 /// is linked into the chain — i.e. between `arm_boundary` and
 /// `disarm_boundary`, during which nobody writes it. All writes are
-/// serialised against the ISRs by the ISR state lock (`STATE_LOCK` in
+/// serialised against the ISRs by the ISR state lock (`STATE` in `isr`
 /// `isr.rs`), exactly like the ring descriptors. Access is only through raw
 /// pointers under that lock (`static mut` is never referenced).
 pub(crate) static mut BOUNDARY_DESCRIPTOR: DmaDescriptor = DmaDescriptor::EMPTY;
@@ -172,7 +172,7 @@ pub(crate) fn disarm_boundary(descriptors: *mut DmaDescriptor, descriptor_count:
     }
 }
 
-// SAFETY: All access is serialised by the ISR state lock (`STATE_LOCK` in
+// SAFETY: All access is serialised by the ISR state lock (`STATE` in `isr`
 // `isr.rs`, an `esp_sync::RawMutex`).
 unsafe impl Send for CircularBcmBuf {}
 

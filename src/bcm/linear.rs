@@ -34,7 +34,7 @@ pub(crate) struct LinearBcmBuf {
     /// Raw pointer to the static segment cache (`SEGMENT_CACHE`).
     /// Dereferenced inline at each use site; the pointer is always
     /// valid because the cache is a `'static` and all access is
-    /// serialised by the ISR state lock (`STATE_LOCK`).
+    /// serialised by the ISR state lock (`STATE` in `isr`).
     cache: *const SegmentCache,
     #[cfg(not(feature = "full-chain-dma"))]
     current_group: usize,
@@ -106,7 +106,7 @@ impl LinearBcmBuf {
     /// both framebuffers are the same type with identical internal layout.
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn apply_delta(&mut self, delta: isize) {
-        // SAFETY: Called from the ISR (under the ISR `STATE_LOCK`). The cache
+        // SAFETY: Called from the ISR (under the ISR state lock (`STATE`)). The cache
         // is not concurrently accessed; `swap()` only reads FB pointers
         // to compute the delta and never writes to the cache.
         let cache = unsafe { &mut *self.cache.cast_mut() };
@@ -138,7 +138,7 @@ impl LinearBcmBuf {
 }
 
 // SAFETY: All access to `LinearBcmBuf` is serialised by the ISR state lock
-// (`STATE_LOCK` in `isr.rs`, an `esp_sync::RawMutex`): it disables
+// (the `STATE` static in `isr`, an `esp_sync::NonReentrantMutex`): it disables
 // interrupts on the current core and CAS-spins on an owner word on
 // multi-core chips like ESP32 and ESP32-S3. There is therefore no
 // concurrent access. The raw `cache` pointer points to `SEGMENT_CACHE`
