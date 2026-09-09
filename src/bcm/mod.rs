@@ -5,6 +5,7 @@
 
 #[cfg(not(feature = "circular-dma"))]
 use core::cell::UnsafeCell;
+#[cfg(not(feature = "circular-dma"))]
 use core::ptr::null;
 
 use esp_hal::dma::BurstConfig;
@@ -31,8 +32,13 @@ pub(crate) mod linear;
 ///
 /// Sized for worst case: 32 row-pairs × (8 planes + 1 inter-row gap + 1
 /// end-of-row trailer) = 320 segments.
+///
+/// Linear mode only: circular-DMA init streams segments straight from the
+/// framebuffer and never materialises a cache.
+#[cfg(not(feature = "circular-dma"))]
 pub(crate) const MAX_SEGMENTS: usize = 320;
 
+#[cfg(not(feature = "circular-dma"))]
 const EMPTY_SEGMENT: BcmSegment = BcmSegment {
     ptr: null(),
     len: 0,
@@ -58,7 +64,8 @@ static SEGMENT_CACHE: CacheCell = CacheCell(UnsafeCell::new(SegmentCache::new())
 
 /// Return a raw pointer to the static segment cache.
 ///
-/// Used by [`BcmBuf`][super::linear::BcmBuf] and `start_internal()`.
+/// Used by [`LinearBcmBuf`][super::linear::LinearBcmBuf] and
+/// `start_internal()`.
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) fn cache_ptr() -> *const SegmentCache {
     SEGMENT_CACHE.0.get()
@@ -69,6 +76,11 @@ pub(crate) fn cache_ptr() -> *const SegmentCache {
 /// Stores the full segment sequence extracted from a `FrameBuffer` so the
 /// ISR can drive DMA without calling trait methods (the framebuffer type is
 /// erased in the ISR statics).
+///
+/// Linear mode only: circular-DMA builds the full descriptor chain once at
+/// init by streaming segments from the framebuffer, then never needs them
+/// again (swaps apply pointer deltas to the descriptors directly).
+#[cfg(not(feature = "circular-dma"))]
 pub(crate) struct SegmentCache {
     pub(crate) segments: [BcmSegment; MAX_SEGMENTS],
     pub(crate) count: usize,
@@ -78,6 +90,7 @@ pub(crate) struct SegmentCache {
     pub(crate) segments_per_group: usize,
 }
 
+#[cfg(not(feature = "circular-dma"))]
 impl SegmentCache {
     pub const fn new() -> Self {
         Self {
@@ -105,6 +118,7 @@ impl SegmentCache {
 
     /// Number of DMA transfer groups in this sequence.
     #[cfg(not(feature = "full-chain-dma"))]
+    #[cfg_attr(feature = "iram", ram)]
     pub fn group_count(&self) -> usize {
         self.count / self.segments_per_group
     }
@@ -165,7 +179,7 @@ impl SegmentCache {
 /// Debug-assert that a framebuffer resides in internal DRAM, not PSRAM.
 ///
 /// PSRAM requires explicit cache writeback before DMA reads, which the
-/// custom `BcmBuf` / `CircularBcmBuf` paths do not perform. Zero-cost in
+/// custom `LinearBcmBuf` / `CircularBcmBuf` paths do not perform. Zero-cost in
 /// release builds.
 pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
     let addr = core::ptr::from_ref(fb).cast::<()>() as usize;
@@ -179,8 +193,10 @@ pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
 
 /// Extract BCM segments from a framebuffer into an existing [`SegmentCache`].
 ///
-/// Builds directly into `cache`, writing only the first `count` entries.
-/// Callers that need a stack build should use [`segments_from_fb`].
+/// Circular-DMA init streams segments straight from the framebuffer (see
+/// [`fill_full_chain`]); no cache is materialised there, so the ~3.9 KB
+/// `SegmentCache` never touches the stack or BSS in circular mode.
+#[cfg(not(feature = "circular-dma"))]
 pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
     // Compile-time check that the segment cache can hold the framebuffer's
     // full scan sequence (evaluated per monomorphization).
@@ -212,18 +228,6 @@ pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut Segmen
     }
 }
 
-/// Convenience wrapper that returns a fresh [`SegmentCache`] by value.
-///
-/// Prefer [`segments_from_fb_into`] in performance-sensitive paths; this
-/// construction needs ~3.9 KB of stack headroom. Only used by circular-DMA
-/// init.
-#[cfg(feature = "circular-dma")]
-pub(crate) fn segments_from_fb<FB: FrameBuffer>(fb: &FB) -> SegmentCache {
-    let mut cache = SegmentCache::new();
-    segments_from_fb_into(fb, &mut cache);
-    cache
-}
-
 /// Build a `Preparation` pointing to the first descriptor in a chain.
 ///
 /// Shared by both linear and circular buffer implementations.
@@ -242,24 +246,35 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 }
 
 #[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
-/// Fill a full-chain BCM descriptor sequence from cached segments.
+/// Fill a full-chain BCM descriptor sequence from a segment source.
+///
+/// Segments are pulled on demand via `get_segment(idx)` for
+/// `idx in 0..segment_count`, so callers can stream straight from a
+/// framebuffer without materialising a [`SegmentCache`].
 ///
 /// The caller provides the `next` pointer for the last descriptor in the
 /// chain: `null_mut()` for linear mode (last `next` = null), `ring_start`
-/// (points back to `desc[0]`) for circular mode. The last descriptor always
-/// has `suc_eof = 1`.
+/// (points back to `desc[0]`) for circular mode.
+///
+/// `last_suc_eof` controls whether the last descriptor is marked with
+/// `suc_eof = 1`: linear full-chain mode passes `true` (the transfer must
+/// end so the ISR can advance/restart it); circular mode passes `false`
+/// (a `suc_eof` in the free-running ring would halt or signal spuriously —
+/// the boundary detector arms it later via `set_last_suc_eof`).
 #[cfg_attr(feature = "iram", ram)]
 pub(super) fn fill_full_chain(
     descriptors: &mut [DmaDescriptor],
-    cache: &SegmentCache,
+    segment_count: usize,
+    get_segment: impl Fn(usize) -> BcmSegment,
     total_descs: usize,
     last_next: *mut DmaDescriptor,
+    last_suc_eof: bool,
 ) {
     let base_ptr = descriptors.as_mut_ptr();
     let mut desc_idx = 0;
 
-    for seg_idx in 0..cache.count {
-        let seg = &cache.segments[seg_idx];
+    for seg_idx in 0..segment_count {
+        let seg = get_segment(seg_idx);
 
         for _ in 0..seg.reps {
             let mut remaining = seg.len;
@@ -279,7 +294,7 @@ pub(super) fn fill_full_chain(
                 desc.set_size(chunk);
                 desc.set_length(chunk);
                 desc.set_owner(Owner::Dma);
-                desc.set_suc_eof(is_last);
+                desc.set_suc_eof(is_last & last_suc_eof);
                 desc.next = next;
                 remaining -= chunk;
                 offset += chunk;

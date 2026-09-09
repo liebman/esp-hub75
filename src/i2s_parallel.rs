@@ -47,7 +47,7 @@ use crate::Hub75Pins16;
 #[cfg(feature = "circular-dma")]
 use crate::bcm::circular::CircularBcmBuf;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
+use crate::bcm::linear::LinearBcmBuf as BcmBuf;
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let mut buf = CircularBcmBuf::new(tx_descriptors, fb);
         let desc_ptr = buf.descriptors_ptr();
-        let desc_count = buf.desc_count();
+        let desc_count = buf.descriptor_count();
         let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
 
         let xfer = i2s_parallel

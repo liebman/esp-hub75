@@ -23,7 +23,7 @@ use crate::bcm::cache_ptr;
 #[cfg(feature = "circular-dma")]
 use crate::bcm::circular::CircularBcmBuf;
 #[cfg(not(feature = "circular-dma"))]
-use crate::bcm::linear::BcmBuf;
+use crate::bcm::linear::LinearBcmBuf as BcmBuf;
 #[cfg(not(feature = "circular-dma"))]
 use crate::bcm::segments_from_fb_into;
 use crate::framebuffer::FrameBuffer;

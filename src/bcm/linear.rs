@@ -1,6 +1,6 @@
 //! Linear (non-circular) BCM DMA buffer.
 //!
-//! `BcmBuf` implements [`DmaTxBuffer`] and provides the BCM state machine
+//! `LinearBcmBuf` implements [`DmaTxBuffer`] and provides the BCM state machine
 //! used by interrupt-driven display refresh. Each transfer is a linear
 //! descriptor chain (last `next = null`) that the ISR rebuilds after every
 //! completion.
@@ -29,18 +29,18 @@ use crate::MAX_DMA_CHUNK_SIZE;
 ///   for row-major framebuffers each group is one row's complete BCM cycle.
 /// - **`full-chain-dma`:** `prepare()` links the full BCM repetition chain.
 ///   `advance()` always returns `true` (every transfer is a complete frame).
-pub(crate) struct BcmBuf {
+pub(crate) struct LinearBcmBuf {
     descriptors: &'static mut [DmaDescriptor],
     /// Raw pointer to the static segment cache (`SEGMENT_CACHE`).
     /// Dereferenced inline at each use site; the pointer is always
     /// valid because the cache is a `'static` and all access is
-    /// serialised by `critical_section`.
+    /// serialised by the ISR state lock (`STATE_LOCK`).
     cache: *const SegmentCache,
     #[cfg(not(feature = "full-chain-dma"))]
     current_group: usize,
 }
 
-impl BcmBuf {
+impl LinearBcmBuf {
     pub(crate) fn new(descriptors: &'static mut [DmaDescriptor]) -> Self {
         Self {
             descriptors,
@@ -106,7 +106,7 @@ impl BcmBuf {
     /// both framebuffers are the same type with identical internal layout.
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn apply_delta(&mut self, delta: isize) {
-        // SAFETY: Called from the ISR (inside critical_section). The cache
+        // SAFETY: Called from the ISR (under the ISR `STATE_LOCK`). The cache
         // is not concurrently accessed; `swap()` only reads FB pointers
         // to compute the delta and never writes to the cache.
         let cache = unsafe { &mut *self.cache.cast_mut() };
@@ -137,16 +137,16 @@ impl BcmBuf {
     }
 }
 
-// SAFETY: All access to `BcmBuf` is serialised by `critical_section::with`,
-// which on esp-hal provides a cross-core critical section (interrupt-disable
-// plus a cross-core spinlock on multi-core chips like ESP32 and ESP32-S3).
-// There is therefore no concurrent access. The raw `cache` pointer points
-// to `SEGMENT_CACHE` (a `'static`), which is only mutated under the same
-// critical-section guarantee (by the ISR applying deltas and by
-// `start_internal` rebuilding it).
-unsafe impl Send for BcmBuf {}
+// SAFETY: All access to `LinearBcmBuf` is serialised by the ISR state lock
+// (`STATE_LOCK` in `isr.rs`, an `esp_sync::RawMutex`): it disables
+// interrupts on the current core and CAS-spins on an owner word on
+// multi-core chips like ESP32 and ESP32-S3. There is therefore no
+// concurrent access. The raw `cache` pointer points to `SEGMENT_CACHE`
+// (a `'static`), which is only mutated under the same lock (by the ISR
+// applying deltas and by `start_internal` rebuilding it).
+unsafe impl Send for LinearBcmBuf {}
 
-unsafe impl DmaTxBuffer for BcmBuf {
+unsafe impl DmaTxBuffer for LinearBcmBuf {
     type View = Self;
     type Final = Self;
 
@@ -155,16 +155,18 @@ unsafe impl DmaTxBuffer for BcmBuf {
         self.prepare_descriptors()
     }
 
+    #[cfg_attr(feature = "iram", ram)]
     fn into_view(self) -> Self::View {
         self
     }
 
+    #[cfg_attr(feature = "iram", ram)]
     fn from_view(view: Self::View) -> Self::Final {
         view
     }
 }
 
-impl BcmBuf {
+impl LinearBcmBuf {
     #[cfg(not(feature = "full-chain-dma"))]
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {
@@ -218,9 +220,13 @@ impl BcmBuf {
         let total_descs = cache.descriptor_count();
         super::fill_full_chain(
             &mut self.descriptors[..total_descs],
-            cache,
+            cache.count,
+            |i| cache.segments[i],
             total_descs,
             null_mut(),
+            // Linear full-chain mode: the last descriptor's `suc_eof` ends
+            // the transfer so the ISR can advance/restart it.
+            true,
         );
         super::make_preparation(self.descriptors)
     }

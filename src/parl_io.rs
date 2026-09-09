@@ -47,7 +47,7 @@ use crate::Hub75Pins;
 use crate::Hub75Pins8;
 #[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
-use crate::bcm::linear::BcmBuf;
+use crate::bcm::linear::LinearBcmBuf as BcmBuf;
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
