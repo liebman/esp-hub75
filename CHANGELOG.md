@@ -9,6 +9,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### ⚠️ Breaking
+
+* The `Hub75::new` / `Hub75::new_async` constructors now take a
+  [`Hub75Config`] instead of a bare `Rate`. Use `Hub75Config::new(rate)` to
+  preserve the previous behavior.
+* `hub75_dma_descriptors!(FBType)` now returns
+  `&'static mut Hub75DmaDescriptors<FBType, N>` (a newtype wrapping the
+  descriptor array, typed by the framebuffer type) instead of
+  `&'static mut [DmaDescriptor]`. The `Hub75::new` / `Hub75::new_async`
+  constructors take the new type. Because the storage is bound to the
+  framebuffer type it was allocated for, passing descriptors built for one
+  framebuffer type to a driver configured for another is now a compile
+  error.
+* Removed `Hub75::frame_count()` and `Hub75Config::frame_counter` /
+  `Hub75Config::with_frame_counter`. Frame counting required keeping the
+  frame-boundary interrupt permanently enabled in circular-DMA mode; with
+  the counter gone, circular-DMA mode now runs with **no interrupts
+  enabled in steady state on every backend** The refresh rate can be
+  computed exactly at compile time instead with the new `refresh_hz` helper.
+
+### Added
+
+* `Hub75DmaDescriptors<FB, N>`: typed DMA descriptor storage with a
+  compile-time descriptor count (`COUNT`) derived from the framebuffer type
+  and the enabled DMA features. The macro is the only constructor; the size
+  and the framebuffer binding are correct by construction.
+* `esp_hub75::refresh_hz::<FB>(frequency)` and
+  `esp_hub75::frame_clock_cycles::<FB>()`: compile-time helpers that compute
+  the exact number of pixel-clock cycles per panel refresh and the resulting
+  refresh rate directly from the framebuffer type's static BCM sequence
+  (`FrameBuffer::BCM_SEQUENCE`), including any enabled blanking/gap/trailer
+  segments. Use them to sanity-check panel geometry, BCM depth, and pixel
+  clock before committing to a configuration.
+* `circular-dma` support for ESP32-C5 (PARL_IO).
+* The ISR shared state is guarded by `esp_sync::NonReentrantMutex` instead of
+  the global critical section, so a high-rate refresh ISR no longer
+  contends with unrelated critical-section users on multi-core chips.
+* In circular-DMA mode the swap delta is now applied by the ISR at the pass
+  boundary instead of immediately in `swap()`, eliminating the mid-frame
+  tear the previous implementation could produce.
+
+### Changed
+
+* circular-DMA swaps are now exact on all backends (ESP32, ESP32-S3,
+  ESP32-C5). Arming a swap copies the last ring descriptor's buffer/length
+  into a spare *boundary descriptor* (`suc_eof` set, `next = NULL`, owned by
+  the driver in internal SRAM — the `dma_descriptor_count` API and
+  descriptor-array sizes are unchanged) and relinks the second-to-last ring
+  descriptor to it with a single atomic write. The chain therefore ends at
+  the next pass boundary exactly like a normal end-of-transfer everywhere;
+  the boundary ISR applies the pointer delta while the DMA is stopped,
+  relinks the ring, and restarts the transfer. Previously the detector only
+  marked the last descriptor with `suc_eof`, which halted the DMA on
+  ESP32-C5 but merely signalled on ESP32/ESP32-S3, where the wrap-time
+  prefetch of descriptor 0 still sourced the head of the post-swap pass from
+  the old framebuffer (a visible LSB-plane artifact) and the old framebuffer
+  was reclaimed while the DMA could still be reading it.
+
+
 ## [0.16.0] - 2026-09-02
 
 ### Changed
