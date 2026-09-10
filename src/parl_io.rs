@@ -9,7 +9,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb,
+//!     tx_descriptors, Hub75Config::new(), &*fb,
 //! ).expect("failed to create Hub75");
 //!
 //! // Display refreshes on its own; the main thread is free.
@@ -21,7 +21,7 @@
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Hub75Config::new(Rate::from_mhz(20)), &*fb0,
+//!     tx_descriptors, Hub75Config::new(), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
 //! // Swap buffers: yields to the executor, returns Err on DMA failure.

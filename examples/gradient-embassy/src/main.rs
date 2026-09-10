@@ -354,7 +354,7 @@ async fn main(spawner: Spawner) {
         pins,
         hub75_dma,
         tx_descriptors,
-        Hub75Config::new(RATE),
+        Hub75Config::new().with_frequency(RATE),
         &*fb0,
     )
     .expect("failed to create Hub75");

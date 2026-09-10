@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### ⚠️ Breaking
 
 * The `Hub75::new` / `Hub75::new_async` constructors now take a
-  [`Hub75Config`] instead of a bare `Rate`. Use `Hub75Config::new(rate)` to
-  preserve the previous behavior.
+  [`Hub75Config`] instead of a bare `Rate`. `Hub75Config::new()` takes no
+  arguments and starts from a 10 MHz pixel clock; use
+  `Hub75Config::new().with_frequency(rate)` to restore a different pixel
+  clock.
 * `hub75_dma_descriptors!(FBType)` now returns
   `&'static mut Hub75DmaDescriptors<FBType, N>` (a newtype wrapping the
   descriptor array, typed by the framebuffer type) instead of
@@ -31,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* [`Hub75Config`]: a configuration object for the `Hub75` constructors. It
+  carries the pixel-clock frequency and the refresh-ISR interrupt priority,
+  both starting from sensible defaults: `Hub75Config::new()` (and
+  `Hub75Config::default()`) uses a 10 MHz pixel clock and the peripheral's
+  default interrupt priority. Use `Hub75Config::with_frequency` to change the
+  default frequency and `Hub75Config::with_interrupt_priority` to raise the
+  refresh ISR priority (the main anti-flicker lever on ESP32/ESP32-S3 when
+  Wi-Fi is active).
 * `Hub75DmaDescriptors<FB, N>`: typed DMA descriptor storage with a
   compile-time descriptor count (`COUNT`) derived from the framebuffer type
   and the enabled DMA features. The macro is the only constructor; the size
@@ -66,7 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prefetch of descriptor 0 still sourced the head of the post-swap pass from
   the old framebuffer (a visible LSB-plane artifact) and the old framebuffer
   was reclaimed while the DMA could still be reading it.
-
 
 ## [0.16.0] - 2026-09-02
 

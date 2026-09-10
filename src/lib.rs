@@ -44,7 +44,6 @@
 //! use esp_hal::clock::CpuClock;
 //! use esp_hal::gpio::Pin;
 //! use esp_hal::main;
-//! use esp_hal::time::Rate;
 //! use esp_hub75::Color;
 //! use esp_hub75::Hub75;
 //! use esp_hub75::Hub75Pins16;
@@ -108,7 +107,7 @@
 //!         pins,
 //!         peripherals.DMA_CH0,
 //!         tx_descriptors,
-//!         Hub75Config::new(Rate::from_mhz(20)),
+//!         Hub75Config::new(),
 //!         &*fb,
 //!     )
 //!     .expect("failed to create Hub75");
@@ -210,6 +209,11 @@ pub(crate) mod bcm;
 /// Passed to [`Hub75::new`](hub75::Hub75::new) and
 /// [`Hub75::new_async`](hub75::Hub75::new_async) instead of a bare frequency.
 ///
+/// [`Hub75Config::new`] (and [`Default`]) start from a 10 MHz pixel clock and
+/// the peripheral's default interrupt priority; override either with the
+/// [`with_frequency`](Hub75Config::with_frequency) and
+/// [`with_interrupt_priority`](Hub75Config::with_interrupt_priority) builders.
+///
 /// The theoretical refresh rate for a given framebuffer type and pixel clock
 /// can be computed at compile time with [`refresh_hz`].
 #[derive(Debug, Clone, Copy)]
@@ -240,11 +244,16 @@ pub struct Hub75Config {
 }
 
 impl Hub75Config {
-    /// Creates a new configuration with the given pixel-clock frequency.
+    /// Creates a new configuration with the default 10 MHz pixel clock.
+    ///
+    /// Use [`with_frequency`](Hub75Config::with_frequency) to override the
+    /// pixel clock, and
+    /// [`with_interrupt_priority`](Hub75Config::with_interrupt_priority) to
+    /// raise the refresh ISR priority.
     #[must_use]
-    pub const fn new(frequency: Rate) -> Self {
+    pub const fn new() -> Self {
         Self {
-            frequency,
+            frequency: Rate::from_mhz(10),
             interrupt_priority: None,
         }
     }
@@ -263,6 +272,14 @@ impl Hub75Config {
     pub const fn with_interrupt_priority(mut self, priority: Priority) -> Self {
         self.interrupt_priority = Some(priority);
         self
+    }
+}
+
+impl Default for Hub75Config {
+    /// Returns the default configuration: a 10 MHz pixel clock and the
+    /// peripheral's default interrupt priority.
+    fn default() -> Self {
+        Self::new()
     }
 }
 
