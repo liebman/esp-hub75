@@ -22,7 +22,7 @@ use super::{HAS_ERROR, STATE, SWAP_DONE, SWAP_WAKER};
 use super::PARL_IO_DUMMY_TRANSFER_LEN;
 use crate::Hub75Error;
 use crate::bcm::cache_ptr;
-use crate::bcm::linear::LinearBcmBuf;
+use crate::bcm::linear::BcmBuf;
 use crate::bcm::segments_from_fb_into;
 use crate::framebuffer::FrameBuffer;
 #[cfg(hub75_use_lcd_cam)]
@@ -37,7 +37,7 @@ use crate::framebuffer::WordSize;
 #[allow(unused_variables)]
 pub(crate) fn init_state(
     tx: TxDriver,
-    buf: LinearBcmBuf,
+    buf: BcmBuf,
     #[cfg(hub75_use_lcd_cam)] word_size: WordSize,
 ) {
     STATE.with(|state| {

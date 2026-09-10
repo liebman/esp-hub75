@@ -1,6 +1,6 @@
 //! Linear (non-circular) BCM DMA buffer.
 //!
-//! `LinearBcmBuf` implements [`DmaTxBuffer`] and provides the BCM state machine
+//! `BcmBuf` implements [`DmaTxBuffer`] and provides the BCM state machine
 //! used by interrupt-driven display refresh. Each transfer is a linear
 //! descriptor chain (last `next = null`) that the ISR rebuilds after every
 //! completion.
@@ -29,7 +29,7 @@ use crate::MAX_DMA_CHUNK_SIZE;
 ///   for row-major framebuffers each group is one row's complete BCM cycle.
 /// - **`full-chain-dma`:** `prepare()` links the full BCM repetition chain.
 ///   `advance()` always returns `true` (every transfer is a complete frame).
-pub(crate) struct LinearBcmBuf {
+pub(crate) struct BcmBuf {
     descriptors: &'static mut [DmaDescriptor],
     /// Raw pointer to the static segment cache (`SEGMENT_CACHE`).
     /// Dereferenced inline at each use site; the pointer is always
@@ -40,7 +40,7 @@ pub(crate) struct LinearBcmBuf {
     current_group: usize,
 }
 
-impl LinearBcmBuf {
+impl BcmBuf {
     pub(crate) fn new(descriptors: &'static mut [DmaDescriptor]) -> Self {
         Self {
             descriptors,
@@ -137,16 +137,16 @@ impl LinearBcmBuf {
     }
 }
 
-// SAFETY: All access to `LinearBcmBuf` is serialised by the ISR state lock
+// SAFETY: All access to `BcmBuf` is serialised by the ISR state lock
 // (the `STATE` static in `isr`, an `esp_sync::NonReentrantMutex`): it disables
 // interrupts on the current core and CAS-spins on an owner word on
 // multi-core chips like ESP32 and ESP32-S3. There is therefore no
 // concurrent access. The raw `cache` pointer points to `SEGMENT_CACHE`
 // (a `'static`), which is only mutated under the same lock (by the ISR
 // applying deltas and by `start_internal` rebuilding it).
-unsafe impl Send for LinearBcmBuf {}
+unsafe impl Send for BcmBuf {}
 
-unsafe impl DmaTxBuffer for LinearBcmBuf {
+unsafe impl DmaTxBuffer for BcmBuf {
     type View = Self;
     type Final = Self;
 
@@ -166,7 +166,7 @@ unsafe impl DmaTxBuffer for LinearBcmBuf {
     }
 }
 
-impl LinearBcmBuf {
+impl BcmBuf {
     #[cfg(not(feature = "full-chain-dma"))]
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {

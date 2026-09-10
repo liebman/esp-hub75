@@ -1,6 +1,6 @@
 //! Circular DMA buffer for continuous HUB75 refresh.
 //!
-//! `CircularBcmBuf` builds a single circular DMA descriptor chain encoding the
+//! `BcmBuf` builds a single circular DMA descriptor chain encoding the
 //! full BCM (Binary Code Modulation) repetition sequence. The DMA engine starts
 //! once and loops forever. No descriptor in the ring carries `suc_eof`: on
 //! ESP32/S3 that keeps the free-running loop free of `out_eof` events, and on
@@ -24,12 +24,12 @@ use esp_hal::ram;
 
 use crate::framebuffer::FrameBuffer;
 
-pub(crate) struct CircularBcmBuf {
+pub(crate) struct BcmBuf {
     descriptors: &'static mut [DmaDescriptor],
     descriptor_count: usize,
 }
 
-impl CircularBcmBuf {
+impl BcmBuf {
     /// Build a circular descriptor chain from the given framebuffer.
     ///
     /// The chain encodes the full BCM repetition sequence (identical layout to
@@ -181,9 +181,9 @@ pub(crate) fn disarm_boundary(descriptors: *mut DmaDescriptor, descriptor_count:
 
 // SAFETY: All access is serialised by the ISR state lock (`STATE` in `isr`
 // `isr.rs`, an `esp_sync::RawMutex`).
-unsafe impl Send for CircularBcmBuf {}
+unsafe impl Send for BcmBuf {}
 
-unsafe impl DmaTxBuffer for CircularBcmBuf {
+unsafe impl DmaTxBuffer for BcmBuf {
     type View = Self;
     type Final = Self;
 

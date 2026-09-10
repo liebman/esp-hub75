@@ -134,15 +134,16 @@ pub(crate) static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 
 // BCM DMA buffer type for the active refresh mode.
 //
-// The refresh modes are mutually exclusive compile-time selections, so a
-// single alias covers both and lets the shared [`State`], `swap()`, ISR
-// helpers, and `Hub75Swap` completion code exist exactly once.
+// The refresh modes are mutually exclusive compile-time selections and each
+// mode's `BcmBuf` lives in its own module, so exactly one is compiled and a
+// single re-export lets the shared [`State`], `swap()`, ISR helpers, and
+// `Hub75Swap` completion code exist exactly once.
 cfg_select! {
     feature = "circular-dma" => {
-        pub(crate) type BcmBuf = crate::bcm::circular::CircularBcmBuf;
+        pub(crate) use crate::bcm::circular::BcmBuf;
     }
     _ => {
-        pub(crate) type BcmBuf = crate::bcm::linear::LinearBcmBuf;
+        pub(crate) use crate::bcm::linear::BcmBuf;
     }
 }
 

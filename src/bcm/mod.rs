@@ -65,7 +65,7 @@ static SEGMENT_CACHE: CacheCell = CacheCell(UnsafeCell::new(SegmentCache::new())
 
 /// Return a raw pointer to the static segment cache.
 ///
-/// Used by [`LinearBcmBuf`][super::linear::LinearBcmBuf] and
+/// Used by [`BcmBuf`][super::linear::BcmBuf] and
 /// `start_internal()`.
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) fn cache_ptr() -> *const SegmentCache {
@@ -181,7 +181,7 @@ impl SegmentCache {
 /// internal DRAM, not PSRAM.
 ///
 /// PSRAM requires an explicit cache writeback before DMA reads, which the
-/// custom `LinearBcmBuf` / `CircularBcmBuf` paths never perform. The DMA reads
+/// custom `BcmBuf` paths never perform. The DMA reads
 /// the *segment* buffers, not the `FrameBuffer` object itself, so each segment
 /// pointer is checked too. This runs once per constructor, so it is a hard
 /// `assert!` (not `debug_assert!`): a PSRAM framebuffer must fail loudly here

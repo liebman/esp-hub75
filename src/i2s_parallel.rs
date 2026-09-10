@@ -153,15 +153,7 @@ use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 use crate::Hub75Pins16;
-// The DMA buffer type depends on the refresh mode.
-cfg_select! {
-    feature = "circular-dma" => {
-        use crate::bcm::circular::CircularBcmBuf;
-    }
-    _ => {
-        use crate::bcm::linear::LinearBcmBuf;
-    }
-}
+use crate::isr::BcmBuf;
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
@@ -217,7 +209,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         cfg_select! {
             feature = "circular-dma" => {
-                let mut buf = CircularBcmBuf::new(tx_descriptors.as_slice(), fb);
+                let mut buf = BcmBuf::new(tx_descriptors.as_slice(), fb);
                 let descriptor_ptr = buf.descriptors_ptr();
                 let descriptor_count = buf.descriptor_count();
                 let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
@@ -229,7 +221,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
                 crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
             }
             _ => {
-                let buf = LinearBcmBuf::new(tx_descriptors.as_slice());
+                let buf = BcmBuf::new(tx_descriptors.as_slice());
                 crate::isr::init_state(i2s_parallel, buf);
                 crate::isr::start_internal(fb)?;
             }
