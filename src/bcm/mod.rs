@@ -204,13 +204,13 @@ pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
     }
 }
 
-/// Extract BCM segments from a framebuffer into an existing [`SegmentCache`].
+/// Fill a [`SegmentCache`] from a framebuffer's BCM segments.
 ///
 /// Circular-DMA init streams segments straight from the framebuffer (see
 /// [`fill_full_chain`]); no cache is materialised there, so the ~3.9 KB
 /// `SegmentCache` never touches the stack or BSS in circular mode.
 #[cfg(not(feature = "circular-dma"))]
-pub(crate) fn segments_from_fb_into<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
+pub(crate) fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
     // Compile-time check that the segment cache can hold the framebuffer's
     // full scan sequence (evaluated per monomorphization).
     const {

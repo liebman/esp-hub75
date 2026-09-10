@@ -207,25 +207,9 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
             config.interrupt_priority,
         ));
 
-        cfg_select! {
-            feature = "circular-dma" => {
-                let mut buf = BcmBuf::new(tx_descriptors.as_slice(), fb);
-                let descriptor_ptr = buf.descriptors_ptr();
-                let descriptor_count = buf.descriptor_count();
-                let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
-
-                let xfer = i2s_parallel
-                    .send(buf)
-                    .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
-
-                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
-            }
-            _ => {
-                let buf = BcmBuf::new(tx_descriptors.as_slice());
-                crate::isr::init_state(i2s_parallel, buf);
-                crate::isr::start_internal(fb)?;
-            }
-        }
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
+        crate::isr::init_state(i2s_parallel, buf);
+        crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
     }

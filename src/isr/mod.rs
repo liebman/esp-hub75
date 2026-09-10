@@ -38,7 +38,9 @@ use crate::framebuffer::WordSize;
 
 // Compile in exactly one refresh mode, and re-export its items so callers
 // (`i2s_parallel.rs`, `lcd_cam.rs`, `parl_io.rs`) can refer to them uniformly
-// as `isr::{isr, init_state, ...}` regardless of the active refresh mode.
+// as `isr::{isr, init_state, start_internal, ...}` regardless of the active
+// refresh mode. `start_internal` itself is shared (defined below), so it is
+// not re-exported per mode.
 cfg_select! {
     feature = "circular-dma" => {
         pub(crate) mod circular;
@@ -47,7 +49,6 @@ cfg_select! {
     _ => {
         pub(crate) mod linear;
         pub(crate) use linear::init_state;
-        pub(crate) use linear::start_internal;
     }
 }
 
@@ -122,7 +123,7 @@ static DRIVER_TAKEN: AtomicBool = AtomicBool::new(false);
 pub(crate) static SWAP_WAKER: Shared<Option<Waker>> = Shared::new(None);
 
 /// DMA error flag, set by the ISR (either refresh mode) when a transfer
-/// fails. Cleared by linear-mode `start_internal` when refresh is
+/// fails. Cleared by `start_internal` (either refresh mode) when refresh is
 /// (re)started. Consumers treat it as an alternate completion condition for
 /// a pending swap. Circular mode only sets it on a (theoretically
 /// impossible) boundary-restart failure.
@@ -277,6 +278,97 @@ pub(crate) fn finish_transfer<B: DmaTxBuffer<Final = B>>(
     }
 }
 
+/// Bind the buffer to `fb`, start the first DMA transfer, and store the
+/// in-flight state. Shared by both refresh modes; the only mode-specific steps
+/// are how the buffer is bound to the framebuffer (linear builds the segment
+/// cache, circular builds the descriptor ring) and the `PARL_IO` transfer
+/// length.
+pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
+    crate::bcm::validate_fb_internal_ram(fb);
+
+    // Collect the swap waker under the lock and wake it after release (see
+    // the swap-completion protocol in `isr`). `return` inside the closure
+    // only exits the closure, so the wake below always runs.
+    let mut wake = None;
+    let result = STATE.with(|state| {
+        let state = state.as_mut().expect("Hub75 not initialised");
+
+        let (tx, mut buf) =
+            match core::mem::replace(&mut state.transfer, TransferPhase::Transitioning) {
+                TransferPhase::Idle(tx, buf) | TransferPhase::Error(_, tx, buf) => (tx, buf),
+                other => {
+                    state.transfer = other;
+                    return Err(Hub75Error::AlreadyRunning);
+                }
+            };
+
+        // Resolve any stale Hub75Swap that was waiting on a previous error
+        // state before it was consumed. Without this, a swap left un-waited
+        // when restart() is called would spin forever because HAS_ERROR and
+        // SWAP_DONE get cleared below, and no new pending_delta exists to
+        // drive a fresh completion signal.
+        SWAP_DONE.store(true, Ordering::Release);
+        if wake.is_none() {
+            wake = SWAP_WAKER.with(Option::take);
+        }
+
+        // Bind the buffer to the framebuffer.
+        cfg_select! {
+            feature = "circular-dma" => {
+                buf.build(fb);
+                state.descriptors = buf.descriptors_ptr();
+                state.descriptor_count = buf.descriptor_count();
+            }
+            _ => {
+                crate::bcm::fill_segment_cache(
+                    fb,
+                    unsafe { &mut *crate::bcm::cache_ptr().cast_mut() },
+                );
+                buf.reset_with_cache();
+            }
+        }
+        state.current_fb_ptr = core::ptr::from_ref(fb).cast::<()>();
+        state.pending_delta = None;
+
+        // PARL_IO only: the peripheral's EOF bit-length counter. On the C5 the
+        // EOF comes from the DMA channel, so the field is a dummy; circular-dma
+        // on PARL_IO is C5-only, so only C6 linear reads the real counter.
+        #[cfg(hub75_use_parl_io)]
+        let transfer_len = cfg_select! {
+            any(feature = "circular-dma", esp32c5) => PARL_IO_DUMMY_TRANSFER_LEN,
+            _ => buf.current_transfer_len(),
+        };
+
+        let xfer_result = start_transfer(
+            tx,
+            buf,
+            #[cfg(hub75_use_parl_io)]
+            transfer_len,
+            #[cfg(hub75_use_lcd_cam)]
+            state.word_size,
+        );
+
+        match xfer_result {
+            Ok(xfer) => {
+                state.transfer = TransferPhase::InFlight(xfer);
+                HAS_ERROR.store(false, Ordering::Release);
+                SWAP_DONE.store(false, Ordering::Release);
+                Ok(())
+            }
+            Err((hub_err, tx, buf)) => {
+                state.transfer = TransferPhase::Error(hub_err, tx, buf);
+                HAS_ERROR.store(true, Ordering::Release);
+                Err(hub_err)
+            }
+        }
+    });
+
+    if let Some(waker) = wake {
+        waker.wake();
+    }
+    result
+}
+
 /// Attempt to claim the singleton driver slot.
 ///
 /// Returns `Ok(())` if this is the first initialisation, or
@@ -300,10 +392,10 @@ pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
 ///
 /// - **Linear**: `Idle` until `start_internal()` kicks off the first transfer;
 ///   `Error` parks the driver and buffer until `restart()`.
-/// - **Circular**: `InFlight` from construction (the free-running chain is
-///   started by the constructor); `Error` records a failed boundary restart
-///   (theoretically impossible; surfaced to swap waiters). `Idle` is never
-///   constructed in circular mode.
+/// - **Circular**: `Idle` until `start_internal()` builds the descriptor ring
+///   and starts the free-running chain; `Error` records a failed
+///   initial/restart transfer (theoretically impossible; surfaced to swap
+///   waiters).
 #[cfg_attr(feature = "circular-dma", allow(dead_code))]
 pub(crate) enum TransferPhase {
     Idle(TxDriver, BcmBuf),
@@ -385,7 +477,7 @@ pub(crate) fn isr() {
         let Some(state) = state.as_mut() else { return };
 
         // Circular only: gate on the armed swap. The interrupt source is
-        // enabled for the driver's lifetime (see `circular::init_state`),
+        // enabled for the driver's lifetime (see the platform constructor),
         // but the disarmed ring carries no `suc_eof`, so in steady state
         // nothing fires. Should a stale boundary flag ever appear, clear it
         // (safe here: no transfer is being waited on, even on `PARL_IO`) so

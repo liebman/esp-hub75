@@ -24,8 +24,13 @@ use esp_hal::ram;
 
 use super::State;
 use super::TransferPhase;
-use super::{STATE, TxTransfer, TxXfer};
+use super::TxDriver;
+use super::{STATE, TxXfer};
 use esp_hal::dma::DmaTxBuffer;
+
+use crate::bcm::circular::BcmBuf;
+#[cfg(hub75_use_lcd_cam)]
+use crate::framebuffer::WordSize;
 
 // ---------------------------------------------------------------------------
 // Frame-boundary interrupt plumbing (circular mode only)
@@ -128,32 +133,33 @@ pub(crate) fn assert_transfer_done<B: DmaTxBuffer>(xfer: &TxXfer<B>) {
 }
 
 // ---------------------------------------------------------------------------
-// Circular-DMA state storage (called by platform constructors after starting
+// Circular-DMA state storage (called by platform constructors before starting
 // DMA)
 // ---------------------------------------------------------------------------
 
-/// Store the ISR state after the platform constructor started the DMA.
+/// Store the ISR state before the platform constructor starts the DMA.
 ///
-/// `word_size` is the transfer's word width — only `LCD_CAM` uses it (to
-/// reconstruct the `I8080::send()` call when the boundary ISR restarts the
-/// chain); other backends don't take it.
+/// Both refresh modes share the same two-step boot: [`init_state`] stores an
+/// `Idle` `(tx, buf)` pair and `super::start_internal` binds the buffer to the
+/// framebuffer and kicks off the first transfer. `word_size` is the
+/// transfer's word width — only `LCD_CAM` uses it (to reconstruct the
+/// `I8080::send()` call when the boundary ISR restarts the chain).
 #[allow(unused_variables)]
 pub(crate) fn init_state(
-    xfer: TxTransfer,
-    descriptor_ptr: *mut esp_hal::dma::DmaDescriptor,
-    descriptor_count: usize,
-    fb_ptr: *const (),
-    #[cfg(hub75_use_lcd_cam)] word_size: crate::framebuffer::WordSize,
+    tx: TxDriver,
+    buf: BcmBuf,
+    #[cfg(hub75_use_lcd_cam)] word_size: WordSize,
 ) {
     STATE.with(|state| {
         *state = Some(State {
-            transfer: TransferPhase::InFlight(xfer),
-            descriptors: descriptor_ptr,
-            descriptor_count,
+            transfer: TransferPhase::Idle(tx, buf),
+            descriptors: core::ptr::null_mut(),
+            descriptor_count: 0,
             #[cfg(hub75_use_lcd_cam)]
             word_size,
-            current_fb_ptr: fb_ptr,
+            current_fb_ptr: core::ptr::null(),
             pending_delta: None,
         });
     });
 }
+

@@ -49,8 +49,6 @@ use crate::Hub75Pins8;
 use crate::Hub75Pins16;
 use crate::isr::BcmBuf;
 pub use crate::isr::Hub75;
-#[cfg(feature = "circular-dma")]
-use crate::isr::PARL_IO_DUMMY_TRANSFER_LEN;
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -167,25 +165,9 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(esp32c5)]
         select_dma_eof_source();
 
-        cfg_select! {
-            feature = "circular-dma" => {
-                let mut buf = BcmBuf::new(tx_descriptors.as_slice(), fb);
-                let descriptor_ptr = buf.descriptors_ptr();
-                let descriptor_count = buf.descriptor_count();
-                let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
-
-                let xfer = parl_io_tx
-                    .write(PARL_IO_DUMMY_TRANSFER_LEN, buf)
-                    .map_err(|(err, _tx, _buf)| Hub75Error::ParlIo(err))?;
-
-                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr);
-            }
-            _ => {
-                let buf = BcmBuf::new(tx_descriptors.as_slice());
-                crate::isr::init_state(parl_io_tx, buf);
-                crate::isr::start_internal(fb)?;
-            }
-        }
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
+        crate::isr::init_state(parl_io_tx, buf);
+        crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
     }

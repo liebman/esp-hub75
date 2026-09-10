@@ -30,7 +30,19 @@ pub(crate) struct BcmBuf {
 }
 
 impl BcmBuf {
-    /// Build a circular descriptor chain from the given framebuffer.
+    /// Create an empty circular buffer bound to the given descriptor storage.
+    ///
+    /// The descriptor chain is filled later by [`build`](Self::build) once the
+    /// framebuffer is known — see the lifecycle notes in
+    /// [`super::linear::BcmBuf`][crate::bcm::linear::BcmBuf]'s counterpart.
+    pub(crate) fn new(descriptors: &'static mut [DmaDescriptor]) -> Self {
+        Self {
+            descriptors,
+            descriptor_count: 0,
+        }
+    }
+
+    /// Build the circular descriptor chain from the given framebuffer.
     ///
     /// The chain encodes the full BCM repetition sequence (identical layout to
     /// `full-chain-dma`) with two differences:
@@ -43,21 +55,18 @@ impl BcmBuf {
     /// runtime. The descriptor count comes from
     /// [`dma_descriptor_count`](crate::dma_descriptor_count), which computes
     /// it at compile time from `FB::BCM_SEGMENT_SHAPES`.
-    pub(crate) fn new<FB: FrameBuffer>(
-        descriptors: &'static mut [DmaDescriptor],
-        fb: &'static FB,
-    ) -> Self {
+    pub(crate) fn build<FB: FrameBuffer>(&mut self, fb: &'static FB) {
         let total_descs = crate::dma_descriptor_count::<FB>(crate::MAX_DMA_CHUNK_SIZE);
         debug_assert!(
-            descriptors.len() >= total_descs,
+            self.descriptors.len() >= total_descs,
             "not enough DMA descriptors: have {}, need {}",
-            descriptors.len(),
+            self.descriptors.len(),
             total_descs,
         );
 
-        let ring_start = descriptors.as_mut_ptr();
+        let ring_start = self.descriptors.as_mut_ptr();
         super::fill_full_chain(
-            &mut descriptors[..total_descs],
+            &mut self.descriptors[..total_descs],
             fb.bcm_segment_count(),
             |i| {
                 let seg = fb.bcm_segment(i);
@@ -74,10 +83,7 @@ impl BcmBuf {
             false,
         );
 
-        Self {
-            descriptors,
-            descriptor_count: total_descs,
-        }
+        self.descriptor_count = total_descs;
     }
 
     /// Raw pointer to the descriptor array (for ISR access after `send()`

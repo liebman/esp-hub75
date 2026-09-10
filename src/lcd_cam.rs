@@ -39,8 +39,6 @@ use esp_hal::lcd_cam::lcd::Phase;
 #[cfg(feature = "invert-clock")]
 use esp_hal::lcd_cam::lcd::Polarity;
 use esp_hal::lcd_cam::lcd::i8080;
-#[cfg(feature = "circular-dma")]
-use esp_hal::lcd_cam::lcd::i8080::Command;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::peripherals::LCD_CAM;
 
@@ -50,8 +48,8 @@ use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 use crate::Hub75Pins16;
-use crate::isr::BcmBuf;
 use crate::framebuffer::WordSize;
+use crate::isr::BcmBuf;
 pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
@@ -138,27 +136,9 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         let i8080 = I8080::new(lcd_cam_dev.lcd, channel, lcd_config).map_err(Hub75Error::I8080)?;
         let i8080 = hub75_pins.apply(i8080);
 
-        cfg_select! {
-            feature = "circular-dma" => {
-                let mut buf = BcmBuf::new(tx_descriptors.as_slice(), fb);
-                let descriptor_ptr = buf.descriptors_ptr();
-                let descriptor_count = buf.descriptor_count();
-                let fb_ptr = core::ptr::from_ref(fb).cast::<()>();
-
-                let xfer = match word_size {
-                    WordSize::Eight => i8080.send(Command::<u8>::None, 0, buf),
-                    WordSize::Sixteen => i8080.send(Command::<u16>::None, 0, buf),
-                }
-                .map_err(|(err, _tx, _buf)| Hub75Error::Dma(err))?;
-
-                crate::isr::init_state(xfer, descriptor_ptr, descriptor_count, fb_ptr, word_size);
-            }
-            _ => {
-                let buf = BcmBuf::new(tx_descriptors.as_slice());
-                crate::isr::init_state(i8080, buf, word_size);
-                crate::isr::start_internal(fb)?;
-            }
-        }
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
+        crate::isr::init_state(i8080, buf, word_size);
+        crate::isr::start_internal(fb)?;
 
         Ok(Self::from_phantom())
     }
