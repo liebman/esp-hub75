@@ -1,24 +1,24 @@
 //! BCM (Binary Code Modulation) DMA buffer infrastructure.
 //!
-//! Common types and helpers shared by the linear and circular buffer
-//! implementations.
-
-#[cfg(not(feature = "circular-dma"))]
-use core::cell::UnsafeCell;
-#[cfg(not(feature = "circular-dma"))]
-use core::ptr::null;
+//! Common helpers shared by the linear and circular buffer implementations:
+//! the descriptor-chain builder every mode uses ([`fill_descriptor_chain`]),
+//! the `Preparation` construction ([`make_preparation`]), and the
+//! internal-RAM validation ([`validate_fb_internal_ram`]).
+//!
+//! Anything mode-specific lives in its own submodule instead: the segment
+//! cache and the BCM state machine are linear-only (`bcm::linear`), and the
+//! free-running descriptor ring and its boundary detector are circular-only
+//! (`bcm::circular`).
 
 use esp_hal::dma::BurstConfig;
 use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaTxBuffer;
 use esp_hal::dma::EmptyBuf;
-#[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
 use esp_hal::dma::Owner;
 use esp_hal::dma::Preparation;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
 
-#[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
 use crate::MAX_DMA_CHUNK_SIZE;
 use crate::framebuffer::BcmSegment;
 use crate::framebuffer::FrameBuffer;
@@ -27,155 +27,6 @@ use crate::framebuffer::FrameBuffer;
 pub(crate) mod circular;
 #[cfg(not(feature = "circular-dma"))]
 pub(crate) mod linear;
-
-/// Maximum number of BCM segments that can be cached for ISR use.
-///
-/// Sized for worst case: 32 row-pairs × (8 planes + 1 inter-row gap + 1
-/// end-of-row trailer) = 320 segments.
-///
-/// Linear mode only: circular-DMA init streams segments straight from the
-/// framebuffer and never materialises a cache.
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) const MAX_SEGMENTS: usize = 320;
-
-#[cfg(not(feature = "circular-dma"))]
-const EMPTY_SEGMENT: BcmSegment = BcmSegment {
-    ptr: null(),
-    len: 0,
-    reps: 0,
-};
-
-/// Single segment cache for ISR use (linear mode only).
-///
-/// One static slot holds the full segment sequence. `swap()` stores a
-/// pointer delta (old FB → new FB) and the ISR applies it at the frame
-/// boundary, the same approach as circular-DMA mode. No copies, no slots.
-#[cfg(not(feature = "circular-dma"))]
-struct CacheCell(UnsafeCell<SegmentCache>);
-
-#[cfg(not(feature = "circular-dma"))]
-// SAFETY: All access is serialised by the ISR state lock (the `STATE` static
-// in `isr`, an `esp_sync::NonReentrantMutex`). The cache
-// is written only by `start_internal()` (init/restart path) and the ISR
-// (delta application at frame boundaries); `swap()` never touches it.
-unsafe impl Sync for CacheCell {}
-
-#[cfg(not(feature = "circular-dma"))]
-static SEGMENT_CACHE: CacheCell = CacheCell(UnsafeCell::new(SegmentCache::new()));
-
-/// Return a raw pointer to the static segment cache.
-///
-/// Used by [`BcmBuf`][super::linear::BcmBuf] and
-/// `start_internal()`.
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) fn cache_ptr() -> *const SegmentCache {
-    SEGMENT_CACHE.0.get()
-}
-
-/// Cached BCM segment data for ISR use.
-///
-/// Stores the full segment sequence extracted from a `FrameBuffer` so the
-/// ISR can drive DMA without calling trait methods (the framebuffer type is
-/// erased in the ISR statics).
-///
-/// Linear mode only: circular-DMA builds the full descriptor chain once at
-/// init by streaming segments from the framebuffer, then never needs them
-/// again (swaps apply pointer deltas to the descriptors directly).
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) struct SegmentCache {
-    pub(crate) segments: [BcmSegment; MAX_SEGMENTS],
-    pub(crate) count: usize,
-    /// Consecutive segments that form one DMA transfer group.
-    /// The ISR builds a descriptor chain for a whole group and fires
-    /// only at group boundaries.
-    pub(crate) segments_per_group: usize,
-}
-
-#[cfg(not(feature = "circular-dma"))]
-impl SegmentCache {
-    pub const fn new() -> Self {
-        Self {
-            segments: [EMPTY_SEGMENT; MAX_SEGMENTS],
-            count: 0,
-            segments_per_group: 1,
-        }
-    }
-
-    /// Total DMA descriptors required by this segment sequence.
-    #[cfg(feature = "full-chain-dma")]
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn descriptor_count(&self) -> usize {
-        let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
-        let mut total = 0;
-        let mut i = 0;
-        while i < self.count {
-            let seg = &self.segments[i];
-            let descs_per_rep = seg.len.div_ceil(max_chunk);
-            total += descs_per_rep * seg.reps;
-            i += 1;
-        }
-        total
-    }
-
-    /// Number of DMA transfer groups in this sequence.
-    #[cfg(not(feature = "full-chain-dma"))]
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn group_count(&self) -> usize {
-        self.count / self.segments_per_group
-    }
-
-    /// Maximum number of DMA descriptors required by any single group.
-    ///
-    /// Used by the default group-based mode, which rebuilds the descriptor
-    /// table for each group transfer and therefore never needs more than
-    /// the largest group's worth of descriptors.
-    #[cfg(not(feature = "full-chain-dma"))]
-    pub fn max_group_descriptor_count(&self) -> usize {
-        let mut max = 0;
-        let mut group = 0;
-        while group < self.group_count() {
-            let count = self.group_descriptor_count(group);
-            if count > max {
-                max = count;
-            }
-            group += 1;
-        }
-        max
-    }
-
-    /// DMA descriptors required for a single group starting at `group_idx`.
-    #[cfg(not(feature = "full-chain-dma"))]
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn group_descriptor_count(&self, group_idx: usize) -> usize {
-        let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
-        let start = group_idx * self.segments_per_group;
-        let end = start + self.segments_per_group;
-        let mut total = 0;
-        let mut i = start;
-        while i < end {
-            let seg = &self.segments[i];
-            let descs_per_rep = seg.len.div_ceil(max_chunk);
-            total += descs_per_rep * seg.reps;
-            i += 1;
-        }
-        total
-    }
-
-    /// Total bytes in a single group (all segments × their reps).
-    #[cfg(all(esp32c6, not(feature = "full-chain-dma")))]
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn group_byte_count(&self, group_idx: usize) -> usize {
-        let start = group_idx * self.segments_per_group;
-        let end = start + self.segments_per_group;
-        let mut total = 0;
-        let mut i = start;
-        while i < end {
-            total += self.segments[i].len * self.segments[i].reps;
-            i += 1;
-        }
-        total
-    }
-}
 
 /// Assert that a framebuffer and every BCM segment it exposes reside in
 /// internal DRAM, not PSRAM.
@@ -204,43 +55,6 @@ pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
     }
 }
 
-/// Fill a [`SegmentCache`] from a framebuffer's BCM segments.
-///
-/// Circular-DMA init streams segments straight from the framebuffer (see
-/// [`fill_full_chain`]); no cache is materialised there, so the ~3.9 KB
-/// `SegmentCache` never touches the stack or BSS in circular mode.
-#[cfg(not(feature = "circular-dma"))]
-pub(crate) fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
-    // Compile-time check that the segment cache can hold the framebuffer's
-    // full scan sequence (evaluated per monomorphization).
-    const {
-        assert!(
-            FB::BCM_SEGMENT_COUNT <= MAX_SEGMENTS,
-            "framebuffer BCM segment count exceeds MAX_SEGMENTS"
-        );
-    }
-    let count = fb.bcm_segment_count();
-    let spg = fb.bcm_segments_per_group();
-    assert!(
-        count <= MAX_SEGMENTS,
-        "bcm_segment_count {count} exceeds MAX_SEGMENTS"
-    );
-    assert!(
-        spg > 0 && count.is_multiple_of(spg),
-        "bcm_segment_count {count} not divisible by segments_per_group {spg}"
-    );
-    cache.count = count;
-    cache.segments_per_group = spg;
-    for i in 0..count {
-        let segment = fb.bcm_segment(i);
-        debug_assert!(
-            !segment.ptr.is_null(),
-            "segment {i} returned a null pointer"
-        );
-        cache.segments[i] = segment;
-    }
-}
-
 /// Build a `Preparation` pointing to the first descriptor in a chain.
 ///
 /// Shared by both linear and circular buffer implementations.
@@ -263,24 +77,27 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
     prep
 }
 
-#[cfg(any(feature = "full-chain-dma", feature = "circular-dma"))]
-/// Fill a full-chain BCM descriptor sequence from a segment source.
+/// Fill a BCM descriptor chain from a segment source.
+///
+/// Every refresh mode turns a sequence of [`BcmSegment`]s into DMA
+/// descriptors through this function, chunking each segment repetition down
+/// to [`MAX_DMA_CHUNK_SIZE`]:
+///
+/// - **Circular**: the whole ring, `last_next = ring_start` (wraps back to
+///   `desc[0]`) and `last_suc_eof = false` (a `suc_eof` in the free-running
+///   ring would halt or signal spuriously — the boundary detector arms it
+///   later).
+/// - **Linear, `full-chain-dma`**: the whole frame, `last_next = null_mut()`
+///   and `last_suc_eof = true` (the transfer must end so the ISR can
+///   advance/restart it).
+/// - **Linear, group-based**: a single group, `last_next = null_mut()` and
+///   `last_suc_eof = true`.
 ///
 /// Segments are pulled on demand via `get_segment(idx)` for
 /// `idx in 0..segment_count`, so callers can stream straight from a
-/// framebuffer without materialising a [`SegmentCache`].
-///
-/// The caller provides the `next` pointer for the last descriptor in the
-/// chain: `null_mut()` for linear mode (last `next` = null), `ring_start`
-/// (points back to `desc[0]`) for circular mode.
-///
-/// `last_suc_eof` controls whether the last descriptor is marked with
-/// `suc_eof = 1`: linear full-chain mode passes `true` (the transfer must
-/// end so the ISR can advance/restart it); circular mode passes `false`
-/// (a `suc_eof` in the free-running ring would halt or signal spuriously —
-/// the boundary detector arms it later via `set_last_suc_eof`).
+/// framebuffer without materialising a segment cache.
 #[cfg_attr(feature = "iram", ram)]
-pub(super) fn fill_full_chain(
+pub(super) fn fill_descriptor_chain(
     descriptors: &mut [DmaDescriptor],
     segment_count: usize,
     get_segment: impl Fn(usize) -> BcmSegment,

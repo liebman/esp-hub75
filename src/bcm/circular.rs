@@ -65,7 +65,7 @@ impl BcmBuf {
         );
 
         let ring_start = self.descriptors.as_mut_ptr();
-        super::fill_full_chain(
+        super::fill_descriptor_chain(
             &mut self.descriptors[..total_descs],
             fb.bcm_segment_count(),
             |i| {

@@ -168,9 +168,9 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
                 state.descriptor_count = descriptor_count;
             }
             _ => {
-                crate::bcm::fill_segment_cache(
+                crate::bcm::linear::fill_segment_cache(
                     fb,
-                    unsafe { &mut *crate::bcm::cache_ptr().cast_mut() },
+                    unsafe { &mut *crate::bcm::linear::cache_ptr().cast_mut() },
                 );
                 state.transfer.buf_mut().reset_with_cache();
             }
@@ -548,7 +548,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             let count = new_fb.bcm_segment_count();
             let spg = new_fb.bcm_segments_per_group();
             assert!(
-                count <= crate::bcm::MAX_SEGMENTS,
+                count <= crate::bcm::linear::MAX_SEGMENTS,
                 "bcm_segment_count {count} exceeds MAX_SEGMENTS"
             );
             assert!(
