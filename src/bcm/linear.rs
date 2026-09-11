@@ -33,6 +33,14 @@ use crate::framebuffer::FrameBuffer;
 /// end-of-row trailer) = 320 segments.
 pub(crate) const MAX_SEGMENTS: usize = 320;
 
+/// Upper bound on the number of DMA transfer groups within one BCM period.
+///
+/// A group holds at least one segment, so this cannot exceed the period
+/// length, whose worst case is
+/// [`BCM_SEQUENCE_CAPACITY`](crate::framebuffer::BCM_SEQUENCE_CAPACITY).
+#[cfg(not(feature = "full-chain-dma"))]
+const MAX_GROUPS_PER_PERIOD: usize = crate::framebuffer::BCM_SEQUENCE_CAPACITY;
+
 const EMPTY_SEGMENT: BcmSegment = BcmSegment {
     ptr: null(),
     len: 0,
@@ -62,7 +70,8 @@ fn segment_cache() -> &'static mut SegmentCache {
 ///
 /// Stores the full segment sequence extracted from a `FrameBuffer` so the
 /// ISR can drive DMA without calling trait methods (the framebuffer type is
-/// erased in the ISR statics).
+/// erased in the ISR statics), plus the per-transfer descriptor counts
+/// precomputed from the framebuffer's compile-time BCM sequence.
 pub(crate) struct SegmentCache {
     pub(crate) segments: [BcmSegment; MAX_SEGMENTS],
     pub(crate) count: usize,
@@ -70,6 +79,16 @@ pub(crate) struct SegmentCache {
     /// The ISR builds a descriptor chain for a whole group and fires
     /// only at group boundaries.
     pub(crate) segments_per_group: usize,
+    /// Full-chain mode: descriptors for the whole sequence (all periods).
+    #[cfg(feature = "full-chain-dma")]
+    pub(crate) total_descs: usize,
+    /// Group mode: descriptors per group within one period, indexed by
+    /// `group % groups_per_period`.
+    #[cfg(not(feature = "full-chain-dma"))]
+    pub(crate) group_descs: [usize; MAX_GROUPS_PER_PERIOD],
+    /// Group mode: number of groups in one period (the modulus above).
+    #[cfg(not(feature = "full-chain-dma"))]
+    pub(crate) groups_per_period: usize,
 }
 
 impl SegmentCache {
@@ -78,23 +97,13 @@ impl SegmentCache {
             segments: [EMPTY_SEGMENT; MAX_SEGMENTS],
             count: 0,
             segments_per_group: 1,
+            #[cfg(feature = "full-chain-dma")]
+            total_descs: 0,
+            #[cfg(not(feature = "full-chain-dma"))]
+            group_descs: [0; MAX_GROUPS_PER_PERIOD],
+            #[cfg(not(feature = "full-chain-dma"))]
+            groups_per_period: 1,
         }
-    }
-
-    /// Total DMA descriptors required by this segment sequence.
-    #[cfg(feature = "full-chain-dma")]
-    #[cfg_attr(feature = "iram", ram)]
-    pub fn descriptor_count(&self) -> usize {
-        let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
-        let mut total = 0;
-        let mut i = 0;
-        while i < self.count {
-            let seg = &self.segments[i];
-            let descs_per_rep = seg.len.div_ceil(max_chunk);
-            total += descs_per_rep * seg.reps;
-            i += 1;
-        }
-        total
     }
 
     /// Number of DMA transfer groups in this sequence.
@@ -104,41 +113,15 @@ impl SegmentCache {
         self.count / self.segments_per_group
     }
 
-    /// Maximum number of DMA descriptors required by any single group.
-    ///
-    /// Used by the default group-based mode, which rebuilds the descriptor
-    /// table for each group transfer and therefore never needs more than
-    /// the largest group's worth of descriptors.
-    #[cfg(not(feature = "full-chain-dma"))]
-    pub fn max_group_descriptor_count(&self) -> usize {
-        let mut max = 0;
-        let mut group = 0;
-        while group < self.group_count() {
-            let count = self.group_descriptor_count(group);
-            if count > max {
-                max = count;
-            }
-            group += 1;
-        }
-        max
-    }
-
     /// DMA descriptors required for a single group starting at `group_idx`.
+    ///
+    /// Precomputed once from the framebuffer type (see [`fill_segment_cache`])
+    /// with the same arithmetic as [`crate::dma_descriptor_count`], so the ISR
+    /// only indexes a table.
     #[cfg(not(feature = "full-chain-dma"))]
     #[cfg_attr(feature = "iram", ram)]
     pub fn group_descriptor_count(&self, group_idx: usize) -> usize {
-        let max_chunk = crate::MAX_DMA_CHUNK_SIZE;
-        let start = group_idx * self.segments_per_group;
-        let end = start + self.segments_per_group;
-        let mut total = 0;
-        let mut i = start;
-        while i < end {
-            let seg = &self.segments[i];
-            let descs_per_rep = seg.len.div_ceil(max_chunk);
-            total += descs_per_rep * seg.reps;
-            i += 1;
-        }
-        total
+        self.group_descs[group_idx % self.groups_per_period]
     }
 
     /// Total bytes in a single group (all segments × their reps).
@@ -163,12 +146,17 @@ impl SegmentCache {
 /// [`super::fill_descriptor_chain`]); no cache is materialised there, so the
 /// ~3.9 KB `SegmentCache` never touches the stack or BSS in circular mode.
 fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
-    // Compile-time check that the segment cache can hold the framebuffer's
-    // full scan sequence (evaluated per monomorphization).
+    // Compile-time checks: the cache can hold the framebuffer's full scan
+    // sequence, and its groups divide the period evenly (groups never straddle
+    // a period). Evaluated per monomorphization.
     const {
         assert!(
             FB::BCM_SEGMENT_COUNT <= MAX_SEGMENTS,
             "framebuffer BCM segment count exceeds MAX_SEGMENTS"
+        );
+        assert!(
+            FB::BCM_SEQUENCE_LEN % FB::BCM_SEGMENTS_PER_GROUP == 0,
+            "BCM_SEQUENCE_LEN must be divisible by BCM_SEGMENTS_PER_GROUP"
         );
     }
     let count = fb.bcm_segment_count();
@@ -190,6 +178,33 @@ fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
             "segment {i} returned a null pointer"
         );
         cache.segments[i] = segment;
+    }
+
+    // Precompute the descriptor counts the ISR needs, from the framebuffer's
+    // compile-time BCM sequence, via the same helpers `dma_descriptor_count`
+    // uses. Groups never straddle a period, so a group's count repeats every
+    // period and is indexed as `group % groups_per_period`.
+    #[cfg(feature = "full-chain-dma")]
+    {
+        cache.total_descs = crate::dma_descriptor_count::<FB>(crate::MAX_DMA_CHUNK_SIZE);
+    }
+    #[cfg(not(feature = "full-chain-dma"))]
+    {
+        let groups_per_period = FB::BCM_SEQUENCE_LEN / FB::BCM_SEGMENTS_PER_GROUP;
+        assert!(
+            groups_per_period <= MAX_GROUPS_PER_PERIOD,
+            "groups per period {groups_per_period} exceeds MAX_GROUPS_PER_PERIOD"
+        );
+        cache.groups_per_period = groups_per_period;
+        let mut group = 0;
+        while group < groups_per_period {
+            cache.group_descs[group] = crate::group_descriptor_count::<FB>(
+                group,
+                FB::BCM_SEGMENTS_PER_GROUP,
+                crate::MAX_DMA_CHUNK_SIZE,
+            );
+            group += 1;
+        }
     }
 }
 
@@ -230,22 +245,15 @@ impl BcmBuf {
     /// descriptor ring instead (see `circular::BcmBuf::build`).
     pub(crate) fn bind_cache<FB: FrameBuffer>(&mut self, fb: &FB) {
         fill_segment_cache(fb, &mut *self.cache);
-        self.reset_with_cache();
-    }
-
-    /// Validate the cache and reset the BCM state machine.
-    fn reset_with_cache(&mut self) {
-        let cache = &*self.cache;
-        debug_assert!(cache.count > 0 && cache.count <= MAX_SEGMENTS);
-        #[cfg(feature = "full-chain-dma")]
-        let needed = cache.descriptor_count();
-        #[cfg(not(feature = "full-chain-dma"))]
-        let needed = cache.max_group_descriptor_count();
+        // The static descriptor storage is sized by `dma_descriptor_count`,
+        // the single source of truth for both modes (in group mode: the
+        // largest group's worth). This is a hard check on a type-level
+        // invariant, so it only needs to run once, here.
         debug_assert!(
-            self.descriptors.len() >= needed,
+            self.descriptors.len() >= crate::dma_descriptor_count::<FB>(crate::MAX_DMA_CHUNK_SIZE),
             "not enough DMA descriptors: have {}, need {}",
             self.descriptors.len(),
-            needed,
+            crate::dma_descriptor_count::<FB>(crate::MAX_DMA_CHUNK_SIZE),
         );
         #[cfg(not(feature = "full-chain-dma"))]
         {
@@ -369,7 +377,7 @@ impl BcmBuf {
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {
         let cache = &*self.cache;
-        let total_descs = cache.descriptor_count();
+        let total_descs = cache.total_descs;
         super::fill_descriptor_chain(
             &mut self.descriptors[..total_descs],
             cache.count,

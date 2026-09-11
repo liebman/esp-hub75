@@ -442,26 +442,20 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
             "BCM_SEQUENCE_LEN must be divisible by BCM_SEGMENTS_PER_GROUP"
         );
     }
-    let seq = FB::BCM_SEQUENCE;
     let period = FB::BCM_SEQUENCE_LEN;
     #[cfg(feature = "full-chain-dma")]
-    let spg = period; // the whole period is chained into one transfer
+    let group_size = period; // the whole period is chained into one transfer
     #[cfg(not(feature = "full-chain-dma"))]
-    let spg = FB::BCM_SEGMENTS_PER_GROUP;
+    let group_size = FB::BCM_SEGMENTS_PER_GROUP;
+    let groups = period / group_size;
     let mut max_group = 0usize;
-    let mut base = 0usize;
-    while base < period {
-        let mut group = 0usize;
-        let mut j = 0usize;
-        while j < spg {
-            let entry = seq[base + j];
-            group += entry.len.div_ceil(max_chunk) * entry.reps;
-            j += 1;
+    let mut g = 0usize;
+    while g < groups {
+        let count = group_descriptor_count::<FB>(g, group_size, max_chunk);
+        if count > max_group {
+            max_group = count;
         }
-        if group > max_group {
-            max_group = group;
-        }
-        base += spg;
+        g += 1;
     }
     #[cfg(feature = "full-chain-dma")]
     {
@@ -469,6 +463,41 @@ pub const fn dma_descriptor_count<FB: framebuffer::FrameBuffer>(max_chunk: usize
         max_group *= FB::BCM_SEQUENCE_COUNT;
     }
     max_group
+}
+
+/// DMA descriptors needed to stream one BCM segment of `len` bytes `reps`
+/// times through `max_chunk`-byte descriptors.
+///
+/// The single implementation of the per-segment descriptor arithmetic, shared
+/// by [`dma_descriptor_count`] and [`group_descriptor_count`].
+#[must_use]
+pub(crate) const fn segment_descriptor_count(len: usize, reps: usize, max_chunk: usize) -> usize {
+    len.div_ceil(max_chunk) * reps
+}
+
+/// DMA descriptors needed for `group_size` consecutive segments starting at
+/// segment `group_idx * group_size` of framebuffer type `FB`'s BCM sequence.
+///
+/// Groups never straddle a period, so when `group_size` divides
+/// [`BCM_SEQUENCE_LEN`](framebuffer::FrameBuffer::BCM_SEQUENCE_LEN) this is the
+/// descriptor count of one transfer group, identical for every period.
+/// [`dma_descriptor_count`] reduces the groups of a period to a single total;
+/// the linear-mode ISR instead indexes the per-group counts directly.
+#[must_use]
+pub(crate) const fn group_descriptor_count<FB: framebuffer::FrameBuffer>(
+    group_idx: usize,
+    group_size: usize,
+    max_chunk: usize,
+) -> usize {
+    let start = group_idx * group_size;
+    let mut total = 0;
+    let mut j = 0;
+    while j < group_size {
+        let entry = FB::BCM_SEQUENCE[(start + j) % FB::BCM_SEQUENCE_LEN];
+        total += segment_descriptor_count(entry.len, entry.reps, max_chunk);
+        j += 1;
+    }
+    total
 }
 
 /// Number of pixel-clock cycles the DMA streams for one complete panel
