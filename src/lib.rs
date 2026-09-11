@@ -206,8 +206,8 @@ pub(crate) mod bcm;
 
 /// Configuration for creating a [`Hub75`] instance.
 ///
-/// Passed to [`Hub75::new`](hub75::Hub75::new) and
-/// [`Hub75::new_async`](hub75::Hub75::new_async) instead of a bare frequency.
+/// Passed to [`Hub75::new`](crate::Hub75::new) and
+/// [`Hub75::new_async`](crate::Hub75::new_async) instead of a bare frequency.
 ///
 /// [`Hub75Config::new`] (and [`Default`]) start from a 10 MHz pixel clock and
 /// the peripheral's default interrupt priority; override either with the
@@ -286,12 +286,105 @@ impl Default for Hub75Config {
 #[cfg_attr(hub75_use_i2s_parallel, path = "i2s_parallel.rs")]
 #[cfg_attr(hub75_use_lcd_cam, path = "lcd_cam.rs")]
 #[cfg_attr(hub75_use_parl_io, path = "parl_io.rs")]
-mod hub75;
+mod driver;
 mod isr;
-pub use hub75::Hub75;
+
+/// HUB75 display controller driven by an interrupt-based BCM refresh loop.
+///
+/// Created via [`Hub75::new`] (blocking) or [`Hub75::new_async`] (async).
+/// The constructor configures the peripheral, applies pin assignments, and
+/// immediately starts DMA-driven display refresh with the provided
+/// framebuffer.
+///
+/// The pin configuration's [`Hub75Pins::Word`](crate::Hub75Pins) type must
+/// match the framebuffer's
+/// [`FrameBuffer::Word`](crate::framebuffer::FrameBuffer::Word); mismatches
+/// are caught at compile time.
+///
+/// # Type Parameters
+///
+/// * `DM` — Driver mode ([`Blocking`](esp_hal::Blocking) or
+///   [`Async`](esp_hal::Async)).
+/// * `FB` — The concrete framebuffer type.
+///
+/// # Buffer Swapping
+///
+/// Call [`swap()`](Hub75::swap) to exchange framebuffers. It returns a
+/// [`Hub75Swap`] transfer object that can be waited on:
+/// - [`Hub75Swap::wait()`] — spin-loops until the DMA is guaranteed to no
+///   longer read from the old buffer, then returns it.
+/// - [`Hub75Swap::wait_for_done()`] — yields to the executor (async contexts).
+///   Call [`Hub75Swap::wait()`] afterwards to get the result.
+/// - [`Hub75Swap::is_done()`] — non-blocking completion check.
+///
+/// # Limitations
+///
+/// Only **one** `Hub75` instance may exist at a time. The driver uses
+/// module-level statics for the ISR state machine, so creating a second
+/// instance would overwrite the first.
+///
+/// **Framebuffer data must reside in internal DRAM, not PSRAM.** PSRAM
+/// needs cache writeback before DMA reads, and this driver's custom DMA
+/// buffer paths don't do that. A debug assertion checks this at init.
+///
+/// `Hub75` does not implement [`Drop`]. The ISR-driven refresh runs for the
+/// lifetime of the program.
+pub struct Hub75<DM: esp_hal::DriverMode, FB> {
+    _dm: PhantomData<DM>,
+    _fb: PhantomData<fn() -> FB>,
+    _not_sync: PhantomData<*const ()>,
+}
+
+// `Send` is derived automatically: every field is a `PhantomData` over a
+// `Send` type (`*const ()` is `Send`, `fn() -> FB` is `Send`, and `DM` is
+// always `Blocking` or `Async`, both `Send`), so no manual `unsafe impl Send`
+// is needed.
+//
+// Hub75 is intentionally `!Sync` via the `_not_sync: PhantomData<*const ()>`
+// field. Even though `swap()` takes `&self` and `STATE` would serialise
+// concurrent callers, sharing a `&Hub75` across cores would let two threads
+// race to be the one outstanding swap and would make the single-waker-slot
+// protocol in `SWAP_WAKER` ambiguous. Requiring ownership (`Send` but not
+// `Sync`) keeps the driver single-owner by construction.
+
+impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
+    pub(crate) fn from_phantom() -> Self {
+        Self {
+            _dm: PhantomData,
+            _fb: PhantomData,
+            _not_sync: PhantomData,
+        }
+    }
+}
+
+/// A pending framebuffer swap.
+///
+/// Returned by [`Hub75::swap`]. The old framebuffer is not safe to reuse until
+/// the DMA is guaranteed to no longer be reading from it. Call
+/// [`wait_for_done()`](Self::wait_for_done) (async) to yield until safe, then
+/// [`wait()`](Self::wait) to obtain the old framebuffer. Or call `wait()`
+/// directly for a blocking spin-loop.
+///
+/// In non-circular mode, "safe" means the ISR has hit a frame boundary and
+/// completed the swap. In circular-DMA mode, "safe" means at least one
+/// `suc_eof` interrupt has fired after the pointer update, guaranteeing the
+/// DMA has completed a full pass and is reading exclusively from the new
+/// buffer.
+#[must_use = "call .wait() to reclaim the old framebuffer, or the buffer is leaked"]
+pub struct Hub75Swap<FB: 'static> {
+    pub(crate) old_fb_ptr: *mut FB,
+    pub(crate) new_fb_ptr: *mut FB,
+}
+
+// SAFETY: The raw pointer always originates from a `&'static mut FB`. Only
+// one `Hub75Swap` exists at a time: `Hub75::swap()` returns
+// `Err(Hub75Error::SwapInFlight, _)` if called while a previous swap is still
+// in-flight, and `Hub75` is `!Sync`, so concurrent `swap()` calls from
+// multiple threads are impossible.
+unsafe impl<FB: 'static> Send for Hub75Swap<FB> {}
+
 /// The color type used by the HUB75 driver.
 pub use hub75_framebuffer::Color;
-pub use isr::Hub75Swap;
 
 #[cfg(all(feature = "circular-dma", esp32c6))]
 compile_error!(

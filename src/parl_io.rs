@@ -40,6 +40,7 @@ use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
 
+use crate::Hub75;
 use crate::Hub75Config;
 use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
@@ -48,7 +49,6 @@ use crate::Hub75Pins8;
 #[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
 use crate::isr::BcmBuf;
-pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // Constructor

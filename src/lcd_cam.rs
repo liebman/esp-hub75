@@ -42,6 +42,7 @@ use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::peripherals::LCD_CAM;
 
+use crate::Hub75;
 use crate::Hub75Config;
 use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
@@ -50,7 +51,6 @@ use crate::Hub75Pins8;
 use crate::Hub75Pins16;
 use crate::framebuffer::WordSize;
 use crate::isr::BcmBuf;
-pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // Constructor

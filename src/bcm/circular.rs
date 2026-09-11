@@ -185,6 +185,40 @@ pub(crate) fn disarm_boundary(descriptors: *mut DmaDescriptor, descriptor_count:
     }
 }
 
+/// Apply a pending framebuffer pointer delta to every descriptor, at a pass
+/// boundary.
+///
+/// Called from the shared refresh ISR in circular mode, while the DMA is
+/// halted at the pass boundary (see the module docs and [`arm_boundary`]).
+/// All plane data lives in one contiguous framebuffer allocation, and the two
+/// framebuffers have identical layout, so a single delta shifts every
+/// descriptor's `buffer` pointer.
+#[cfg_attr(feature = "iram", ram)]
+pub(crate) fn apply_delta(descriptors: *mut DmaDescriptor, descriptor_count: usize, delta: isize) {
+    // SAFETY: `descriptors` points to a `&'static mut` descriptor
+    // array that outlives everything. The DMA engine may be reading
+    // descriptor fields while we rewrite the `buffer` pointers here;
+    // that race is fine:
+    //  1. Each `buffer` field is a naturally aligned 32-bit pointer; aligned 32-bit
+    //     stores are atomic with respect to the DMA bus master, so DMA never sees a
+    //     half-written pointer.
+    //  2. The delta is applied while the DMA is stopped: the armed chain ends on
+    //     the spare boundary descriptor (`suc_eof` + `NULL` next), so the engine
+    //     has halted at the pass boundary before this runs, and the transfer is
+    //     only restarted after this rewrite, from the head of the ring. The
+    //     rewritten pointers therefore take effect deterministically before the
+    //     engine fetches anything.
+    //  3. The delta stays valid because all plane data lives in one contiguous
+    //     framebuffer allocation and old and new framebuffers have identical
+    //     layout.
+    unsafe {
+        for i in 0..descriptor_count {
+            let desc = &mut *descriptors.add(i);
+            desc.buffer = desc.buffer.wrapping_byte_offset(delta);
+        }
+    }
+}
+
 // SAFETY: All access is serialised by the ISR state lock (`STATE` in `isr`
 // `isr.rs`, an `esp_sync::RawMutex`).
 unsafe impl Send for BcmBuf {}

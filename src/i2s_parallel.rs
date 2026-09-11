@@ -149,12 +149,12 @@ pub(crate) fn clear_frame_interrupt() {
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
 
+use crate::Hub75;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 use crate::Hub75Pins16;
 use crate::isr::BcmBuf;
-pub use crate::isr::Hub75;
 
 // ---------------------------------------------------------------------------
 // Constructor
