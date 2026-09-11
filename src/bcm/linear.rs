@@ -10,7 +10,6 @@
 //! [`fill_segment_cache`], and the descriptor-count helpers the ISR uses to
 //! size each transfer.
 
-use core::cell::UnsafeCell;
 use core::ptr::null;
 use core::ptr::null_mut;
 
@@ -19,6 +18,7 @@ use esp_hal::dma::DmaTxBuffer;
 use esp_hal::dma::Preparation;
 #[cfg(feature = "iram")]
 use esp_hal::ram;
+use static_cell::StaticCell;
 
 use crate::framebuffer::BcmSegment;
 use crate::framebuffer::FrameBuffer;
@@ -39,26 +39,23 @@ const EMPTY_SEGMENT: BcmSegment = BcmSegment {
     reps: 0,
 };
 
-/// Single segment cache for ISR use.
+/// Static storage for the single segment cache.
 ///
-/// One static slot holds the full segment sequence. `swap()` stores a
-/// pointer delta (old FB → new FB) and the ISR applies it at the frame
-/// boundary, the same approach as circular mode. No copies, no slots.
-struct CacheCell(UnsafeCell<SegmentCache>);
-
-// SAFETY: All access is serialised by the ISR state lock (the `STATE` static
-// in `isr`, an `esp_sync::NonReentrantMutex`). The cache is written only by
-// `start_internal()` (init/restart path) and the ISR (delta application at
-// frame boundaries); `swap()` never touches it.
-unsafe impl Sync for CacheCell {}
-
-static SEGMENT_CACHE: CacheCell = CacheCell(UnsafeCell::new(SegmentCache::new()));
-
-/// Return a raw pointer to the static segment cache.
+/// `StaticCell` supplies the `Sync` static and hands out one `&'static mut` on
+/// [`init_with`](StaticCell::init_with). It is safe here even though
+/// `SegmentCache` is `!Send`/`!Sync` (its [`BcmSegment`]s hold raw pointers):
+/// the taken reference is stored in [`BcmBuf`] and shared with the ISR through
+/// the `STATE` lock, so the cell itself is touched only once, at construction.
 ///
-/// Used by [`BcmBuf`] and `start_internal()`.
-pub(crate) fn cache_ptr() -> *const SegmentCache {
-    SEGMENT_CACHE.0.get()
+/// A second `init_with` panics, which can only mean a second driver was built
+/// (already prevented by `claim_driver`).
+static SEGMENT_CACHE: StaticCell<SegmentCache> = StaticCell::new();
+
+/// Initialise (once) and take the static segment cache.
+///
+/// `init_with` constructs the ~3.9 KB cache in place instead of on the stack.
+fn segment_cache() -> &'static mut SegmentCache {
+    SEGMENT_CACHE.init_with(SegmentCache::new)
 }
 
 /// Cached BCM segment data for ISR use.
@@ -165,7 +162,7 @@ impl SegmentCache {
 /// Circular-DMA init streams segments straight from the framebuffer (see
 /// [`super::fill_descriptor_chain`]); no cache is materialised there, so the
 /// ~3.9 KB `SegmentCache` never touches the stack or BSS in circular mode.
-pub(crate) fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
+fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCache) {
     // Compile-time check that the segment cache can hold the framebuffer's
     // full scan sequence (evaluated per monomorphization).
     const {
@@ -208,11 +205,9 @@ pub(crate) fn fill_segment_cache<FB: FrameBuffer>(fb: &FB, cache: &mut SegmentCa
 ///   `advance()` always returns `true` (every transfer is a complete frame).
 pub(crate) struct BcmBuf {
     descriptors: &'static mut [DmaDescriptor],
-    /// Raw pointer to the static segment cache (`SEGMENT_CACHE`).
-    /// Dereferenced inline at each use site; the pointer is always
-    /// valid because the cache is a `'static` and all access is
-    /// serialised by the ISR state lock (`STATE` in `isr`).
-    cache: *const SegmentCache,
+    /// The static segment cache, taken once in [`new`](Self::new) and shared
+    /// with the ISR through the `STATE` lock.
+    cache: &'static mut SegmentCache,
     #[cfg(not(feature = "full-chain-dma"))]
     current_group: usize,
 }
@@ -221,21 +216,26 @@ impl BcmBuf {
     pub(crate) fn new(descriptors: &'static mut [DmaDescriptor]) -> Self {
         Self {
             descriptors,
-            cache: cache_ptr(),
+            cache: segment_cache(),
             #[cfg(not(feature = "full-chain-dma"))]
             current_group: 0,
         }
     }
 
-    /// Validate the cache and reset the BCM state machine.
+    /// Bind the buffer to `fb`: rebuild the segment cache and reset the BCM
+    /// state machine.
     ///
-    /// Called during `start()`/`restart()`. The cache pointer already
-    /// points at `SEGMENT_CACHE` — this just re-validates and resets
-    /// `current_group`.
-    pub(crate) fn reset_with_cache(&mut self) {
-        // SAFETY: self.cache points to SEGMENT_CACHE; accessible because
-        // we just wrote it under critical section.
-        let cache = unsafe { &*self.cache };
+    /// Called from `start_internal()` (init/restart path) before the first
+    /// transfer. Linear mode owns a cache to bind; circular mode builds its
+    /// descriptor ring instead (see `circular::BcmBuf::build`).
+    pub(crate) fn bind_cache<FB: FrameBuffer>(&mut self, fb: &FB) {
+        fill_segment_cache(fb, &mut *self.cache);
+        self.reset_with_cache();
+    }
+
+    /// Validate the cache and reset the BCM state machine.
+    fn reset_with_cache(&mut self) {
+        let cache = &*self.cache;
         debug_assert!(cache.count > 0 && cache.count <= MAX_SEGMENTS);
         #[cfg(feature = "full-chain-dma")]
         let needed = cache.descriptor_count();
@@ -264,8 +264,7 @@ impl BcmBuf {
         }
         #[cfg(not(feature = "full-chain-dma"))]
         {
-            // SAFETY: self.cache is valid under cs/ISR serialisation.
-            let group_count = unsafe { (*self.cache).group_count() };
+            let group_count = self.cache.group_count();
             self.current_group += 1;
             if self.current_group >= group_count {
                 self.current_group = 0;
@@ -283,10 +282,10 @@ impl BcmBuf {
     /// both framebuffers are the same type with identical internal layout.
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn apply_delta(&mut self, delta: isize) {
-        // SAFETY: Called from the ISR (under the ISR state lock (`STATE`)). The cache
-        // is not concurrently accessed; `swap()` only reads FB pointers
-        // to compute the delta and never writes to the cache.
-        let cache = unsafe { &mut *self.cache.cast_mut() };
+        // Called from the ISR under the ISR state lock (`STATE`), so the cache
+        // is not concurrently accessed; `swap()` only reads FB pointers to
+        // compute the delta and never writes to the cache.
+        let cache = &mut *self.cache;
         for i in 0..cache.count {
             cache.segments[i].ptr = cache.segments[i].ptr.wrapping_byte_offset(delta);
         }
@@ -296,8 +295,7 @@ impl BcmBuf {
     #[cfg(esp32c6)]
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn current_transfer_len(&self) -> usize {
-        // SAFETY: self.cache is valid under cs/ISR serialisation.
-        let cache = unsafe { &*self.cache };
+        let cache = &*self.cache;
         #[cfg(feature = "full-chain-dma")]
         {
             let mut total = 0;
@@ -318,9 +316,9 @@ impl BcmBuf {
 // (the `STATE` static in `isr`, an `esp_sync::NonReentrantMutex`): it disables
 // interrupts on the current core and CAS-spins on an owner word on
 // multi-core chips like ESP32 and ESP32-S3. There is therefore no
-// concurrent access. The raw `cache` pointer points to `SEGMENT_CACHE`
-// (a `'static`), which is only mutated under the same lock (by the ISR
-// applying deltas and by `start_internal` rebuilding it).
+// concurrent access. The `cache` reference points into `SEGMENT_CACHE` (a
+// `'static`), which is only mutated under the same lock (by the ISR applying
+// deltas and by `start_internal` rebuilding it).
 unsafe impl Send for BcmBuf {}
 
 unsafe impl DmaTxBuffer for BcmBuf {
@@ -347,9 +345,7 @@ impl BcmBuf {
     #[cfg(not(feature = "full-chain-dma"))]
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {
-        // SAFETY: self.cache is valid under cs/ISR serialisation.
-        // The descriptor writes below never alias the cache slots.
-        let cache = unsafe { &*self.cache };
+        let cache = &*self.cache;
         let spg = cache.segments_per_group;
         let start = self.current_group * spg;
         let total_descs = cache.group_descriptor_count(self.current_group);
@@ -372,8 +368,7 @@ impl BcmBuf {
     #[cfg(feature = "full-chain-dma")]
     #[cfg_attr(feature = "iram", ram)]
     fn prepare_descriptors(&mut self) -> Preparation {
-        // SAFETY: self.cache is valid under cs/ISR serialisation.
-        let cache = unsafe { &*self.cache };
+        let cache = &*self.cache;
         let total_descs = cache.descriptor_count();
         super::fill_descriptor_chain(
             &mut self.descriptors[..total_descs],

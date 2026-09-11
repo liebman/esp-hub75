@@ -168,11 +168,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
                 state.descriptor_count = descriptor_count;
             }
             _ => {
-                crate::bcm::linear::fill_segment_cache(
-                    fb,
-                    unsafe { &mut *crate::bcm::linear::cache_ptr().cast_mut() },
-                );
-                state.transfer.buf_mut().reset_with_cache();
+                state.transfer.buf_mut().bind_cache(fb);
             }
         }
         state.current_fb_ptr = core::ptr::from_ref(fb).cast::<()>();
