@@ -21,8 +21,6 @@ use core::sync::atomic::Ordering;
 use core::task::Waker;
 
 use esp_hal::Blocking;
-#[cfg(feature = "circular-dma")]
-use esp_hal::dma::DmaDescriptor;
 use esp_hal::dma::DmaTxBuffer;
 use esp_hal::handler;
 use esp_hal::interrupt::InterruptHandler;
@@ -45,10 +43,12 @@ cfg_select! {
     feature = "circular-dma" => {
         pub(crate) mod circular;
         pub(crate) use circular::init_state;
+        pub(crate) use crate::bcm::circular::BcmBuf;
     }
     _ => {
         pub(crate) mod linear;
         pub(crate) use linear::init_state;
+        pub(crate) use crate::bcm::linear::BcmBuf;
     }
 }
 
@@ -132,21 +132,6 @@ pub(crate) static HAS_ERROR: AtomicBool = AtomicBool::new(false);
 // ---------------------------------------------------------------------------
 // Platform transfer plumbing (shared by both refresh modes)
 // ---------------------------------------------------------------------------
-
-// BCM DMA buffer type for the active refresh mode.
-//
-// The refresh modes are mutually exclusive compile-time selections and each
-// mode's `BcmBuf` lives in its own module, so exactly one is compiled and a
-// single re-export lets the shared [`State`], `swap()`, ISR helpers, and
-// `Hub75Swap` completion code exist exactly once.
-cfg_select! {
-    feature = "circular-dma" => {
-        pub(crate) use crate::bcm::circular::BcmBuf;
-    }
-    _ => {
-        pub(crate) use crate::bcm::linear::BcmBuf;
-    }
-}
 
 // Per-backend driver and transfer types, generic over the DMA buffer type.
 //
@@ -250,8 +235,8 @@ cfg_select! {
 ///
 /// The `PARL_IO` case is the reason the circular ISR must **not** clear
 /// `INT_RAW.tx_eof` beforehand: `clear_frame_interrupt` writes `INT_CLR`, which
-/// write-clears `INT_RAW` and would leave `wait()` spinning on a flag that no
-/// longer exists.
+/// write-clears `INT_RAW` and would leave `wait()` spinning on a flag that has
+/// already been cleared.
 ///
 /// Circular mode additionally (compiled only with `circular-dma`) asserts
 /// `is_done()`: the armed chain ends on the spare boundary descriptor, so the
@@ -396,7 +381,6 @@ pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
 ///   and starts the free-running chain; `Error` records a failed
 ///   initial/restart transfer (theoretically impossible; surfaced to swap
 ///   waiters).
-#[cfg_attr(feature = "circular-dma", allow(dead_code))]
 pub(crate) enum TransferPhase {
     Idle(TxDriver, BcmBuf),
     InFlight(TxTransfer),
@@ -419,7 +403,7 @@ pub(crate) struct State {
     /// Circular only: descriptor ring for the pending-delta application and
     /// the boundary-detector arm/disarm.
     #[cfg(feature = "circular-dma")]
-    pub(crate) descriptors: *mut DmaDescriptor,
+    pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
     #[cfg(feature = "circular-dma")]
     pub(crate) descriptor_count: usize,
     /// `LCD_CAM` only: transfer word width for ISR-driven restarts.
