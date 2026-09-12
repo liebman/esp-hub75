@@ -21,7 +21,8 @@ opt-level = "s"
 
 [dependencies]
 defmt = { version = "1.1.0", optional = true }
-esp-hal = { version = "1.2.0", default-features = false, features = [
+# we are requiring the unstable features of esp-hal so we minor versions can be breaking!
+esp-hal = { version = "~1.2.0", default-features = false, features = [
     "requires-unstable",
 ] }
 esp-sync = { version = "0.3.0" }
