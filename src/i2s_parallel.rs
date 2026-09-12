@@ -58,8 +58,9 @@ static SELECTED_I2S: AtomicU8 = AtomicU8::new(0);
 /// Binds the refresh ISR to the `I2S` peripheral interrupt and enables the
 /// `out_total_eof` source.
 ///
-/// You never implement or call this directly; the constructor calls it on the
-/// concrete `I2S0`/`I2S1` peripheral passed to [`Hub75::new`](crate::Hub75).
+/// This trait is internal to the driver and is not part of the public API. The
+/// constructor calls it on the concrete `I2S0`/`I2S1` peripheral passed to
+/// [`Hub75::new`](crate::Hub75).
 #[doc(hidden)]
 pub trait I2sInterruptBinding: Instance {
     /// Binds `handler` to this peripheral's CPU interrupt (with the handler's
@@ -67,8 +68,8 @@ pub trait I2sInterruptBinding: Instance {
     /// instance as the driver's `I2S` peripheral.
     fn bind_and_enable_isr(handler: InterruptHandler);
 
-    /// Clears the `out_total_eof` flag on this peripheral. Only called in
-    /// circular-DMA mode.
+    /// Clears the `out_total_eof` flag on this peripheral. The driver calls it
+    /// only in circular-DMA mode.
     #[cfg_attr(not(feature = "circular-dma"), allow(dead_code))]
     fn clear_frame_interrupt();
 }
@@ -154,6 +155,7 @@ use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 use crate::Hub75Pins16;
+use crate::framebuffer::WordSize;
 use crate::isr::BcmBuf;
 
 // ---------------------------------------------------------------------------
@@ -163,7 +165,7 @@ use crate::isr::BcmBuf;
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
     fn new_internal<
         T: TxPins<'static> + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
+        P: Hub75Pins<Word = FB::Word> + I2sPins<'static, T>,
         I: Instance + I2sInterruptBinding + 'static,
         const N: usize,
     >(
@@ -240,7 +242,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new<
         T: TxPins<'static> + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
+        P: Hub75Pins<Word = FB::Word> + I2sPins<'static, T>,
         I: Instance + I2sInterruptBinding + 'static,
         const N: usize,
     >(
@@ -280,7 +282,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new_async<
         T: TxPins<'static> + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
+        P: Hub75Pins<Word = FB::Word> + I2sPins<'static, T>,
         I: Instance + I2sInterruptBinding + 'static,
         const N: usize,
     >(
@@ -299,9 +301,33 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
 // Pin configurations
 // ---------------------------------------------------------------------------
 
-impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+impl crate::Hub75Pins for Hub75Pins16<'_> {
     type Word = u16;
 
+    fn word_size(&self) -> WordSize {
+        WordSize::Sixteen
+    }
+}
+
+impl crate::Hub75Pins for Hub75Pins8<'_> {
+    type Word = u8;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Eight
+    }
+}
+
+/// Converts a HUB75 pin configuration into the I2S parallel pin format.
+///
+/// This trait is internal to the driver and is not part of the public API.
+#[doc(hidden)]
+pub trait I2sPins<'d, T> {
+    /// Converts the high-level pin definition into the peripheral-specific
+    /// format, returning the converted pins and the clock pin.
+    fn convert_pins(self) -> (T, AnyPin<'d>);
+}
+
+impl<'d> I2sPins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
@@ -315,9 +341,7 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     }
 }
 
-impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
-    type Word = u8;
-
+impl<'d> I2sPins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]

@@ -77,7 +77,7 @@ pub(crate) fn clear_frame_interrupt() {
 }
 
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
+    fn new_internal<P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
@@ -165,7 +165,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
+    pub fn new<P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
@@ -201,7 +201,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
+    pub fn new_async<P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>, const N: usize>(
         lcd_cam: LCD_CAM<'static>,
         hub75_pins: P,
         channel: impl LcdDmaTxChannel<'static>,
@@ -217,13 +217,32 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
 // Pin configurations
 // ---------------------------------------------------------------------------
 
-impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
+impl crate::Hub75Pins for Hub75Pins16<'_> {
     type Word = u16;
 
     fn word_size(&self) -> WordSize {
         WordSize::Sixteen
     }
+}
 
+impl crate::Hub75Pins for Hub75Pins8<'_> {
+    type Word = u8;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Eight
+    }
+}
+
+/// Applies a HUB75 pin configuration to the `LCD_CAM` i8080 driver.
+///
+/// This trait is internal to the driver and is not part of the public API.
+#[doc(hidden)]
+pub trait LcdCamPins<'d> {
+    /// Applies the pin configuration to the i8080 driver.
+    fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM>;
+}
+
+impl<'d> LcdCamPins<'d> for Hub75Pins16<'d> {
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
@@ -250,13 +269,7 @@ impl<'d> crate::Hub75Pins<'d> for Hub75Pins16<'d> {
     }
 }
 
-impl<'d> crate::Hub75Pins<'d> for Hub75Pins8<'d> {
-    type Word = u8;
-
-    fn word_size(&self) -> WordSize {
-        WordSize::Eight
-    }
-
+impl<'d> LcdCamPins<'d> for Hub75Pins8<'d> {
     fn apply<DM: esp_hal::DriverMode>(self, i8080: I8080<'d, DM>) -> I8080<'d, DM> {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]

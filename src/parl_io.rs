@@ -49,6 +49,7 @@ use crate::Hub75Pins;
 use crate::Hub75Pins8;
 #[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
+use crate::framebuffer::WordSize;
 use crate::isr::BcmBuf;
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,7 @@ pub(crate) fn clear_frame_interrupt() {
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
     fn new_internal<
         T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
+        P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static, T>,
         const N: usize,
     >(
         parl_io: PARL_IO<'static>,
@@ -200,7 +201,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new<
         T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
+        P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static, T>,
         const N: usize,
     >(
         parl_io: PARL_IO<'static>,
@@ -241,7 +242,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
     pub fn new_async<
         T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
+        P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static, T>,
         const N: usize,
     >(
         parl_io: PARL_IO<'static>,
@@ -267,9 +268,34 @@ use esp_hal::parl_io::TxEightBits;
 use esp_hal::parl_io::TxSixteenBits;
 
 #[cfg(not(esp32c5))]
-impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+impl crate::Hub75Pins for Hub75Pins16<'_> {
     type Word = u16;
 
+    fn word_size(&self) -> WordSize {
+        WordSize::Sixteen
+    }
+}
+
+impl crate::Hub75Pins for Hub75Pins8<'_> {
+    type Word = u8;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Eight
+    }
+}
+
+/// Converts a HUB75 pin configuration into the `PARL_IO` pin format.
+///
+/// This trait is internal to the driver and is not part of the public API.
+#[doc(hidden)]
+pub trait ParlIoPins<'d, T> {
+    /// Converts the high-level pin definition into the peripheral-specific
+    /// format, returning the converted pins and the clock pin.
+    fn convert_pins(self) -> (T, AnyPin<'d>);
+}
+
+#[cfg(not(esp32c5))]
+impl<'d> ParlIoPins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
@@ -283,9 +309,7 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     }
 }
 
-impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
-    type Word = u8;
-
+impl<'d> ParlIoPins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]

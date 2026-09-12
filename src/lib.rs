@@ -716,49 +716,23 @@ pub struct Hub75Pins8<'d> {
     pub latch: AnyPin<'d>,
 }
 
-/// Applies a set of HUB75 pins to the specific ESP32 peripheral.
+/// Describes the pins used to drive a HUB75 panel.
 ///
-/// This hides the differences in pin configuration between peripherals
-/// (I2S, LCD-CAM, `PARL_IO`) and between direct-drive (16-bit) and latched
-/// (8-bit) HUB75 controller boards.
-#[cfg(hub75_use_lcd_cam)]
-pub trait Hub75Pins<'d> {
+/// Implemented by [`Hub75Pins8`] for latched (8-bit) controller boards and
+/// [`Hub75Pins16`] for direct-drive (16-bit) boards. The trait hides the
+/// differences in pin configuration between peripherals (I2S, LCD-CAM,
+/// `PARL_IO`).
+pub trait Hub75Pins {
     /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
-    /// 16-bit). Must match
-    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word).
+    /// 16-bit).
+    ///
+    /// This type must match
+    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word). The driver
+    /// constructors reject a mismatch at compile time.
     type Word;
 
     /// Returns the bus width (8-bit or 16-bit) for this pin configuration.
     fn word_size(&self) -> crate::framebuffer::WordSize;
-
-    /// Applies the pin configuration to the i8080 driver.
-    fn apply<DM: esp_hal::DriverMode>(
-        self,
-        i8080: esp_hal::lcd_cam::lcd::i8080::I8080<'d, DM>,
-    ) -> esp_hal::lcd_cam::lcd::i8080::I8080<'d, DM>;
-}
-
-/// Converts a set of HUB75 pins into the format a specific ESP32 peripheral
-/// expects.
-///
-/// This hides the differences in pin configuration between peripherals
-/// (I2S, LCD-CAM, `PARL_IO`) and between direct-drive (16-bit) and latched
-/// (8-bit) HUB75 controller boards.
-///
-/// `T` is the target pin configuration type for the specific peripheral.
-#[cfg(not(hub75_use_lcd_cam))]
-pub trait Hub75Pins<'d, T> {
-    /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
-    /// 16-bit). Must match
-    /// [`FrameBuffer::Word`](framebuffer::FrameBuffer::Word).
-    type Word;
-
-    /// Converts the high-level pin definition into the peripheral-specific
-    /// format needed by the driver.
-    ///
-    /// Returns a tuple containing the converted pin configuration for the
-    /// specific peripheral and the clock pin used for synchronization.
-    fn convert_pins(self) -> (T, AnyPin<'d>);
 }
 
 /// Errors returned by the HUB75 driver.
