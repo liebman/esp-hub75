@@ -194,6 +194,7 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
+use core::cell::Cell;
 use core::marker::PhantomData;
 
 use esp_hal::gpio::AnyPin;
@@ -332,20 +333,32 @@ mod isr;
 pub struct Hub75<DM: esp_hal::DriverMode, FB> {
     _dm: PhantomData<DM>,
     _fb: PhantomData<fn() -> FB>,
-    _not_sync: PhantomData<*const ()>,
+    _not_sync: PhantomData<Cell<()>>,
 }
 
-// `Send` is derived automatically: every field is a `PhantomData` over a
-// `Send` type (`*const ()` is `Send`, `fn() -> FB` is `Send`, and `DM` is
-// always `Blocking` or `Async`, both `Send`), so no manual `unsafe impl Send`
-// is needed.
+// SAFETY: `Hub75` is a zero-sized handle that owns no data — every field is a
+// `PhantomData`. The real driver state (DMA transfer handle, `BcmBuf`, ISR
+// state machine) lives in module-level statics serialised by
+// `esp_sync::NonReentrantMutex`, never inside `Hub75` itself, so moving a
+// `Hub75` between threads is safe regardless of `DM`. This explicit `Send` is
+// required because `esp_hal::Async` is `!Send` (esp-rs/esp-hal#2980, which
+// stops async drivers migrating to another core with their interrupt handler);
+// without it `Hub75<esp_hal::Async, _>` would be `!Send` and unmovable into a
+// spawned task.
+unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
+
+// `Hub75` is intentionally `!Sync` via the `_not_sync: PhantomData<Cell<()>>`
+// field: `Cell<T>` is never `Sync`, and `PhantomData<T>` is `Sync` only when
+// `T` is, so `Hub75` is never `Sync`. `Cell<()>` is chosen over a raw pointer
+// (which is `!Send` *and* `!Sync`) because the marker itself is `Send`; `Send`
+// for the whole type is nonetheless now guaranteed explicitly by the
+// `unsafe impl Send` above, not by field derivation.
 //
-// Hub75 is intentionally `!Sync` via the `_not_sync: PhantomData<*const ()>`
-// field. Even though `swap()` takes `&self` and `STATE` would serialise
-// concurrent callers, sharing a `&Hub75` across cores would let two threads
-// race to be the one outstanding swap and would make the single-waker-slot
-// protocol in `SWAP_WAKER` ambiguous. Requiring ownership (`Send` but not
-// `Sync`) keeps the driver single-owner by construction.
+// The `!Sync` bound matters because `swap()` takes `&self` and `STATE` would
+// serialise concurrent callers, but sharing a `&Hub75` across cores would still
+// let two threads race to be the one outstanding swap and would make the
+// single-waker-slot protocol in `SWAP_WAKER` ambiguous. Requiring ownership
+// (`Send` but not `Sync`) keeps the driver single-owner by construction.
 
 impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
     pub(crate) fn from_phantom() -> Self {
