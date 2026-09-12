@@ -181,7 +181,8 @@ impl Transfer {
         // PARL_IO only: the peripheral's EOF bit-length counter. On the C5 the
         // EOF comes from the DMA channel, so the field is a dummy (both refresh
         // modes; the `DmaEof` EOF source does not exist on the C6, where linear
-        // mode computes the real length and circular mode is unsupported).
+        // mode computes the real length and full-chain mode computes it in
+        // `BcmBuf::build`; circular mode is unsupported).
         #[cfg(hub75_use_parl_io)]
         let transfer_len = cfg_select! {
             any(feature = "circular-dma", esp32c5) => PARL_IO_DUMMY_TRANSFER_LEN,

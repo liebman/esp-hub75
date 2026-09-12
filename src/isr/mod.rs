@@ -6,13 +6,16 @@
 //! plumbing, the refresh [`isr`], and the public [`Hub75`](crate::Hub75) /
 //! [`Hub75Swap`](crate::Hub75Swap) driver API.
 //!
-//! The two refresh modes are compile-time selected (`circular-dma`):
+//! The refresh modes are compile-time selected. Two are "full chain" (the
+//! whole BCM sequence in one transfer) and live in `bcm::full_chain`:
 //!
-//! - **Linear**: one DMA transfer per BCM segment group, restarted by the ISR.
-//! - **Circular**: a single free-running circular descriptor chain with
-//!   pointer-delta swaps at pass boundaries.
+//! - **Linear (group-based, default)**: one DMA transfer per BCM segment group,
+//!   restarted by the ISR; owns the `bcm::linear` segment cache.
+//! - **`full-chain-dma`**: one terminating transfer per whole frame.
+//! - **`circular-dma`** (implies `full-chain-dma`): a free-running descriptor
+//!   ring with pointer-delta swaps at pass boundaries.
 //!
-//! Both modes share one refresh [`isr`]: the mode differences (stale-interrupt
+//! All modes share one refresh [`isr`]: the mode differences (stale-interrupt
 //! gating, group advancement, delta target, disarm, and completion signalling)
 //! are `#[cfg]` branches inside the handler and the swap path. The
 //! descriptor-chain and segment-cache mechanics live in [`crate::bcm`].
@@ -35,9 +38,9 @@ use crate::Hub75Swap;
 // compiled into [`isr`], [`Hub75::swap`] and [`start_internal`] below as
 // `#[cfg]` branches; the descriptor-chain and segment-cache mechanics live in
 // [`crate::bcm`].
-#[cfg(feature = "circular-dma")]
-pub(crate) use crate::bcm::circular::BcmBuf;
-#[cfg(not(feature = "circular-dma"))]
+#[cfg(feature = "full-chain-dma")]
+pub(crate) use crate::bcm::full_chain::BcmBuf;
+#[cfg(not(feature = "full-chain-dma"))]
 pub(crate) use crate::bcm::linear::BcmBuf;
 use crate::framebuffer::FrameBuffer;
 #[cfg(hub75_use_lcd_cam)]
@@ -128,10 +131,10 @@ pub(crate) use transfer::Transfer;
 pub(crate) use transfer::TxDriver;
 
 /// Bind the buffer to `fb`, start the first DMA transfer, and park the
-/// in-flight state. Shared by both refresh modes; the only mode-specific steps
-/// are how the buffer is bound to the framebuffer (linear builds the segment
-/// cache, circular builds the descriptor ring) — the transfer itself is
-/// started through [`Transfer::start`].
+/// in-flight state. Shared by all refresh modes; the only mode-specific step is
+/// how the buffer is bound to the framebuffer (the group-based mode builds the
+/// segment cache, the full-chain / circular modes build the descriptor chain) —
+/// the transfer itself is started through [`Transfer::start`].
 pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75Error> {
     crate::bcm::validate_fb_internal_ram(fb);
 
@@ -158,7 +161,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
 
         // Bind the buffer to the framebuffer.
         cfg_select! {
-            feature = "circular-dma" => {
+            feature = "full-chain-dma" => {
                 let (descriptors, descriptor_count) = {
                     let buf = state.transfer.buf_mut();
                     buf.build(fb);
@@ -218,18 +221,19 @@ pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
 /// `pending_delta`) and the same in-flight rule: exactly one outstanding
 /// swap, tracked by `pending_delta.is_some()`. Mode-specific fields:
 ///
-/// - `descriptors` / `descriptor_count`: circular only — the descriptor ring
-///   the boundary ISR applies the pending delta to.
+/// - `descriptors` / `descriptor_count`: full-chain only — the built-once
+///   descriptor chain the ISR applies the pending delta to (the terminating
+///   `full-chain-dma` chain and the `circular-dma` ring both need it).
 ///
 /// The transfer plumbing (driver handle, BCM buffer, transfer phase and the
 /// `LCD_CAM` `word_size`) lives in [`Transfer`].
 pub(crate) struct State {
     pub(crate) transfer: Transfer,
-    /// Circular only: descriptor ring for the pending-delta application and
-    /// the boundary-detector arm/disarm.
-    #[cfg(feature = "circular-dma")]
+    /// Full-chain only: descriptor chain for the pending-delta application and
+    /// the circular boundary-detector arm/disarm.
+    #[cfg(feature = "full-chain-dma")]
     pub(crate) descriptors: *mut esp_hal::dma::DmaDescriptor,
-    #[cfg(feature = "circular-dma")]
+    #[cfg(feature = "full-chain-dma")]
     pub(crate) descriptor_count: usize,
     pub(crate) current_fb_ptr: *const (),
     /// Byte offset from the current to the pending framebuffer, set by
@@ -266,9 +270,9 @@ pub(crate) fn init_state(tx: TxDriver, buf: BcmBuf, #[cfg(hub75_use_lcd_cam)] wo
                 #[cfg(hub75_use_lcd_cam)]
                 word_size,
             ),
-            #[cfg(feature = "circular-dma")]
+            #[cfg(feature = "full-chain-dma")]
             descriptors: core::ptr::null_mut(),
-            #[cfg(feature = "circular-dma")]
+            #[cfg(feature = "full-chain-dma")]
             descriptor_count: 0,
             current_fb_ptr: core::ptr::null(),
             pending_delta: None,
@@ -280,12 +284,15 @@ pub(crate) fn init_state(tx: TxDriver, buf: BcmBuf, #[cfg(hub75_use_lcd_cam)] wo
 // Refresh ISR (shared by both refresh modes)
 // ---------------------------------------------------------------------------
 
-/// Refresh ISR — single handler for all backends and both refresh modes.
+/// Refresh ISR — single handler for all backends and every refresh mode.
 ///
-/// - **Linear**: fires at every BCM segment-group transfer completion. The
+/// - **Group-based**: fires at every BCM segment-group transfer completion. The
 ///   handler consumes the transfer, advances the buffer's group state machine,
 ///   applies the pending pointer delta to the cached segments at a full-frame
 ///   boundary, and restarts the next group transfer.
+/// - **`full-chain-dma`**: fires at every whole-frame transfer completion. The
+///   handler consumes the transfer, applies the pending pointer delta to the
+///   descriptor chain, and restarts it from the head.
 /// - **Circular**: fires only while a swap is armed (the boundary detector
 ///   relinks the second-to-last ring descriptor to the spare boundary
 ///   descriptor, `suc_eof` + `NULL` next — see [`Hub75::swap`](Hub75::swap)).
@@ -336,24 +343,25 @@ pub(crate) fn isr() {
             return;
         }
 
-        // Is this a full-frame boundary? Linear advances the group state
-        // machine (one BCM group per transfer; `full-chain-dma` transfers
-        // always cover a full frame). Circular only ever runs at a pass
-        // boundary, so every interrupt is a boundary.
-        #[cfg(not(feature = "circular-dma"))]
-        let frame_boundary = state.transfer.buf_mut().advance();
-        #[cfg(feature = "circular-dma")]
-        let frame_boundary = true;
+        // Is this a full-frame boundary? The group-based mode advances its
+        // state machine (one BCM group per transfer); the `full-chain-dma` and
+        // `circular-dma` modes always transfer a complete frame / pass, so
+        // every interrupt is a boundary.
+        let frame_boundary = cfg_select! {
+            feature = "full-chain-dma" => true,
+            _ => state.transfer.buf_mut().advance(),
+        };
 
         if frame_boundary && let Some(delta) = state.pending_delta.take() {
             // Apply the delta while the DMA is not reading the affected
-            // pointers: linear shifts the cached segment pointers; circular
-            // rewrites the descriptor ring while the engine is halted at the
-            // pass boundary (the restart below happens only afterwards).
-            #[cfg(not(feature = "circular-dma"))]
+            // pointers: the group-based mode shifts the cached segment
+            // pointers; the `full-chain-dma` / `circular-dma` modes rewrite the
+            // descriptor chain while the engine is halted at the boundary (the
+            // restart below happens only afterwards).
+            #[cfg(feature = "full-chain-dma")]
+            crate::bcm::full_chain::apply_delta(state.descriptors, state.descriptor_count, delta);
+            #[cfg(not(feature = "full-chain-dma"))]
             state.transfer.buf_mut().apply_delta(delta);
-            #[cfg(feature = "circular-dma")]
-            crate::bcm::circular::apply_delta(state.descriptors, state.descriptor_count, delta);
             // Linear: the swap completes at this frame boundary.
             #[cfg(not(feature = "circular-dma"))]
             {
@@ -367,7 +375,7 @@ pub(crate) fn isr() {
         // Circular only: swap-armed boundary handled — disarm until the next
         // swap by relinking the ring (`next` back to the head).
         #[cfg(feature = "circular-dma")]
-        crate::bcm::circular::disarm_boundary(state.descriptors, state.descriptor_count);
+        crate::bcm::full_chain::disarm_boundary(state.descriptors, state.descriptor_count);
 
         // Restart: linear kicks off the next group transfer, circular restarts
         // the ring from the head. The backend parameters (including the
@@ -514,10 +522,13 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     ///   from the old buffer after the delta is applied, and takes up to one
     ///   pass period to complete. The output is blanked for the (very brief)
     ///   halt at the pass boundary.
-    /// - **Linear**: the delta is applied by the ISR to every cached segment
-    ///   pointer at the next frame boundary. Both framebuffers are the same
-    ///   type with identical internal layout, so the single delta shifts every
-    ///   cached segment pointer.
+    /// - **Group-based**: the delta is applied by the ISR to every cached
+    ///   segment pointer at the next frame boundary.
+    /// - **`full-chain-dma`**: the delta is applied by the ISR to every
+    ///   descriptor's `buffer` pointer at the next whole-frame boundary.
+    ///
+    /// Both framebuffers are the same type with identical internal layout, so
+    /// the single delta shifts every pointer.
     ///
     /// # Errors
     ///
@@ -535,11 +546,12 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
         &self,
         new_fb: &'static mut FB,
     ) -> Result<Hub75Swap<FB>, (Hub75Error, &'static mut FB)> {
-        // Linear only: pre-validate the framebuffer contract against the
-        // segment cache so any panic happens outside the critical section
-        // (with interrupts enabled). Circular mode streams segments straight
-        // from the framebuffer and has no cache to overflow.
-        #[cfg(not(feature = "circular-dma"))]
+        // Group-based mode only: pre-validate the framebuffer contract against
+        // the segment cache so any panic happens outside the critical section
+        // (with interrupts enabled). The `full-chain-dma` / `circular-dma`
+        // modes stream segments straight from the framebuffer and have no
+        // cache to overflow.
+        #[cfg(not(feature = "full-chain-dma"))]
         {
             let count = new_fb.bcm_segment_count();
             let spg = new_fb.bcm_segments_per_group();
@@ -577,7 +589,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
             // enabled, and the disarmed ring produces no boundary flags, so
             // no stale flag can be pending when the detector is armed.
             #[cfg(feature = "circular-dma")]
-            crate::bcm::circular::arm_boundary(state.descriptors, state.descriptor_count);
+            crate::bcm::full_chain::arm_boundary(state.descriptors, state.descriptor_count);
             // `current_fb_ptr` is updated immediately; the ISR applies only
             // the delta to the descriptors/cache.
             state.current_fb_ptr = new_fb_ptr as *const ();
@@ -596,7 +608,8 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
 }
 
 // ---------------------------------------------------------------------------
-// Hub75::restart (linear only — circular never stops, so has no restart)
+// Hub75::restart (non-circular only — the circular ring never stops, so has
+// no restart)
 // ---------------------------------------------------------------------------
 
 #[cfg(not(feature = "circular-dma"))]

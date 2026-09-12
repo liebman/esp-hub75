@@ -1,14 +1,15 @@
 //! BCM (Binary Code Modulation) DMA buffer infrastructure.
 //!
-//! Common helpers shared by the linear and circular buffer implementations:
+//! Common helpers shared by the linear and full-chain buffer implementations:
 //! the descriptor-chain builder every mode uses ([`fill_descriptor_chain`]),
 //! the `Preparation` construction ([`make_preparation`]), and the
 //! internal-RAM validation ([`validate_fb_internal_ram`]).
 //!
-//! Anything mode-specific lives in its own submodule instead: the segment
-//! cache and the BCM state machine are linear-only (`bcm::linear`), and the
-//! free-running descriptor ring and its boundary detector are circular-only
-//! (`bcm::circular`).
+//! The mode-specific buffers live in their own submodules: `bcm::full_chain`
+//! (the terminating `full-chain-dma` chain and the `circular-dma` ring, which
+//! are the same built-once chain with only a terminating / free-running
+//! difference) and `bcm::linear` (the default group-based chain, which owns the
+//! segment cache).
 
 use esp_hal::dma::BurstConfig;
 use esp_hal::dma::DmaDescriptor;
@@ -23,9 +24,9 @@ use crate::MAX_DMA_CHUNK_SIZE;
 use crate::framebuffer::BcmSegment;
 use crate::framebuffer::FrameBuffer;
 
-#[cfg(feature = "circular-dma")]
-pub(crate) mod circular;
-#[cfg(not(feature = "circular-dma"))]
+#[cfg(feature = "full-chain-dma")]
+pub(crate) mod full_chain;
+#[cfg(not(feature = "full-chain-dma"))]
 pub(crate) mod linear;
 
 /// Assert that a framebuffer and every BCM segment it exposes reside in
@@ -57,7 +58,7 @@ pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
 
 /// Build a `Preparation` pointing to the first descriptor in a chain.
 ///
-/// Shared by both linear and circular buffer implementations.
+/// Shared by the linear and full-chain buffer implementations.
 #[cfg_attr(feature = "iram", ram)]
 pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation {
     // `EmptyBuf` provides a `Preparation` with safe defaults; we override
@@ -83,13 +84,12 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 /// descriptors through this function, chunking each segment repetition down
 /// to [`MAX_DMA_CHUNK_SIZE`]:
 ///
+/// - **Full-chain**: the whole frame, `last_next = null_mut()` and
+///   `last_suc_eof = true` (the transfer must end so the ISR can restart it).
 /// - **Circular**: the whole ring, `last_next = ring_start` (wraps back to
 ///   `desc[0]`) and `last_suc_eof = false` (a `suc_eof` in the free-running
 ///   ring would halt or signal spuriously — the boundary detector arms it
 ///   later).
-/// - **Linear, `full-chain-dma`**: the whole frame, `last_next = null_mut()`
-///   and `last_suc_eof = true` (the transfer must end so the ISR can
-///   advance/restart it).
 /// - **Linear, group-based**: a single group, `last_next = null_mut()` and
 ///   `last_suc_eof = true`.
 ///
