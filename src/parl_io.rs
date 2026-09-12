@@ -4,32 +4,31 @@
 //! so the panel keeps scanning out the current framebuffer on its own.
 //! Buffer swaps take effect at frame boundaries.
 //!
-//! # Blocking example
+//! ## Blocking Example
 //!
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb,
+//!     tx_descriptors, Hub75Config::new(), &*fb,
 //! ).expect("failed to create Hub75");
 //!
 //! // Display refreshes on its own; the main thread is free.
 //! loop { core::hint::spin_loop(); }
 //! ```
 //!
-//! # Async example
+//! ## Async Example
 //!
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
 //!     peripherals.PARL_IO, pins, peripherals.DMA_CH0,
-//!     tx_descriptors, Rate::from_mhz(20), &*fb0,
+//!     tx_descriptors, Hub75Config::new(), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
-//! // Swap buffers: yields to the executor, returns Err on DMA failure.
+//! // Swap buffers; `wait()` spin-loops until the DMA no longer reads the
+//! // old framebuffer. Use `wait_for_done().await` first to yield instead.
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
-use esp_hal::Blocking;
-use esp_hal::dma::DmaDescriptor;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ConfigurePins;
@@ -40,39 +39,100 @@ use esp_hal::parl_io::SampleEdge;
 use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
-use esp_hal::time::Rate;
 
+use crate::Hub75Backend;
+use crate::Hub75Config;
+use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
 #[cfg(not(esp32c5))]
 use crate::Hub75Pins16;
-use crate::bcm::linear::BcmBuf;
-pub use crate::isr::Hub75;
+use crate::framebuffer::WordSize;
+use crate::isr::BcmBuf;
 
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 
-impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<
-        T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
-    >(
-        parl_io: PARL_IO<'static>,
-        hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
+/// Selects the DMA channel as the TX EOF source on the ESP32-C5.
+///
+/// The ESP32-C5 `PARL_IO` can generate TX EOF from its bit-length counter or
+/// from the GDMA channel's EOF signal; `tx_eof_gen_sel` chooses between them.
+/// The HUB75 refresh loop is driven by EOF events that correspond to the end
+/// of the descriptor chain (linear mode) or the armed boundary descriptor
+/// (circular mode), so the DMA channel source is required for the ISR to fire.
+///
+/// # Panics
+///
+/// Panics if the `PARL_IO` peripheral cannot be accessed. This only happens
+/// when the peripheral was taken by another driver instance.
+// SAFETY: The `PARL_IO` peripheral is owned by the caller's `ParlIo` instance;
+// this steals a second handle only to write the EOF-source select bit during
+// construction, before the ISR is enabled and while no transfer is running, so
+// there is no concurrent register access.
+#[cfg(esp32c5)]
+fn select_dma_eof_source() {
+    unsafe {
+        PARL_IO::steal()
+            .register_block()
+            .tx_genrl_cfg()
+            .modify(|_, w| w.tx_eof_gen_sel().set_bit());
+    }
+}
 
+/// Clears the `tx_eof` flag on the `PARL_IO` peripheral.
+///
+/// Called by the boundary ISR (circular mode) to drain a stale flag. The
+/// ISR must **not** clear this flag on the handled boundary before
+/// `wait()`: `wait()` polls `INT_RAW.tx_eof` — the very flag that fired the
+/// ISR — and clears it itself on completion.
+// SAFETY: The `PARL_IO` peripheral handle is owned by the driver; this
+// steals a second handle only to write the interrupt-clear register from
+// ISR context. The write is a single register store, and the driver never
+// touches this register concurrently.
+#[cfg_attr(not(feature = "circular-dma"), allow(dead_code))]
+pub(crate) fn clear_frame_interrupt() {
+    unsafe {
+        PARL_IO::steal()
+            .register_block()
+            .int_clr()
+            .write(|w| w.tx_eof().clear_bit_by_one());
+    }
+}
+
+impl<FB, P, CH> Hub75Backend<FB, P, CH> for PARL_IO<'static>
+where
+    FB: crate::framebuffer::FrameBuffer + 'static,
+    P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static>,
+    CH: ParlIoDmaChannel<'static>,
+{
+    fn construct<const N: usize>(
+        self,
+        hub75_pins: P,
+        channel: CH,
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
+        config: Hub75Config,
+    ) -> Result<(), Hub75Error> {
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
-        let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
+        let mut parl_io_dev = ParlIo::new(self, channel)?;
 
-        parl_io_dev.set_interrupt_handler(crate::isr::hub75_isr);
+        // Bind the unified refresh ISR to the `PARL_IO` interrupt, and enable
+        // the `TxEof` source for both refresh modes (before the TX
+        // configuration consumes `parl_io_dev.tx`):
+        //
+        // - Linear mode: the `TxEof` source runs the BCM loop.
+        // - Circular mode: the ring carries no `suc_eof`, so nothing fires until a swap
+        //   arms the pass-boundary detector; the source stays enabled for the driver's
+        //   lifetime.
+        parl_io_dev.set_interrupt_handler(crate::isr::handler_with_priority(
+            crate::isr::isr,
+            config.interrupt_priority,
+        ));
+
+        // `listen` must precede `parl_io_dev.tx.with_config`, which partially
+        // moves `parl_io_dev`.
         parl_io_dev.listen(ParlIoInterrupt::TxEof);
 
         #[cfg(feature = "invert-clock")]
@@ -85,116 +145,27 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-blank"))]
         let idle_value = 0x0100;
 
-        let config = TxConfig::default()
-            .with_frequency(frequency)
+        let tx_config = TxConfig::default()
+            .with_frequency(config.frequency)
             .with_idle_value(idle_value)
             .with_sample_edge(sample_edge)
             .with_bit_order(BitPackOrder::Msb);
 
         let clk_pin = ClkOutPin::new(clock_pin);
-        let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, config)?;
+        let parl_io_tx = parl_io_dev.tx.with_config(pins, clk_pin, tx_config)?;
 
-        // SAFETY: The driver above owns the PARL_IO peripheral. We steal it
-        // only to set the `tx_eof_gen_sel` bit, so the DMA EOF
-        // signal comes from the GDMA channel rather than the peripheral's
-        // byte counter; esp-hal doesn't expose this register. The ISR isn't
-        // active yet, so no data race.
+        // On the C5 the TX EOF signal comes from the DMA channel rather than
+        // the peripheral's bit-length counter (`tx_eof_gen_sel` selects the
+        // source). In linear mode the refresh-loop ISR never fires otherwise;
+        // in circular mode, with a transfer length of 0 the frame ends at the
+        // armed `suc_eof` descriptor regardless of its size.
         #[cfg(esp32c5)]
-        unsafe {
-            esp_hal::peripherals::PARL_IO::steal()
-                .register_block()
-                .tx_genrl_cfg()
-                .modify(|_, w| w.tx_eof_gen_sel().set_bit());
-        }
+        select_dma_eof_source();
 
-        let buf = BcmBuf::new(tx_descriptors);
-        crate::isr::init_isr_state(parl_io_tx, buf);
-        crate::isr::start_internal(fb)?;
+        let buf = BcmBuf::new(tx_descriptors.as_slice());
+        crate::isr::init_state(parl_io_tx, buf);
 
-        Ok(Self::from_phantom())
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
-    /// Create a new blocking HUB75 driver.
-    ///
-    /// Configures the `PARL_IO` peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// # Arguments
-    /// * `parl_io` -- The `PARL_IO` peripheral instance
-    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel
-    /// * `tx_descriptors` -- DMA descriptor storage (use
-    ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- `PARL_IO` clock rate
-    /// * `fb` -- Initial framebuffer to display
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
-    /// [`Hub75Error::Dma`](crate::Hub75Error::Dma) /
-    /// [`Hub75Error::ParlIo`](crate::Hub75Error::ParlIo) if the initial
-    /// DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<T: TxPins + ConfigurePins + 'static, P: Hub75Pins<'static, T, Word = FB::Word>>(
-        parl_io: PARL_IO<'static>,
-        hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency, fb)
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
-    /// Create a new async HUB75 driver.
-    ///
-    /// Configures the `PARL_IO` peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// # Arguments
-    /// * `parl_io` -- The `PARL_IO` peripheral instance
-    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel
-    /// * `tx_descriptors` -- DMA descriptor storage (use
-    ///   [`hub75_dma_descriptors!`])
-    /// * `frequency` -- `PARL_IO` clock rate
-    /// * `fb` -- Initial framebuffer to display
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
-    /// [`Hub75Error::Dma`](crate::Hub75Error::Dma) /
-    /// [`Hub75Error::ParlIo`](crate::Hub75Error::ParlIo) if the initial
-    /// DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<
-        T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<'static, T, Word = FB::Word>,
-    >(
-        parl_io: PARL_IO<'static>,
-        hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut [DmaDescriptor],
-        frequency: Rate,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, frequency, fb)
+        Ok(())
     }
 }
 
@@ -210,8 +181,39 @@ use esp_hal::parl_io::TxEightBits;
 use esp_hal::parl_io::TxSixteenBits;
 
 #[cfg(not(esp32c5))]
-impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+impl crate::Hub75Pins for Hub75Pins16<'_> {
     type Word = u16;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Sixteen
+    }
+}
+
+impl crate::Hub75Pins for Hub75Pins8<'_> {
+    type Word = u8;
+
+    fn word_size(&self) -> WordSize {
+        WordSize::Eight
+    }
+}
+
+/// Converts a HUB75 pin configuration into the `PARL_IO` pin format.
+///
+/// This trait is internal to the driver and is not part of the public API.
+#[doc(hidden)]
+pub trait ParlIoPins<'d> {
+    /// The peripheral-specific pin format this configuration converts to
+    /// (`TxEightBits` or `TxSixteenBits`).
+    type Pins: TxPins + ConfigurePins + 'd;
+
+    /// Converts the high-level pin definition into the peripheral-specific
+    /// format, returning the converted pins and the clock pin.
+    fn convert_pins(self) -> (Self::Pins, AnyPin<'d>);
+}
+
+#[cfg(not(esp32c5))]
+impl<'d> ParlIoPins<'d> for Hub75Pins16<'d> {
+    type Pins = TxSixteenBits<'d>;
 
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
@@ -226,8 +228,8 @@ impl<'d> crate::Hub75Pins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     }
 }
 
-impl<'d> crate::Hub75Pins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
-    type Word = u8;
+impl<'d> ParlIoPins<'d> for Hub75Pins8<'d> {
+    type Pins = TxEightBits<'d>;
 
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();

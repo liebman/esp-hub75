@@ -5,6 +5,7 @@ build-esp32      = "build --target xtensa-esp32-none-elf         -Zbuild-std=cor
 build-esp32-c    = "build --target xtensa-esp32-none-elf         -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log,circular-dma"
 build-esp32c6    = "build --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c6,esp-hal-unstable,defmt"
 build-esp32c5    = "build --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt"
+build-esp32c5-c  = "build --target riscv32imac-unknown-none-elf  -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt,circular-dma"
 build-esp32s3    = "build --target xtensa-esp32s3-none-elf       -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt"
 build-esp32s3-c  = "build --target xtensa-esp32s3-none-elf       -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt,circular-dma"
 
@@ -13,6 +14,7 @@ clippy-esp32     = "clippy --target xtensa-esp32-none-elf        -Zbuild-std=cor
 clippy-esp32-c   = "clippy --target xtensa-esp32-none-elf        -Zbuild-std=core,alloc --features esp32,esp-hal-unstable,log,circular-dma"
 clippy-esp32c6   = "clippy --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc --features esp32c6,esp-hal-unstable,defmt"
 clippy-esp32c5   = "clippy --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt"
+clippy-esp32c5-c = "clippy --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc --features esp32c5,esp-hal-unstable,defmt,circular-dma"
 clippy-esp32s3   = "clippy --target xtensa-esp32s3-none-elf      -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt"
 clippy-esp32s3-c = "clippy --target xtensa-esp32s3-none-elf      -Zbuild-std=core,alloc --features esp32s3,esp-hal-unstable,defmt,circular-dma"
 
