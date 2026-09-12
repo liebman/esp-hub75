@@ -29,7 +29,6 @@
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
-use esp_hal::Blocking;
 use esp_hal::gpio::NoPin;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::lcd_cam::LcdDmaTxChannel;
@@ -43,7 +42,7 @@ use esp_hal::lcd_cam::lcd::i8080;
 use esp_hal::lcd_cam::lcd::i8080::I8080;
 use esp_hal::peripherals::LCD_CAM;
 
-use crate::Hub75;
+use crate::Hub75Backend;
 use crate::Hub75Config;
 use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
@@ -76,21 +75,22 @@ pub(crate) fn clear_frame_interrupt() {
     }
 }
 
-impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>, const N: usize>(
-        lcd_cam: LCD_CAM<'static>,
+impl<FB, P, CH> Hub75Backend<FB, P, CH> for LCD_CAM<'static>
+where
+    FB: crate::framebuffer::FrameBuffer + 'static,
+    P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>,
+    CH: LcdDmaTxChannel<'static>,
+{
+    fn construct<const N: usize>(
+        self,
         hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static>,
+        channel: CH,
         tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
-        crate::bcm::validate_fb_internal_ram(fb);
-
+    ) -> Result<(), Hub75Error> {
         let word_size = hub75_pins.word_size();
 
-        let mut lcd_cam_dev = LcdCam::new(lcd_cam);
+        let mut lcd_cam_dev = LcdCam::new(self);
 
         // Bind the boundary/refresh ISR to the LCD_CAM peripheral interrupt
         // and enable the `lcd_trans_done` source (both DMA modes), before
@@ -135,81 +135,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let buf = BcmBuf::new(tx_descriptors.as_slice());
         crate::isr::init_state(i8080, buf, word_size);
-        crate::isr::start_internal(fb)?;
 
-        Ok(Self::from_phantom())
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
-    /// Creates a new blocking HUB75 driver.
-    ///
-    /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// Takes the `LCD_CAM` peripheral instance, the HUB75 pin configuration
-    /// (8-bit or 16-bit), a DMA channel, DMA descriptor storage from
-    /// [`hub75_dma_descriptors!`], the `LCD_CAM` clock rate, and the initial
-    /// framebuffer to display.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`],
-    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`]
-    /// if the initial DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>, const N: usize>(
-        lcd_cam: LCD_CAM<'static>,
-        hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, config, fb)
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
-    /// Creates a new async HUB75 driver.
-    ///
-    /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// Takes the `LCD_CAM` peripheral instance, the HUB75 pin configuration
-    /// (8-bit or 16-bit), a DMA channel, DMA descriptor storage from
-    /// [`hub75_dma_descriptors!`], the `LCD_CAM` clock rate, and the initial
-    /// framebuffer to display.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`],
-    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`]
-    /// if the initial DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<P: Hub75Pins<Word = FB::Word> + LcdCamPins<'static>, const N: usize>(
-        lcd_cam: LCD_CAM<'static>,
-        hub75_pins: P,
-        channel: impl LcdDmaTxChannel<'static>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(lcd_cam, hub75_pins, channel, tx_descriptors, config, fb)
+        Ok(())
     }
 }
 

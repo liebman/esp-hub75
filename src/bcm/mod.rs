@@ -35,9 +35,11 @@ pub(crate) mod linear;
 /// PSRAM requires an explicit cache writeback before DMA reads, which the
 /// custom `BcmBuf` paths never perform. The DMA reads
 /// the *segment* buffers, not the `FrameBuffer` object itself, so each segment
-/// pointer is checked too. This runs once per constructor, so it is a hard
-/// `assert!` (not `debug_assert!`): a PSRAM framebuffer must fail loudly here
-/// rather than corrupt the display silently in release builds.
+/// pointer is checked too. It runs on every construction and restart — up
+/// front in the shared constructors, and again inside `start_internal` (which
+/// also covers the restart path) — so it is a hard `assert!` (not
+/// `debug_assert!`): a PSRAM framebuffer must fail loudly here rather than
+/// corrupt the display silently in release builds.
 pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
     fn assert_in_dram(dram: &core::ops::Range<usize>, ptr: *const (), what: &str) {
         let addr = ptr as usize;

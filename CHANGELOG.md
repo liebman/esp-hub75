@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+* `Hub75::new` / `Hub75::new_async` are now a single documented pair at the
+  crate root rather than one pair per backend. Both delegate to a hidden
+  `Hub75Backend` trait that each chip's peripheral implements, so the two
+  constructors are called the same way on every chip and construction
+  monomorphizes to the compiled-in backend with no dynamic dispatch. Existing
+  call sites are unaffected — the argument order and types are unchanged —
+  but the generic parameter lists of the two constructors changed, so code
+  that spelled them out explicitly must be updated.
 * circular-DMA swaps are now exact on all backends (ESP32, ESP32-S3,
   ESP32-C5). Arming a swap copies the last ring descriptor's buffer/length
   into a spare *boundary descriptor* (`suc_eof` set, `next = NULL`, owned by

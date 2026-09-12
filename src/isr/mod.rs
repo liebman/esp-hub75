@@ -200,9 +200,12 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
 ///
 /// Returns `Ok(())` if this is the first initialization, or
 /// `Err(Hub75Error::AlreadyInitialised)` if a driver already exists.
-/// Called at the top of every constructor's `new_internal` before any
-/// hardware configuration so that a second call fails cleanly without
-/// overwriting static state.
+/// Called by the shared [`Hub75::new`] / [`Hub75::new_async`] constructors
+/// before any backend touches hardware, so that a second call fails cleanly
+/// without overwriting static state.
+///
+/// [`Hub75::new`]: crate::Hub75::new
+/// [`Hub75::new_async`]: crate::Hub75::new_async
 pub(crate) fn claim_driver() -> Result<(), Hub75Error> {
     if DRIVER_TAKEN.swap(true, Ordering::AcqRel) {
         Err(Hub75Error::AlreadyInitialised)

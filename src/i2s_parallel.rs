@@ -31,7 +31,6 @@
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
-use esp_hal::Blocking;
 use esp_hal::gpio::AnyPin;
 use esp_hal::gpio::NoPin;
 use esp_hal::i2s::parallel::I2sParallel;
@@ -150,7 +149,7 @@ pub(crate) fn clear_frame_interrupt() {
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
 
-use crate::Hub75;
+use crate::Hub75Backend;
 use crate::Hub75Error;
 use crate::Hub75Pins;
 use crate::Hub75Pins8;
@@ -162,23 +161,20 @@ use crate::isr::BcmBuf;
 // Constructor
 // ---------------------------------------------------------------------------
 
-impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<
-        T: TxPins<'static> + 'static,
-        P: Hub75Pins<Word = FB::Word> + I2sPins<'static, T>,
-        I: Instance + I2sInterruptBinding + 'static,
-        const N: usize,
-    >(
-        i2s: I,
+impl<FB, P, CH, I> Hub75Backend<FB, P, CH> for I
+where
+    FB: crate::framebuffer::FrameBuffer + 'static,
+    P: Hub75Pins<Word = FB::Word> + I2sPins<'static>,
+    CH: I2sParallelDmaChannel<'static, I>,
+    I: Instance + I2sInterruptBinding + 'static,
+{
+    fn construct<const N: usize>(
+        self,
         hub75_pins: P,
-        channel: impl I2sParallelDmaChannel<'static, I>,
+        channel: CH,
         tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
-        crate::bcm::validate_fb_internal_ram(fb);
-
+    ) -> Result<(), Hub75Error> {
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
         // By default data changes on the falling edge of CLK so it is stable
@@ -188,7 +184,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
         #[cfg(not(feature = "invert-clock"))]
         let clock_pin = clock_pin.into_output_signal().with_output_inverter(true);
 
-        let i2s_parallel = I2sParallel::new(i2s, channel, config.frequency, pins, clock_pin);
+        let i2s_parallel = I2sParallel::new(self, channel, config.frequency, pins, clock_pin);
 
         // This connects `isr` to the interrupt. Both refresh modes use the
         // same source, `out_total_eof` (the DMA finished the descriptor
@@ -211,89 +207,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let buf = BcmBuf::new(tx_descriptors.as_slice());
         crate::isr::init_state(i2s_parallel, buf);
-        crate::isr::start_internal(fb)?;
 
-        Ok(Self::from_phantom())
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
-    /// Creates a new blocking HUB75 driver.
-    ///
-    /// Configures the I2S peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// Takes the I2S peripheral instance (I2S0 or I2S1), the HUB75 pin
-    /// configuration (8-bit or 16-bit), a DMA channel (`DMA_I2S0` or
-    /// `DMA_I2S1`), DMA descriptor storage from [`hub75_dma_descriptors!`],
-    /// the I2S clock rate, and the initial framebuffer to display.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
-    /// [`Hub75Error::Dma`] if the initial DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<
-        T: TxPins<'static> + 'static,
-        P: Hub75Pins<Word = FB::Word> + I2sPins<'static, T>,
-        I: Instance + I2sInterruptBinding + 'static,
-        const N: usize,
-    >(
-        i2s: I,
-        hub75_pins: P,
-        channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, config, fb)
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
-    /// Creates a new async HUB75 driver.
-    ///
-    /// Configures the I2S peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// Takes the I2S peripheral instance (I2S0 or I2S1), the HUB75 pin
-    /// configuration (8-bit or 16-bit), a DMA channel (`DMA_I2S0` or
-    /// `DMA_I2S1`), DMA descriptor storage from [`hub75_dma_descriptors!`],
-    /// the I2S clock rate, and the initial framebuffer to display.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
-    /// [`Hub75Error::Dma`] if the initial DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<
-        T: TxPins<'static> + 'static,
-        P: Hub75Pins<Word = FB::Word> + I2sPins<'static, T>,
-        I: Instance + I2sInterruptBinding + 'static,
-        const N: usize,
-    >(
-        i2s: I,
-        hub75_pins: P,
-        channel: impl I2sParallelDmaChannel<'static, I>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(i2s, hub75_pins, channel, tx_descriptors, config, fb)
+        Ok(())
     }
 }
 
@@ -321,13 +236,19 @@ impl crate::Hub75Pins for Hub75Pins8<'_> {
 ///
 /// This trait is internal to the driver and is not part of the public API.
 #[doc(hidden)]
-pub trait I2sPins<'d, T> {
+pub trait I2sPins<'d> {
+    /// The peripheral-specific pin format this configuration converts to
+    /// (`TxEightBits` or `TxSixteenBits`).
+    type Pins: TxPins<'d> + 'd;
+
     /// Converts the high-level pin definition into the peripheral-specific
     /// format, returning the converted pins and the clock pin.
-    fn convert_pins(self) -> (T, AnyPin<'d>);
+    fn convert_pins(self) -> (Self::Pins, AnyPin<'d>);
 }
 
-impl<'d> I2sPins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+impl<'d> I2sPins<'d> for Hub75Pins16<'d> {
+    type Pins = TxSixteenBits<'d>;
+
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
@@ -341,7 +262,9 @@ impl<'d> I2sPins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     }
 }
 
-impl<'d> I2sPins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
+impl<'d> I2sPins<'d> for Hub75Pins8<'d> {
+    type Pins = TxEightBits<'d>;
+
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]

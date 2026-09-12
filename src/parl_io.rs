@@ -29,7 +29,6 @@
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
-use esp_hal::Blocking;
 use esp_hal::parl_io::BitPackOrder;
 use esp_hal::parl_io::ClkOutPin;
 use esp_hal::parl_io::ConfigurePins;
@@ -41,7 +40,7 @@ use esp_hal::parl_io::TxConfig;
 use esp_hal::parl_io::TxPins;
 use esp_hal::peripherals::PARL_IO;
 
-use crate::Hub75;
+use crate::Hub75Backend;
 use crate::Hub75Config;
 use crate::Hub75DmaDescriptors;
 use crate::Hub75Error;
@@ -102,25 +101,22 @@ pub(crate) fn clear_frame_interrupt() {
     }
 }
 
-impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
-    fn new_internal<
-        T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static, T>,
-        const N: usize,
-    >(
-        parl_io: PARL_IO<'static>,
+impl<FB, P, CH> Hub75Backend<FB, P, CH> for PARL_IO<'static>
+where
+    FB: crate::framebuffer::FrameBuffer + 'static,
+    P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static>,
+    CH: ParlIoDmaChannel<'static>,
+{
+    fn construct<const N: usize>(
+        self,
         hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
+        channel: CH,
         tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
         config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        crate::isr::claim_driver()?;
-        crate::bcm::validate_fb_internal_ram(fb);
-
+    ) -> Result<(), Hub75Error> {
         let (pins, clock_pin) = hub75_pins.convert_pins();
 
-        let mut parl_io_dev = ParlIo::new(parl_io, channel)?;
+        let mut parl_io_dev = ParlIo::new(self, channel)?;
 
         // Bind the unified refresh ISR to the `PARL_IO` interrupt, and enable
         // the `TxEof` source for both refresh modes (before the TX
@@ -168,91 +164,8 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 
         let buf = BcmBuf::new(tx_descriptors.as_slice());
         crate::isr::init_state(parl_io_tx, buf);
-        crate::isr::start_internal(fb)?;
 
-        Ok(Self::from_phantom())
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
-    /// Creates a new blocking HUB75 driver.
-    ///
-    /// Configures the `PARL_IO` peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// Takes the `PARL_IO` peripheral instance, the HUB75 pin configuration
-    /// (8-bit or 16-bit), a DMA channel, DMA descriptor storage from
-    /// [`hub75_dma_descriptors!`], the `PARL_IO` clock rate and options, and
-    /// the initial framebuffer to display.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
-    /// [`Hub75Error::Dma`] /
-    /// [`Hub75Error::ParlIo`] if the initial
-    /// DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new<
-        T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static, T>,
-        const N: usize,
-    >(
-        parl_io: PARL_IO<'static>,
-        hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, config, fb)
-    }
-}
-
-impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
-    /// Creates a new async HUB75 driver.
-    ///
-    /// Configures the `PARL_IO` peripheral, applies pin assignments, and
-    /// immediately starts DMA-driven display refresh with the provided
-    /// framebuffer.
-    ///
-    /// The pin configuration's word type must match the framebuffer's word
-    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
-    /// is a compile-time error.
-    ///
-    /// Takes the `PARL_IO` peripheral instance, the HUB75 pin configuration
-    /// (8-bit or 16-bit), a DMA channel, DMA descriptor storage from
-    /// [`hub75_dma_descriptors!`], the `PARL_IO` clock rate and options, and
-    /// the initial framebuffer to display.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
-    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
-    /// [`Hub75Error::Dma`] /
-    /// [`Hub75Error::ParlIo`] if the initial
-    /// DMA transfer fails.
-    ///
-    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
-    pub fn new_async<
-        T: TxPins + ConfigurePins + 'static,
-        P: Hub75Pins<Word = FB::Word> + ParlIoPins<'static, T>,
-        const N: usize,
-    >(
-        parl_io: PARL_IO<'static>,
-        hub75_pins: P,
-        channel: impl ParlIoDmaChannel<'static>,
-        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
-        config: Hub75Config,
-        fb: &'static FB,
-    ) -> Result<Self, Hub75Error> {
-        Self::new_internal(parl_io, hub75_pins, channel, tx_descriptors, config, fb)
+        Ok(())
     }
 }
 
@@ -288,14 +201,20 @@ impl crate::Hub75Pins for Hub75Pins8<'_> {
 ///
 /// This trait is internal to the driver and is not part of the public API.
 #[doc(hidden)]
-pub trait ParlIoPins<'d, T> {
+pub trait ParlIoPins<'d> {
+    /// The peripheral-specific pin format this configuration converts to
+    /// (`TxEightBits` or `TxSixteenBits`).
+    type Pins: TxPins + ConfigurePins + 'd;
+
     /// Converts the high-level pin definition into the peripheral-specific
     /// format, returning the converted pins and the clock pin.
-    fn convert_pins(self) -> (T, AnyPin<'d>);
+    fn convert_pins(self) -> (Self::Pins, AnyPin<'d>);
 }
 
 #[cfg(not(esp32c5))]
-impl<'d> ParlIoPins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
+impl<'d> ParlIoPins<'d> for Hub75Pins16<'d> {
+    type Pins = TxSixteenBits<'d>;
+
     fn convert_pins(self) -> (TxSixteenBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]
@@ -309,7 +228,9 @@ impl<'d> ParlIoPins<'d, TxSixteenBits<'d>> for Hub75Pins16<'d> {
     }
 }
 
-impl<'d> ParlIoPins<'d, TxEightBits<'d>> for Hub75Pins8<'d> {
+impl<'d> ParlIoPins<'d> for Hub75Pins8<'d> {
+    type Pins = TxEightBits<'d>;
+
     fn convert_pins(self) -> (TxEightBits<'d>, AnyPin<'d>) {
         let blank = self.blank.into_output_signal();
         #[cfg(feature = "invert-blank")]

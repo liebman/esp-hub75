@@ -292,6 +292,45 @@ impl Default for Hub75Config {
 mod driver;
 mod isr;
 
+/// Seam between the documented [`Hub75::new`] / [`Hub75::new_async`]
+/// constructors and the chip-specific backends.
+///
+/// Exactly one backend is compiled in, selected by target chip: `LCD_CAM`
+/// (ESP32-S3), `PARL_IO` (ESP32-C5 / ESP32-C6), or I2S in parallel mode
+/// (ESP32). Each backend implements this trait for its peripheral type, and
+/// the constructors delegate to [`construct`](Hub75Backend::construct), so the
+/// whole construction path monomorphizes to the selected backend with no
+/// dynamic dispatch.
+///
+/// This trait is internal to the driver and is not part of the public API.
+#[doc(hidden)]
+pub trait Hub75Backend<FB, P, CH>
+where
+    FB: framebuffer::FrameBuffer + 'static,
+    P: Hub75Pins<Word = FB::Word>,
+{
+    /// Configures the peripheral, applies the pin assignments, and binds the
+    /// refresh ISR. The initial DMA transfer is started afterwards by
+    /// [`Hub75::new`] / [`Hub75::new_async`].
+    ///
+    /// Called by [`Hub75::new`] / [`Hub75::new_async`] with `self` set to the
+    /// peripheral instance passed to the constructor. Those constructors claim
+    /// the singleton driver slot and validate the framebuffer first, so
+    /// implementations can start directly with their own peripheral setup.
+    ///
+    /// # Errors
+    ///
+    /// Propagates peripheral configuration failures (the backend-specific
+    /// variants listed on [`Hub75::new`]).
+    fn construct<const N: usize>(
+        self,
+        pins: P,
+        channel: CH,
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
+        config: Hub75Config,
+    ) -> Result<(), Hub75Error>;
+}
+
 /// HUB75 display controller driven by an interrupt-based BCM refresh loop.
 ///
 /// Created via [`Hub75::new`] (blocking) or [`Hub75::new_async`] (async).
@@ -362,6 +401,103 @@ impl<DM: esp_hal::DriverMode, FB> Hub75<DM, FB> {
             _fb: PhantomData,
             _not_sync: PhantomData,
         }
+    }
+
+    /// Establishes the invariants every constructor must satisfy before a
+    /// backend is allowed to touch hardware: the singleton driver slot is
+    /// claimed, and the framebuffer (together with every BCM segment it
+    /// exposes) is confirmed to live in internal DRAM rather than PSRAM.
+    ///
+    /// Claiming first means a second `Hub75` fails with
+    /// [`Hub75Error::AlreadyInitialised`] before any backend state is
+    /// overwritten. The DRAM assertion is repeated inside `start_internal`
+    /// (which also covers the `Hub75::restart` path); checking it here as well
+    /// makes a PSRAM framebuffer fail before the peripheral, ISR, or DMA state
+    /// is set up.
+    fn claim_and_validate(fb: &'static FB) -> Result<(), Hub75Error>
+    where
+        FB: framebuffer::FrameBuffer + 'static,
+    {
+        crate::isr::claim_driver()?;
+        crate::bcm::validate_fb_internal_ram(fb);
+        Ok(())
+    }
+}
+
+impl<FB: framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Blocking, FB> {
+    /// Creates a new blocking HUB75 driver.
+    ///
+    /// Configures the chip's panel-driving peripheral, applies the pin
+    /// assignments, and immediately starts DMA-driven display refresh with the
+    /// provided framebuffer. The peripheral is whichever one this chip's
+    /// backend uses — `LCD_CAM` on the ESP32-S3, `PARL_IO` on the ESP32-C5 and
+    /// ESP32-C6, or I2S in parallel mode on the ESP32 (see the [crate-level
+    /// documentation](crate)).
+    ///
+    /// The pin configuration's word type must match the framebuffer's word
+    /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
+    /// is a compile-time error.
+    ///
+    /// Takes the peripheral instance, the HUB75 pin configuration (8-bit or
+    /// 16-bit), a DMA channel, DMA descriptor storage from
+    /// [`hub75_dma_descriptors!`], the backend configuration, and the initial
+    /// framebuffer to display.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
+    /// already exists. Returns [`Hub75Error::AlreadyRunning`] or
+    /// [`Hub75Error::Dma`] if the initial DMA transfer fails, and a
+    /// backend-specific configuration variant when peripheral setup fails
+    /// (`Hub75Error::I8080` on `LCD_CAM`; `Hub75Error::ParlIo` or
+    /// `Hub75Error::ConfigError` on `PARL_IO`).
+    ///
+    /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
+    pub fn new<B, P, CH, const N: usize>(
+        peripheral: B,
+        pins: P,
+        channel: CH,
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
+        config: Hub75Config,
+        fb: &'static FB,
+    ) -> Result<Self, Hub75Error>
+    where
+        P: Hub75Pins<Word = FB::Word>,
+        B: Hub75Backend<FB, P, CH>,
+    {
+        Self::claim_and_validate(fb)?;
+        peripheral.construct(pins, channel, tx_descriptors, config)?;
+        crate::isr::start_internal(fb)?;
+        Ok(Self::from_phantom())
+    }
+}
+
+impl<FB: framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
+    /// Creates a new async HUB75 driver.
+    ///
+    /// Identical to [`Hub75::new`], except that a pending framebuffer swap can
+    /// yield to an async executor with [`Hub75Swap::wait_for_done`] before
+    /// blocking on [`Hub75Swap::wait`].
+    ///
+    /// # Errors
+    ///
+    /// See [`Hub75::new`].
+    pub fn new_async<B, P, CH, const N: usize>(
+        peripheral: B,
+        pins: P,
+        channel: CH,
+        tx_descriptors: &'static mut Hub75DmaDescriptors<FB, N>,
+        config: Hub75Config,
+        fb: &'static FB,
+    ) -> Result<Self, Hub75Error>
+    where
+        P: Hub75Pins<Word = FB::Word>,
+        B: Hub75Backend<FB, P, CH>,
+    {
+        Self::claim_and_validate(fb)?;
+        peripheral.construct(pins, channel, tx_descriptors, config)?;
+        crate::isr::start_internal(fb)?;
+        Ok(Self::from_phantom())
     }
 }
 
