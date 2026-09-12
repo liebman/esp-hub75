@@ -145,7 +145,7 @@
 //! - `full-chain-dma`: Build the entire BCM repetition chain in a single DMA
 //!   transfer instead of one plane per interrupt. This reduces interrupt
 //!   frequency at the cost of more DMA descriptor RAM. Note that the ESP32-C6
-//!   `PARL_IO` peripheral has a 65 535-byte per-transfer limit, which
+//!   `PARL_IO` peripheral has a 65,535-byte per-transfer limit, which
 //!   constrains the maximum panel size and plane count when this feature is
 //!   enabled.
 //! - `circular-dma`: Circular DMA descriptor chain (implies `full-chain-dma`).
@@ -165,10 +165,12 @@
 //!   tail word at the end of each DMA buffer (`plain` framebuffers) or at the
 //!   end of each bit-plane (`bitplane::plain`) that drives LATCH LOW when the
 //!   transfer completes. Does not apply to latched framebuffers.
-//! - `iram`: Place the driver's hot path (render / DMA wait functions) in
-//!   Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
-//!   Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker. Costs
-//!   roughly 5-10 KiB of IRAM.
+//! - `iram`: Place the driver's hot path — the refresh ISR, the DMA
+//!   start/finish/wait path, and the BCM segment and descriptor bookkeeping,
+//!   including the framebuffer pointer-delta swap — in Instruction RAM (IRAM)
+//!   to avoid flash-cache stalls (for example during Wi-Fi, PSRAM, or SPI-flash
+//!   activity) that can cause visible flicker. Drawing (`set_pixel`) stays in
+//!   flash. Costs roughly 1–2 KiB of IRAM (about 4 KiB at `opt-level = 0`).
 //! - `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
 //!   `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
 //!   (OE HIGH) inserted around row address changes. The lead blank controls
@@ -302,13 +304,8 @@ mod isr;
 /// [`FrameBuffer::Word`](crate::framebuffer::FrameBuffer::Word); mismatches
 /// are caught at compile time.
 ///
-/// # Type Parameters
-///
-/// * `DM` — Driver mode ([`Blocking`](esp_hal::Blocking) or
-///   [`Async`](esp_hal::Async)).
-/// * `FB` — The concrete framebuffer type.
-///
-/// # Buffer Swapping
+/// `DM` is the driver mode ([`Blocking`](esp_hal::Blocking) or
+/// [`Async`](esp_hal::Async)) and `FB` is the concrete framebuffer type.
 ///
 /// Call [`swap()`](Hub75::swap) to exchange framebuffers. It returns a
 /// [`Hub75Swap`] transfer object that can be waited on:
@@ -317,8 +314,6 @@ mod isr;
 /// - [`Hub75Swap::wait_for_done()`] — yields to the executor (async contexts).
 ///   Call [`Hub75Swap::wait()`] afterwards to get the result.
 /// - [`Hub75Swap::is_done()`] — non-blocking completion check.
-///
-/// # Limitations
 ///
 /// Only **one** `Hub75` instance may exist at a time. The driver uses
 /// module-level statics for the ISR state machine, so creating a second
@@ -338,7 +333,7 @@ pub struct Hub75<DM: esp_hal::DriverMode, FB> {
 
 // SAFETY: `Hub75` is a zero-sized handle that owns no data — every field is a
 // `PhantomData`. The real driver state (DMA transfer handle, `BcmBuf`, ISR
-// state machine) lives in module-level statics serialised by
+// state machine) lives in module-level statics serialized by
 // `esp_sync::NonReentrantMutex`, never inside `Hub75` itself, so moving a
 // `Hub75` between threads is safe regardless of `DM`. This explicit `Send` is
 // required because `esp_hal::Async` is `!Send` (esp-rs/esp-hal#2980, which
@@ -355,7 +350,7 @@ unsafe impl<DM: esp_hal::DriverMode, FB> Send for Hub75<DM, FB> {}
 // `unsafe impl Send` above, not by field derivation.
 //
 // The `!Sync` bound matters because `swap()` takes `&self` and `STATE` would
-// serialise concurrent callers, but sharing a `&Hub75` across cores would still
+// serialize concurrent callers, but sharing a `&Hub75` across cores would still
 // let two threads race to be the one outstanding swap and would make the
 // single-waker-slot protocol in `SWAP_WAKER` ambiguous. Requiring ownership
 // (`Send` but not `Sync`) keeps the driver single-owner by construction.
@@ -564,7 +559,7 @@ pub const fn frame_clock_cycles<FB: framebuffer::FrameBuffer>() -> u64 {
 /// is visibly dim and flickery — reduce the plane count or raise the pixel
 /// clock.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust,ignore
 /// type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
@@ -597,7 +592,7 @@ impl<FB: framebuffer::FrameBuffer, const N: usize> Hub75DmaDescriptors<FB, N> {
     /// under the currently enabled DMA features.
     pub const COUNT: usize = dma_descriptor_count::<FB>(MAX_DMA_CHUNK_SIZE);
 
-    /// Creates the storage with all descriptors initialised to
+    /// Creates the storage with all descriptors initialized to
     /// [`esp_hal::dma::DmaDescriptor::EMPTY`], asserting at (per-instantiation)
     /// const evaluation time that `N` matches [`Self::COUNT`].
     ///
@@ -633,14 +628,14 @@ impl<FB: framebuffer::FrameBuffer, const N: usize> Hub75DmaDescriptors<FB, N> {
 ///
 /// This macro computes the required number of DMA descriptors at compile
 /// time with [`dma_descriptor_count`] and allocates them in a static cell
-/// wrapped in [`Hub75DmaDescriptors`]`<$fb_type, N>`. It returns
+/// wrapped in [`Hub75DmaDescriptors`]. It returns
 /// `&'static mut Hub75DmaDescriptors<$fb_type, N>` suitable for passing to
 /// [`Hub75::new`] or [`Hub75::new_async`].
 ///
 /// Because the returned storage is typed by the framebuffer type, passing
 /// descriptors built for a different framebuffer type is a compile error.
 ///
-/// # Example
+/// # Examples
 /// ```rust,ignore
 /// type FBType = DmaFrameBuffer<NROWS, COLS, PLANES>;
 /// let tx_descriptors = esp_hub75::hub75_dma_descriptors!(FBType);
@@ -736,7 +731,7 @@ pub trait Hub75Pins<'d> {
     /// Returns the bus width (8-bit or 16-bit) for this pin configuration.
     fn word_size(&self) -> crate::framebuffer::WordSize;
 
-    /// Apply pin configuration to the i8080 driver.
+    /// Applies the pin configuration to the i8080 driver.
     fn apply<DM: esp_hal::DriverMode>(
         self,
         i8080: esp_hal::lcd_cam::lcd::i8080::I8080<'d, DM>,
@@ -750,8 +745,7 @@ pub trait Hub75Pins<'d> {
 /// (I2S, LCD-CAM, `PARL_IO`) and between direct-drive (16-bit) and latched
 /// (8-bit) HUB75 controller boards.
 ///
-/// # Type Parameters
-/// * `T` - The target pin configuration type for the specific peripheral.
+/// `T` is the target pin configuration type for the specific peripheral.
 #[cfg(not(hub75_use_lcd_cam))]
 pub trait Hub75Pins<'d, T> {
     /// The word type for this pin configuration (`u8` for 8-bit, `u16` for
@@ -762,10 +756,8 @@ pub trait Hub75Pins<'d, T> {
     /// Converts the high-level pin definition into the peripheral-specific
     /// format needed by the driver.
     ///
-    /// # Returns
-    /// A tuple containing:
-    /// 1. The converted pin configuration for the specific peripheral.
-    /// 2. The clock pin used for synchronization.
+    /// Returns a tuple containing the converted pin configuration for the
+    /// specific peripheral and the clock pin used for synchronization.
     fn convert_pins(self) -> (T, AnyPin<'d>);
 }
 
@@ -775,9 +767,9 @@ pub trait Hub75Pins<'d, T> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Hub75Error {
-    /// The driver has not been initialised (no `Hub75` instance exists).
+    /// The driver has not been initialized (no `Hub75` instance exists).
     NotInitialised,
-    /// The driver has already been initialised. A `Hub75` instance runs for
+    /// The driver has already been initialized. A `Hub75` instance runs for
     /// the whole program and cannot be released, so only one may exist.
     AlreadyInitialised,
     /// Error during a DMA transfer
@@ -807,8 +799,8 @@ pub enum Hub75Error {
 impl core::fmt::Display for Hub75Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::NotInitialised => write!(f, "Hub75 not initialised"),
-            Self::AlreadyInitialised => write!(f, "Hub75 driver already initialised"),
+            Self::NotInitialised => write!(f, "Hub75 not initialized"),
+            Self::AlreadyInitialised => write!(f, "Hub75 driver already initialized"),
             Self::SwapInFlight => write!(f, "framebuffer swap already in flight"),
             Self::Dma(e) => write!(f, "DMA error: {e:?}"),
             Self::DmaBuf(e) => write!(f, "DMA buffer error: {e:?}"),

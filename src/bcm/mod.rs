@@ -56,7 +56,7 @@ pub(crate) fn validate_fb_internal_ram(fb: &impl FrameBuffer) {
     }
 }
 
-/// Build a `Preparation` pointing to the first descriptor in a chain.
+/// Builds a `Preparation` pointing to the first descriptor in a chain.
 ///
 /// Shared by the linear and full-chain buffer implementations.
 #[cfg_attr(feature = "iram", ram)]
@@ -78,7 +78,7 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
     prep
 }
 
-/// Fill a BCM descriptor chain from a segment source.
+/// Fills a BCM descriptor chain from a segment source.
 ///
 /// Every refresh mode turns a sequence of [`BcmSegment`]s into DMA
 /// descriptors through this function, chunking each segment repetition down
@@ -95,7 +95,7 @@ pub(super) fn make_preparation(descriptors: &mut [DmaDescriptor]) -> Preparation
 ///
 /// Segments are pulled on demand via `get_segment(idx)` for
 /// `idx in 0..segment_count`, so callers can stream straight from a
-/// framebuffer without materialising a segment cache.
+/// framebuffer without materializing a segment cache.
 #[cfg_attr(feature = "iram", ram)]
 pub(super) fn fill_descriptor_chain(
     descriptors: &mut [DmaDescriptor],

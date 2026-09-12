@@ -182,10 +182,12 @@ framebuffer structure.
   Appends a single extra "tail" word at the end of each DMA buffer (`plain`)
   or at the end of each bit-plane (`bitplane::plain`) that parks the bus with
   LATCH=0 and OE=BLANK, cleanly terminating the transfer.
-- `iram`: Place the driver's hot path (render / DMA wait functions) in
-  Instruction RAM (IRAM) to avoid flash-cache stalls (for example during
-  Wi-Fi, PSRAM, or SPI-flash activity) that can cause visible flicker.
-  Costs roughly 5-10 KiB of IRAM.
+- `iram`: Place the driver's hot path (the refresh ISR, the DMA
+  start/finish/wait path, and the BCM segment and descriptor bookkeeping,
+  including the framebuffer pointer-delta swap) in Instruction RAM (IRAM) to
+  avoid flash-cache stalls (for example during Wi-Fi, PSRAM, or SPI-flash
+  activity) that can cause visible flicker. Drawing (`set_pixel`) stays in
+  flash. Costs roughly 1-2 KiB of IRAM (about 4 KiB at `opt-level = 0`).
 - `lead-blank-1/2/4/8/16` / `trail-blank-1/2/4/8/16`: Forwards to
   `hub75-framebuffer`. Control the number of pixel-clock cycles of blanking
   (OE HIGH) inserted around row address changes. The lead blank controls

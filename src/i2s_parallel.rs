@@ -3,11 +3,10 @@
 //! The I2S DMA `out_total_eof` interrupt runs the BCM loop in both refresh
 //! modes: linear chains end with `suc_eof` + `NULL` next, and a circular
 //! chain ends the same way while a swap has armed the pass-boundary
-//! detector. The loop sends the framebuffer data to the panel again and
-//! again. The panel shows the current framebuffer by itself. A buffer swap
-//! starts at a frame boundary.
+//! detector. The loop streams the current framebuffer to the panel
+//! continuously, and a buffer swap takes effect at a frame boundary.
 //!
-//! # Blocking example
+//! ## Blocking Example
 //!
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
@@ -19,7 +18,7 @@
 //! loop { core::hint::spin_loop(); }
 //! ```
 //!
-//! # Async example
+//! ## Async Example
 //!
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
@@ -27,7 +26,8 @@
 //!     tx_descriptors, Hub75Config::new(), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
-//! // Swap buffers: yields to the executor, returns Err on DMA failure.
+//! // Swap buffers; `wait()` spin-loops until the DMA no longer reads the
+//! // old framebuffer. Use `wait_for_done().await` first to yield instead.
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
@@ -216,7 +216,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 }
 
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
-    /// Create a new blocking HUB75 driver.
+    /// Creates a new blocking HUB75 driver.
     ///
     /// Configures the I2S peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
@@ -226,14 +226,11 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
-    /// # Arguments
-    /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
-    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel (`DMA_I2S0` or `DMA_I2S1`)
-    /// * `tx_descriptors` -- DMA descriptor storage (use
-    ///   [`hub75_dma_descriptors!`])
-    /// * `config` -- I2S clock rate
-    /// * `fb` -- Initial framebuffer to display
+    /// Takes the I2S peripheral instance (I2S0 or I2S1), the HUB75 pin
+    /// configuration (8-bit or 16-bit), a DMA channel (`DMA_I2S0` or
+    /// `DMA_I2S1`), DMA descriptor storage from [`hub75_dma_descriptors!`],
+    /// the I2S clock rate, and the initial framebuffer to display.
+    ///
     /// # Errors
     ///
     /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
@@ -259,7 +256,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
 }
 
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
-    /// Create a new async HUB75 driver.
+    /// Creates a new async HUB75 driver.
     ///
     /// Configures the I2S peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
@@ -269,14 +266,11 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
-    /// # Arguments
-    /// * `i2s` -- The I2S peripheral instance (I2S0 or I2S1)
-    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel (`DMA_I2S0` or `DMA_I2S1`)
-    /// * `tx_descriptors` -- DMA descriptor storage (use
-    ///   [`hub75_dma_descriptors!`])
-    /// * `config` -- I2S clock rate
-    /// * `fb` -- Initial framebuffer to display
+    /// Takes the I2S peripheral instance (I2S0 or I2S1), the HUB75 pin
+    /// configuration (8-bit or 16-bit), a DMA channel (`DMA_I2S0` or
+    /// `DMA_I2S1`), DMA descriptor storage from [`hub75_dma_descriptors!`],
+    /// the I2S clock rate, and the initial framebuffer to display.
+    ///
     /// # Errors
     ///
     /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance

@@ -88,8 +88,8 @@ enum TransferPhase {
 /// transfer length, derived from the buffer) so callers — [`start_internal`]
 /// and the refresh [`isr`] — neither see nor pass them.
 ///
-/// All access is serialised by the [`STATE`] lock, and the driver is
-/// initialised once, so exactly one `Transfer` exists for the driver's
+/// All access is serialized by the [`STATE`] lock, and the driver is
+/// initialized once, so exactly one `Transfer` exists for the driver's
 /// lifetime.
 pub(crate) struct Transfer {
     phase: TransferPhase,
@@ -100,7 +100,7 @@ pub(crate) struct Transfer {
 }
 
 impl Transfer {
-    /// Park a fresh `(driver, buffer)` pair as `Idle`.
+    /// Parks a fresh `(driver, buffer)` pair as `Idle`.
     pub(crate) fn new(
         tx: TxDriver,
         buf: BcmBuf,
@@ -152,7 +152,7 @@ impl Transfer {
         }
     }
 
-    /// Start a transfer from the parked `(driver, buffer)`.
+    /// Starts a transfer from the parked `(driver, buffer)`.
     ///
     /// The backend `cfg_select!` lives here: `I2S`/`LCD_CAM` `send()`,
     /// `PARL_IO` `write()` with the peripheral's EOF bit length.
@@ -222,7 +222,7 @@ impl Transfer {
         }
     }
 
-    /// Consume the in-flight transfer and park the engine again.
+    /// Consumes the in-flight transfer and parks the engine again.
     ///
     /// `.wait()` returns instantly — the interrupt already fired — but the
     /// `wait()` calls still check peripheral state, so this is safe from ISR
@@ -297,7 +297,7 @@ impl Transfer {
         }
     }
 
-    /// Backend-specific `wait()`, normalised to `(result, driver, buffer)`.
+    /// Backend-specific `wait()`, normalized to `(result, driver, buffer)`.
     ///
     /// `I2S` reports completion through peripheral state registers only (its
     /// `wait()` has no error to report); the other backends return a
@@ -319,7 +319,7 @@ impl Transfer {
         }
     }
 
-    /// Drain the active backend's frame-boundary flag.
+    /// Drains the active backend's frame-boundary flag.
     ///
     /// Circular mode only. Called by the refresh ISR (a stale flag with no
     /// swap armed) and by [`finish`](Self::finish) (the flag that fired the

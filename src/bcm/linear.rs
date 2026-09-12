@@ -97,12 +97,12 @@ impl SegmentCache {
         }
     }
 
-    /// Fill the cache from a framebuffer's BCM segments and precompute the
+    /// Fills the cache from a framebuffer's BCM segments and precomputes the
     /// per-group descriptor counts the ISR needs.
     ///
     /// The build-once `full-chain-dma` / `circular-dma` paths stream segments
     /// straight from the framebuffer (`bcm::full_chain`); no cache is
-    /// materialised there, so the ~3.9 KB `SegmentCache` only exists in this
+    /// materialized there, so the ~3.9 KB `SegmentCache` only exists in this
     /// group-based mode. Called once per binding, from `BcmBuf::bind_cache`.
     pub(crate) fn fill<FB: FrameBuffer>(&mut self, fb: &FB) {
         // Compile-time checks: the cache can hold the framebuffer's full scan
@@ -216,7 +216,7 @@ impl BcmBuf {
         }
     }
 
-    /// Bind the buffer to `fb`: rebuild the segment cache and reset the BCM
+    /// Binds the buffer to `fb`: rebuilds the segment cache and resets the BCM
     /// state machine.
     ///
     /// Called from `start_internal()` (init/restart path) before the first
@@ -236,7 +236,7 @@ impl BcmBuf {
         self.current_group = 0;
     }
 
-    /// Advance the BCM state machine after a transfer completes.
+    /// Advances the BCM state machine after a transfer completes.
     /// Returns `true` when a full BCM frame boundary is reached.
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn advance(&mut self) -> bool {
@@ -249,7 +249,7 @@ impl BcmBuf {
         false
     }
 
-    /// Apply a framebuffer pointer delta to all cached segments.
+    /// Applies a framebuffer pointer delta to all cached segments.
     ///
     /// Called at frame boundaries when a swap is pending. Every segment's
     /// `ptr` is shifted by `delta` — the byte offset between the old and
@@ -274,7 +274,7 @@ impl BcmBuf {
     }
 }
 
-// SAFETY: All access to `BcmBuf` is serialised by the ISR state lock
+// SAFETY: All access to `BcmBuf` is serialized by the ISR state lock
 // (the `STATE` static in `isr`, an `esp_sync::NonReentrantMutex`): it disables
 // interrupts on the current core and CAS-spins on an owner word on
 // multi-core chips like ESP32 and ESP32-S3. There is therefore no

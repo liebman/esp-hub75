@@ -2,9 +2,9 @@
 //!
 //! Compiled for every platform that uses an interrupt-driven refresh loop
 //! (ESP32 via I2S Parallel, ESP32-S3 via `LCD_CAM`, ESP32-C5/C6 via
-//! `PARL_IO`). This module holds the swap-signalling core, the [`Transfer`]
+//! `PARL_IO`). This module holds the swap-signaling core, the [`Transfer`]
 //! plumbing, the refresh [`isr`], and the public [`Hub75`](crate::Hub75) /
-//! [`Hub75Swap`](crate::Hub75Swap) driver API.
+//! [`Hub75Swap`] driver API.
 //!
 //! The refresh modes are compile-time selected. Two are "full chain" (the
 //! whole BCM sequence in one transfer) and live in `bcm::full_chain`:
@@ -16,7 +16,7 @@
 //!   ring with pointer-delta swaps at pass boundaries.
 //!
 //! All modes share one refresh [`isr`]: the mode differences (stale-interrupt
-//! gating, group advancement, delta target, disarm, and completion signalling)
+//! gating, group advancement, delta target, disarm, and completion signaling)
 //! are `#[cfg]` branches inside the handler and the swap path. The
 //! descriptor-chain and segment-cache mechanics live in [`crate::bcm`].
 
@@ -93,7 +93,7 @@ pub(crate) fn handler_with_priority(
 }
 
 // ---------------------------------------------------------------------------
-// Swap signalling
+// Swap signaling
 // ---------------------------------------------------------------------------
 
 /// Swap-completion flag.
@@ -130,7 +130,7 @@ mod transfer;
 pub(crate) use transfer::Transfer;
 pub(crate) use transfer::TxDriver;
 
-/// Bind the buffer to `fb`, start the first DMA transfer, and park the
+/// Binds the buffer to `fb`, starts the first DMA transfer, and parks the
 /// in-flight state. Shared by all refresh modes; the only mode-specific step is
 /// how the buffer is bound to the framebuffer (the group-based mode builds the
 /// segment cache, the full-chain / circular modes build the descriptor chain) —
@@ -143,7 +143,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
     // only exits the closure, so the wake below always runs.
     let mut wake = None;
     let result = STATE.with(|state| {
-        let state = state.as_mut().expect("Hub75 not initialised");
+        let state = state.as_mut().expect("Hub75 not initialized");
 
         if !state.transfer.is_idle() {
             return Err(Hub75Error::AlreadyRunning);
@@ -198,7 +198,7 @@ pub(crate) fn start_internal(fb: &'static impl FrameBuffer) -> Result<(), Hub75E
 
 /// Attempt to claim the singleton driver slot.
 ///
-/// Returns `Ok(())` if this is the first initialisation, or
+/// Returns `Ok(())` if this is the first initialization, or
 /// `Err(Hub75Error::AlreadyInitialised)` if a driver already exists.
 /// Called at the top of every constructor's `new_internal` before any
 /// hardware configuration so that a second call fails cleanly without
@@ -245,7 +245,7 @@ pub(crate) struct State {
 }
 
 // SAFETY (`Send`): required so the `Mutex<RefCell<Option<_>>>` static below
-// is `Sync`. All access to the inner value is serialised by the embassy
+// is `Sync`. All access to the inner value is serialized by the embassy
 // mutex (which disables interrupts and CAS-spins on an owner word on
 // multi-core chips). The raw pointers are only dereferenced inside lock
 // closures, so they are never accessed concurrently from multiple cores.
@@ -255,7 +255,7 @@ pub(crate) type SharedState = Shared<Option<State>>;
 
 pub(crate) static STATE: SharedState = Shared::new(None);
 
-/// Store the ISR state before the platform constructor starts the DMA.
+/// Stores the ISR state before the platform constructor starts the DMA.
 ///
 /// Both refresh modes share the same two-step boot: the `(driver, buffer)`
 /// pair is parked as `Idle` inside [`Transfer`], and [`start_internal`] then
@@ -416,9 +416,9 @@ pub(crate) fn isr() {
 // ---------------------------------------------------------------------------
 
 impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
-    /// Check whether the swap is complete without blocking.
+    /// Returns whether the swap is complete without blocking.
     ///
-    /// Returns `true` once the DMA is guaranteed to no longer be reading
+    /// The swap is complete once the DMA is guaranteed to no longer read
     /// from the old framebuffer.
     ///
     /// Returns `true` (early) if the ISR has recorded a DMA error from a
@@ -438,16 +438,16 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
     /// If [`wait_for_done()`](Self::wait_for_done) was already awaited, this
     /// returns immediately.
     ///
+    /// # Panics
+    ///
+    /// Panics if the driver has not been initialized (no `Hub75` instance
+    /// was created).
+    ///
     /// # Errors
     ///
     /// Returns the recorded DMA error if the ISR has failed a transfer (or,
     /// in circular mode, a boundary restart). On error the pending swap is
     /// abandoned and `new_fb` is returned for reuse.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the driver has not been initialised (no `Hub75` instance
-    /// was created).
     pub fn wait(self) -> Result<&'static mut FB, (Hub75Error, &'static mut FB)> {
         loop {
             if HAS_ERROR.load(Ordering::Acquire) {
@@ -472,7 +472,17 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
     /// Yields to the executor until the swap is complete.
     ///
     /// After this resolves, call [`wait()`](Self::wait) to obtain the old
-    /// framebuffer. This mirrors the esp-hal transfer pattern:
+    /// framebuffer.
+    ///
+    /// # Cancellation Safety
+    ///
+    /// Dropping this future is safe: the pending swap still completes at the
+    /// next frame or pass boundary. Call [`wait()`](Self::wait) afterwards to
+    /// reclaim the old framebuffer.
+    ///
+    /// # Examples
+    ///
+    /// This mirrors the esp-hal transfer pattern:
     ///
     /// ```rust,ignore
     /// let mut xfer = hub75.swap(fb)?;
@@ -501,16 +511,16 @@ impl<FB: FrameBuffer + 'static> Hub75Swap<FB> {
 // ---------------------------------------------------------------------------
 
 impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
-    /// Initiate a framebuffer swap.
+    /// Initiates a framebuffer swap.
     ///
     /// Computes the byte offset between the old and new framebuffer
     /// allocations and registers it as the pending delta. Returns a
-    /// [`Hub75Swap`](crate::Hub75Swap) transfer object; call
+    /// [`Hub75Swap`] transfer object; call
     /// [`.wait_for_done()`](crate::Hub75Swap::wait_for_done) then
     /// [`.wait()`](crate::Hub75Swap::wait), or just `.wait()` directly for
     /// blocking.
     ///
-    /// # Swap granularity
+    /// The refresh mode determines when the delta takes effect:
     ///
     /// - **Circular**: the delta is applied by the boundary ISR at the next
     ///   pass boundary, while the DMA is stopped. Arming relinks the
@@ -530,18 +540,18 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     /// Both framebuffers are the same type with identical internal layout, so
     /// the single delta shifts every pointer.
     ///
+    /// # Panics
+    ///
+    /// Panics if the driver has not been initialized (no `Hub75` instance
+    /// was created).
+    ///
     /// # Errors
     ///
     /// Returns [`Hub75Error::SwapInFlight`] along with ownership of `new_fb`
-    /// if a previous [`Hub75Swap`](crate::Hub75Swap) is still outstanding. Only
+    /// if a previous [`Hub75Swap`] is still outstanding. Only
     /// one swap may be in-flight at a time; call `.wait()` (or
     /// `.wait_for_done().await` then `.wait()`) on the previous
-    /// [`Hub75Swap`](crate::Hub75Swap) before calling `swap()` again.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the driver has not been initialised (no `Hub75` instance
-    /// was created).
+    /// [`Hub75Swap`] before calling `swap()` again.
     pub fn swap(
         &self,
         new_fb: &'static mut FB,
@@ -568,7 +578,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
         let new_fb_ptr = core::ptr::from_mut::<FB>(new_fb);
 
         let old_fb_ptr = STATE.with(|state| {
-            let state = state.as_mut().expect("Hub75 not initialised");
+            let state = state.as_mut().expect("Hub75 not initialized");
             if state.pending_delta.is_some() {
                 return Err(new_fb_ptr as *const ());
             }
@@ -614,7 +624,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
 
 #[cfg(not(feature = "circular-dma"))]
 impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
-    /// Restart display refresh after an error.
+    /// Restarts display refresh after an error.
     ///
     /// Callable after [`Hub75::swap`](Hub75::swap) returned an error.
     /// Sets up the BCM segment data and kicks off the first DMA transfer with
@@ -626,7 +636,7 @@ impl<DM: esp_hal::DriverMode, FB: FrameBuffer + 'static> Hub75<DM, FB> {
     ///
     /// # Errors
     ///
-    /// Returns [`Hub75Error::AlreadyRunning`](crate::Hub75Error::AlreadyRunning)
+    /// Returns [`Hub75Error::AlreadyRunning`]
     /// if called while a transfer is already in flight. Call
     /// [`Hub75Swap::wait`](crate::Hub75Swap::wait) on the outstanding swap
     /// first.

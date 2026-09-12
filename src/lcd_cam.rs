@@ -4,7 +4,7 @@
 //! refresh loop, so the panel keeps scanning out the current framebuffer on
 //! its own. Buffer swaps take effect at frame boundaries.
 //!
-//! # Blocking example
+//! ## Blocking Example
 //!
 //! ```rust,ignore
 //! let hub75 = Hub75::new(
@@ -16,7 +16,7 @@
 //! loop { core::hint::spin_loop(); }
 //! ```
 //!
-//! # Async example
+//! ## Async Example
 //!
 //! ```rust,ignore
 //! let hub75 = Hub75::new_async(
@@ -24,7 +24,8 @@
 //!     tx_descriptors, Hub75Config::new(), &*fb0,
 //! ).expect("failed to create Hub75");
 //!
-//! // Swap buffers: yields to the executor, returns Err on DMA failure.
+//! // Swap buffers; `wait()` spin-loops until the DMA no longer reads the
+//! // old framebuffer. Use `wait_for_done().await` first to yield instead.
 //! let old_fb = hub75.swap(fb1)?.wait().expect("DMA error");
 //! ```
 
@@ -74,10 +75,6 @@ pub(crate) fn clear_frame_interrupt() {
             .write(|w| w.lcd_trans_done_int_clr().set_bit());
     }
 }
-
-// ---------------------------------------------------------------------------
-// Constructor
-// ---------------------------------------------------------------------------
 
 impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub75<DM, FB> {
     fn new_internal<P: Hub75Pins<'static, Word = FB::Word>, const N: usize>(
@@ -145,7 +142,7 @@ impl<DM: esp_hal::DriverMode, FB: crate::framebuffer::FrameBuffer + 'static> Hub
 }
 
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
-    /// Create a new blocking HUB75 driver.
+    /// Creates a new blocking HUB75 driver.
     ///
     /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
@@ -155,19 +152,16 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
     /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
-    /// # Arguments
-    /// * `lcd_cam` -- The `LCD_CAM` peripheral instance
-    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel
-    /// * `tx_descriptors` -- DMA descriptor storage (use
-    ///   [`hub75_dma_descriptors!`])
-    /// * `config` -- `LCD_CAM` clock rate
-    /// * `fb` -- Initial framebuffer to display
+    /// Takes the `LCD_CAM` peripheral instance, the HUB75 pin configuration
+    /// (8-bit or 16-bit), a DMA channel, DMA descriptor storage from
+    /// [`hub75_dma_descriptors!`], the `LCD_CAM` clock rate, and the initial
+    /// framebuffer to display.
+    ///
     /// # Errors
     ///
     /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
     /// already exists. Returns [`Hub75Error::AlreadyRunning`],
-    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`](crate::Hub75Error::I8080)
+    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`]
     /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors
@@ -184,7 +178,7 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<Blocking, FB> {
 }
 
 impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
-    /// Create a new async HUB75 driver.
+    /// Creates a new async HUB75 driver.
     ///
     /// Configures the `LCD_CAM` peripheral, applies pin assignments, and
     /// immediately starts DMA-driven display refresh with the provided
@@ -194,19 +188,16 @@ impl<FB: crate::framebuffer::FrameBuffer + 'static> Hub75<esp_hal::Async, FB> {
     /// type; passing a 16-bit framebuffer with 8-bit pins (or vice versa)
     /// is a compile-time error.
     ///
-    /// # Arguments
-    /// * `lcd_cam` -- The `LCD_CAM` peripheral instance
-    /// * `hub75_pins` -- HUB75 pin configuration (8- or 16-bit)
-    /// * `channel` -- DMA channel
-    /// * `tx_descriptors` -- DMA descriptor storage (use
-    ///   [`hub75_dma_descriptors!`])
-    /// * `config` -- `LCD_CAM` clock rate
-    /// * `fb` -- Initial framebuffer to display
+    /// Takes the `LCD_CAM` peripheral instance, the HUB75 pin configuration
+    /// (8-bit or 16-bit), a DMA channel, DMA descriptor storage from
+    /// [`hub75_dma_descriptors!`], the `LCD_CAM` clock rate, and the initial
+    /// framebuffer to display.
+    ///
     /// # Errors
     ///
     /// Returns [`Hub75Error::AlreadyInitialised`] if a `Hub75` instance
     /// already exists. Returns [`Hub75Error::AlreadyRunning`],
-    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`](crate::Hub75Error::I8080)
+    /// [`Hub75Error::Dma`], or [`Hub75Error::I8080`]
     /// if the initial DMA transfer fails.
     ///
     /// [`hub75_dma_descriptors!`]: crate::hub75_dma_descriptors

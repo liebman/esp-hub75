@@ -4,7 +4,7 @@
 //! (Binary Code Modulation) repetition sequence, streaming segments straight
 //! from the framebuffer. The chain is built once ([`build`](BcmBuf::build)) and
 //! afterwards only the descriptor `buffer` pointers are rewritten on a
-//! framebuffer swap, so no segment cache is ever materialised (neither on the
+//! framebuffer swap, so no segment cache is ever materialized (neither on the
 //! stack nor in BSS).
 //!
 //! Two variants share this code, selected at compile time:
@@ -49,7 +49,7 @@ pub(crate) struct BcmBuf {
 }
 
 impl BcmBuf {
-    /// Create an empty buffer bound to the given descriptor storage.
+    /// Creates an empty buffer bound to the given descriptor storage.
     ///
     /// The descriptor chain is filled later by [`build`](Self::build) once the
     /// framebuffer is known.
@@ -62,12 +62,12 @@ impl BcmBuf {
         }
     }
 
-    /// Build the full descriptor chain from the given framebuffer.
+    /// Builds the full descriptor chain from the given framebuffer.
     ///
     /// The chain encodes the full BCM repetition sequence with the
     /// terminating / ring difference described in the module docs. Segments
     /// are streamed straight from the framebuffer, so no segment cache is
-    /// materialised. The descriptor count comes from
+    /// materialized. The descriptor count comes from
     /// [`dma_descriptor_count`](crate::dma_descriptor_count), which computes it
     /// at compile time from the framebuffer's static BCM sequence.
     pub(crate) fn build<FB: FrameBuffer>(&mut self, fb: &'static FB) {
@@ -152,13 +152,13 @@ impl BcmBuf {
 /// Written by `arm_boundary` (task context) and read by the DMA only while it
 /// is linked into the chain — i.e. between `arm_boundary` and
 /// `disarm_boundary`, during which nobody writes it. All writes are
-/// serialised against the ISRs by the ISR state lock (`STATE` in `isr`),
+/// serialized against the ISRs by the ISR state lock (`STATE` in `isr`),
 /// exactly like the ring descriptors. Access is only through raw pointers
 /// under that lock (`static mut` is never referenced).
 #[cfg(feature = "circular-dma")]
 pub(crate) static mut BOUNDARY_DESCRIPTOR: DmaDescriptor = DmaDescriptor::EMPTY;
 
-/// Arm the pass-boundary detector.
+/// Arms the pass-boundary detector.
 ///
 /// Copies the last ring descriptor's `buffer` and flags into the spare
 /// boundary descriptor (setting `suc_eof`, `next = NULL`), then relinks
@@ -205,7 +205,7 @@ pub(crate) fn arm_boundary(descriptors: *mut DmaDescriptor, descriptor_count: us
     }
 }
 
-/// Disarm the pass-boundary detector: relink the second-to-last ring
+/// Disarms the pass-boundary detector: relinks the second-to-last ring
 /// descriptor back to the head of the ring, restoring the free-running
 /// circular chain and unlinking the spare boundary descriptor.
 ///
@@ -221,7 +221,7 @@ pub(crate) fn disarm_boundary(descriptors: *mut DmaDescriptor, descriptor_count:
 
     // SAFETY: same as `arm_boundary`. `descriptors` is the `&'static mut`
     // descriptor ring stored in the ISR state, valid for the driver's lifetime,
-    // and all access is serialised by the ISR state lock.
+    // and all access is serialized by the ISR state lock.
     unsafe {
         // Restore the free-running ring by pointing the second-to-last
         // descriptor back at the REAL last descriptor (whose own `next` still
@@ -232,7 +232,7 @@ pub(crate) fn disarm_boundary(descriptors: *mut DmaDescriptor, descriptor_count:
     }
 }
 
-/// Apply a pending framebuffer pointer delta to every descriptor.
+/// Applies a pending framebuffer pointer delta to every descriptor.
 ///
 /// Called from the shared refresh ISR at a frame (full-chain) or pass
 /// (circular) boundary, while the DMA is not reading the affected pointers —
@@ -266,7 +266,7 @@ pub(crate) fn apply_delta(descriptors: *mut DmaDescriptor, descriptor_count: usi
     }
 }
 
-// SAFETY: All access is serialised by the ISR state lock (`STATE` in `isr`,
+// SAFETY: All access is serialized by the ISR state lock (`STATE` in `isr`,
 // an `esp_sync::NonReentrantMutex`).
 unsafe impl Send for BcmBuf {}
 
