@@ -137,6 +137,13 @@ impl I2sInterruptBinding for esp_hal::peripherals::I2S1<'_> {
 /// `suc_eof` + `NULL` next, exactly like a linear transfer, and the
 /// free-running (disarmed) ring never ends, so the flag can only be
 /// latched at an armed pass boundary.
+///
+/// Called by the boundary ISR (circular mode) to drop a stale flag when no
+/// swap is armed. The flag that fires a handled boundary is left for the
+/// transfer's own `wait()`, which clears it. Note that `out_total_eof` leads
+/// the `state.tx_idle` bit that `is_done()`/`wait()` poll by the
+/// FIFO/shift-register drain time, so `finish()` on the handled boundary lets
+/// `wait()` block for that drain rather than asserting `is_done()`.
 #[cfg_attr(not(feature = "circular-dma"), allow(dead_code))]
 pub(crate) fn clear_frame_interrupt() {
     match SELECTED_I2S.load(Ordering::Relaxed) {
@@ -198,6 +205,12 @@ where
         //   boundary descriptor (`suc_eof` + `NULL` next) — from the DMA's point of
         //   view that is a normal end-of-transfer, so `out_total_eof` fires exactly at
         //   the armed pass boundary.
+        //
+        // `out_total_eof` means the DMA has handed the last word to the I2S
+        // FIFO, which still has to drain and shift out before `state.tx_idle`
+        // sets. Both refresh modes therefore let `wait()` block for that drain
+        // on the completion path instead of asserting `is_done()` on I2S (see
+        // `isr::Transfer::finish`).
         //
         // Binding also enables the CPU interrupt with the handler's priority.
         I::bind_and_enable_isr(crate::isr::handler_with_priority(
