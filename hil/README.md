@@ -30,7 +30,9 @@ its 16-bit backends on `not(esp32c5)`, so `esp32c5` with `bus16` is a
 Those aliases are the whole matrix, so there is nothing else to know:
 compile-only needs no hardware, and `test-` needs the matching board on the
 probe. When several boards are attached, a run has to name the probe as well as
-the chip, which is not wired up yet -- see section 10 of [`PLAN.md`](PLAN.md).
+the chip: [`run.sh`](#running) does that, and is the supported way to run the
+suite. The aliases stay useful for a single board, where there is nothing to
+choose.
 
 ## Running
 
@@ -41,6 +43,28 @@ $ cargo test-esp32s3-8               # 8-bit latched, same tests
 $ cargo test-esp32s3 --test construct -- --nocapture
 $ cargo test-esp32s3 --test construct -- smoke   # a single test
 ```
+
+`hil/run.sh` is how to run more than one thing, and the only way to run with more
+than one board attached:
+
+```console
+$ ./run.sh 16 --list                   # resolve the bench + matrix, run nothing
+$ ./run.sh 16                          # the whole matrix on the attached board
+$ ./run.sh 16 --test lifecycle async_swap --mode full-chain-dma circular-dma
+$ ./run.sh 8 --compile-only --chip esp32c6   # no board needed
+```
+
+It detects the chip with `probe-rs info`, refuses to run when the detected chip
+disagrees with `--chip`, picks the probe (`--probe`/`--probe-index`, or the only
+one attached), exports `PROBE_RS_PROBE`/`PROBE_RS_NON_INTERACTIVE` for the run,
+skips `circular-dma` on the C6 with a printed reason, treats a run that printed no
+`test result:` line as a runner failure and retries it once, and ends with a
+per-run table. `--help` lists the flags; `--list` is the dry run.
+
+`<width>` is the one thing it cannot detect: it describes the *wiring*, and
+either wiring boots and passes on the wrong panel, so pass the one that is
+plugged in. Probe IDs are printed per run and never recorded -- see section 10 of
+[`PLAN.md`](PLAN.md).
 
 Compile-only checks need no hardware:
 
@@ -101,10 +125,11 @@ defaults off.
 | `src/support.rs` | The shared fixture: pin map, backend, DMA descriptors, `esp_hal::init` and the one allowed `Hub75::new`, exposed as `bring_up()` (blocking, default config), `bring_up_with(config)` and `bring_up_async()`, plus the framebuffers a swap test needs. |
 | `tests/construct.rs` | Bring-up: harness smoke test, one construct + `swap()`/`wait()` round trip, the `Hub75Config`/`Hub75Error` round trips (no hardware) and one construction with the refresh ISR at maximum priority. |
 | `tests/reset.rs` | The reset canary: two test cases that each need a freshly initialized chip, so a per-test reset that quietly does not happen fails here first. |
-| `tests/lifecycle.rs` | The swap contract: which buffer `wait()` returns, `SwapInFlight` and its handed-back buffer, `restart()` refused while a transfer is in flight and recovery after the refusal. |
+| `tests/lifecycle.rs` | The swap contract: which buffer `wait()` returns, `SwapInFlight` and its handed-back buffer, `restart()` refused while a transfer is in flight and recovery after the refusal (that last case is `#[cfg]`-ed out under `circular-dma`, where the ring never stops). |
 | `tests/stress.rs` | A few hundred swaps alternating two identity-checked buffers, under a wall-clock ceiling derived from the refresh model. |
 | `tests/async_swap.rs` | The async half: `wait_for_done()` is woken by the ISR, and stays woken across successive swaps. Runs on a local flag-waker executor so that a lost wakeup is a `#[timeout]` failure rather than a slow pass. |
 | `tests/refresh.rs` | The refresh rate on silicon: 200 frame boundaries timed through the swap path and compared against the compile-time model, per DMA mode (the group-based default really is ~5% slower than `full-chain-dma`/`circular-dma`; the numbers are in the file). |
+| `run.sh` | The runner: bench detection (chip from the probe, wiring from the argument), the test/mode matrix, per-chip exclusions, the one-retry runner-failure handling and the summary table. |
 | `.cargo/config-<chip>.toml` | Target, `probe-rs` runner and the embedded-test/defmt linker flags. |
 | `PLAN.md` | The test plan these tests implement, annotated with what has landed, what is still open, and the bench/probe question. |
 
@@ -140,19 +165,28 @@ defaults off.
   `latched::DmaFrameBuffer`. The driver's bounds tie the pair together, so a
   mismatched combination is a compile error rather than a wrong-looking panel.
 * `probe-rs` autodetects the chip from the ELF/probe, but each config passes
-  `--chip` explicitly to avoid surprises when several boards are attached. That
-  is only half the job: `--chip` and `--probe` are independent axes, so with more
-  than one probe connected the run also has to say *which probe*, and none of the
-  runners do yet. Until that is wired up, keep a single board attached, or pass
-  `PROBE_RS_PROBE=vid:pid:serial` yourself, with `PROBE_RS_NON_INTERACTIVE=1` so
-  that an unbound bench fails instead of prompting (see section 10 of
-  [`PLAN.md`](PLAN.md)).
+  `--chip` explicitly to avoid surprises when several boards are attached. That is
+  only half the job: `--chip` and `--probe` are independent axes, so with more
+  than one probe connected the run also has to say *which probe*, and `run.sh`
+  does that for you (and refuses to continue when the probe's chip and `--chip`
+  disagree). Doing it by hand means passing a *full* `PROBE_RS_PROBE=vid:pid:serial`
+  -- a bare serial is rejected by probe-rs -- together with
+  `PROBE_RS_NON_INTERACTIVE=true`, so that an unbound bench fails instead of
+  prompting. That variable is parsed as a bool, so `=1` does not work; the `[env]`
+  default in `.cargo/config.toml` covers the plain aliases either way (see section
+  10 of [`PLAN.md`](PLAN.md)).
+* **Probe IDs are logged per run and never recorded.** USB-Serial-JTAG gives every
+  board its own ID, and two boards of the same chip differ only in that ID, so a
+  recorded one is bound to whatever is on the bench that day -- the serial that
+  used to be written down here is not the one the probe reports now. The chip is
+  the identity the tests and the tooling use; the ID only tells two attached boards
+  apart *right now*, which is why `run.sh` prints it and stores nothing.
 
 ## Board support
 
 | Chip | 16-bit direct drive | 8-bit latched | Status |
 | --- | --- | --- | --- |
-| ESP32-S3 | `LCD_CAM`/`DMA_CH0` | `LCD_CAM`/`DMA_CH0` | validated on hardware: the full suite (6 binaries, 13 tests) is green on both wirings, and `construct`, `reset` and the refresh measurement are green under `full-chain-dma` and `circular-dma` as well (the 300-swap storm too) |
+| ESP32-S3 | `LCD_CAM`/`DMA_CH0` | `LCD_CAM`/`DMA_CH0` | validated on hardware: the whole suite (6 binaries, 13 tests) is green on both wirings in all three DMA modes -- `lifecycle` reports 2 rather than 3 tests under `circular-dma`, where its refused-`restart()` case is `#[cfg]`-ed out because the ring never stops |
 | ESP32 | `I2S0`/`DMA_I2S0` | `I2S1`/`DMA_I2S1` | compiles; pin maps copied from the examples, needs a board |
 | ESP32-C6 | `PARL_IO`/`DMA_CH0` | `PARL_IO`/`DMA_CH0` | compiles; pin maps copied from the examples, needs a board |
 | ESP32-C5 | *not supported by the driver* | `PARL_IO`/`DMA_CH0` | compiles; pin map copied from the example, needs a board |

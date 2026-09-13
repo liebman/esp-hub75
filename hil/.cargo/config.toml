@@ -32,3 +32,12 @@ test-esp32c5-8 = "test --release --config .cargo/config-esp32c5.toml --no-defaul
 # Only consulted when the `defmt` feature is enabled; `embedded_test` is kept
 # quiet because the runner already reports each test.
 DEFMT_LOG = "info,embedded_test=warn"
+
+# Probe-rs parses this as a bool, so it has to be `true`/`false` -- an earlier
+# revision of this file said `1`, which 0.32 rejects (verified). Cargo's `[env]`
+# does not override an already-set variable unless `force = true`, so a developer
+# can still opt back into the interactive prompt. This is what makes a direct
+# `cargo test-*` on an unbound bench fail instead of blocking; `hil/run.sh`
+# exports the same value, together with the probe it picked, for the runs it
+# starts (PLAN.md section 10).
+PROBE_RS_NON_INTERACTIVE = "true"
