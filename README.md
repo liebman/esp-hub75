@@ -138,6 +138,26 @@ to avoid row ghosting. The latched framebuffers have this blanking built in
 (1 clock before and 2 clocks after the address change) due to the
 framebuffer structure.
 
+## Hardware Tests
+
+The `hil/` crate runs on-target tests on a real chip, flashing the image and
+reporting results over semihosting via [embedded-test] and [probe-rs]. A board
+is required: the parallel DMA path cannot be simulated. Every supported chip is
+covered in both bus widths -- 16-bit direct drive (`gradient`-style wiring) and
+8-bit latched (`gradient-latched`/SmartLEDShield-style wiring) -- except the
+ESP32-C5, whose `PARL_IO` has no 16-bit mode:
+
+    cd hil
+    cargo test-esp32s3            # validated on ESP32-S3, 16-bit direct drive
+    cargo test-esp32s3-8          # 8-bit latched, same tests
+    cargo check-esp32s3           # compile-only, no hardware needed
+
+See [`hil/README.md`](hil/README.md) for the test layout, the rules for adding
+tests, and the support status of each chip.
+
+[embedded-test]: https://github.com/probe-rs/embedded-test
+[probe-rs]: https://probe.rs
+
 ## Crate Features
 
 - `esp32`: Enable support for the ESP32

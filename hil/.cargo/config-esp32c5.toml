@@ -1,0 +1,19 @@
+[build]
+target = "riscv32imac-unknown-none-elf"
+
+[target.riscv32imac-unknown-none-elf]
+# See config-esp32s3.toml for what the runner does.
+runner = "probe-rs run --chip esp32c5"
+
+rustflags = [
+  "--cfg", "embedded_test",
+
+  # RISC-V keeps the startup code, as in config-esp32c6.toml.
+  "-C", "link-arg=-Tembedded-test.x",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "link-arg=-Tlinkall.x",
+  "-C", "force-frame-pointers",
+]
+
+[unstable]
+build-std = ["alloc", "core"]

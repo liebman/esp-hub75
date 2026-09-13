@@ -1,0 +1,18 @@
+[build]
+target = "xtensa-esp32-none-elf"
+
+[target.xtensa-esp32-none-elf]
+# See config-esp32s3.toml for what these flags do.
+runner = "probe-rs run --chip esp32"
+
+rustflags = [
+  "--cfg", "embedded_test",
+
+  "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-Tembedded-test.x",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "link-arg=-Wl,-Tlinkall.x",
+]
+
+[unstable]
+build-std = ["alloc", "core"]
