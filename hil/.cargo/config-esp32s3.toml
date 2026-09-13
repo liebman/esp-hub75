@@ -1,0 +1,24 @@
+[build]
+target = "xtensa-esp32s3-none-elf"
+
+[target.xtensa-esp32s3-none-elf]
+# `probe-rs run` detects an embedded-test ELF and acts as its (libtest
+# compatible) runner: it flashes the image, boots it and reads the results back
+# over semihosting, so the chip never needs a pre-flashed bootloader.
+runner = "probe-rs run --chip esp32s3"
+
+rustflags = [
+  "--cfg", "embedded_test",
+
+  # embedded-test owns the entry point and the test case table, so the regular
+  # startup files are left out; `embedded-test.x` collects `.embedded_test.*`
+  # (and defines the section probe-rs looks for) and `defmt.x` the logging
+  # sections.
+  "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-Tembedded-test.x",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "link-arg=-Wl,-Tlinkall.x",
+]
+
+[unstable]
+build-std = ["alloc", "core"]

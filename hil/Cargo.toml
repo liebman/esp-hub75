@@ -1,0 +1,143 @@
+[package]
+name = "hil"
+description = "On-target hardware-in-the-loop tests for esp-hub75 (embedded-test + probe-rs)"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+
+# Test and bench profiles inherit from dev and release respectively.
+# `debug-assertions` and `overflow-checks` stay on in release: the driver's
+# internal assertions must still fire while the tests run at full speed.
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = "s"
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug-assertions = true
+incremental = false
+opt-level = 3
+lto = false # LTO miscompiles some esp-hal HIL tests on RISC-V
+overflow-checks = true
+debug = 0 # HIL images are never debugged; keeps the ELF small
+
+[lib]
+# The library carries the pieces that must exist exactly once per image (app
+# descriptor, defmt logger, watchdog setup) and is linked by the test binaries
+# in `tests/`. It is not itself a test target: `test = false` keeps `cargo
+# test` from trying to build a libtest binary out of it (which would need a
+# `main` that only `#[embedded_test::tests]` can provide).
+test = false
+bench = false
+# Doctests would be compiled for the host, which cannot link a `no_std`
+# target image; there is nothing to run there anyway.
+doctest = false
+
+[[test]]
+name = "construct"
+harness = false # embedded-test brings its own harness
+
+[[test]]
+name = "reset"
+harness = false # embedded-test brings its own harness
+
+[[test]]
+name = "lifecycle"
+harness = false # embedded-test brings its own harness
+
+[[test]]
+name = "stress"
+harness = false # embedded-test brings its own harness
+
+[[test]]
+name = "async_swap"
+harness = false # embedded-test brings its own harness
+
+[[test]]
+name = "refresh"
+harness = false # embedded-test brings its own harness
+
+[dependencies]
+# A normal dependency rather than a dev-dependency: `src/lib.rs` uses
+# `#[embedded_test::setup]`. `xtensa-semihosting` is added by the Xtensa chip
+# features below.
+embedded-test = { version = "0.7.2", default-features = false, features = [
+  "panic-handler",
+  "semihosting",
+] }
+
+# `defmt` is always in the graph so that `-Tdefmt.x` links; `src/lib.rs`
+# installs a null logger for it unless the `defmt` feature below is enabled.
+defmt = "1.1.0"
+defmt-rtt = { version = "1.3.0", optional = true }
+
+esp-bootloader-esp-idf = { version = "0.5.0" }
+esp-hal = { version = "1.2.0", features = ["unstable"] }
+esp-hub75 = { path = "..", default-features = false }
+static_cell = { version = "2.1.1" }
+
+[build-dependencies]
+esp-metadata-generated = { version = "0.5.0", features = ["build-script"] }
+
+[features]
+default = ["bus16"]
+
+# ---- bus width: exactly one ----
+#
+# Which panel wiring the suite exercises. `bus16` is the direct-drive wiring
+# (16 bits per pixel clock, no latch circuit -- the `gradient` example) and
+# `bus8` the latched one (8 bits per pixel clock plus a latch line -- the
+# `gradient-latched` example). They select different pin structs, framebuffer
+# types and, on the ESP32, DMA channels; `src/lib.rs` rejects enabling both.
+#
+# The `-8` aliases in `.cargo/config.toml` pass `--no-default-features` so that
+# `bus16` is not enabled alongside `bus8`.
+bus16 = []
+bus8 = []
+
+# Debug-only: print defmt messages over RTT. Off by default because RTT
+# polling halts a core for up to ~10 ms at a time, which perturbs the DMA and
+# refresh timing under test.
+defmt = ["dep:defmt-rtt", "embedded-test/defmt", "esp-hub75/defmt"]
+
+# ---- chip selection: exactly one ----
+esp32 = [
+  "embedded-test/xtensa-semihosting",
+  "esp-bootloader-esp-idf/esp32",
+  "esp-hal/esp32",
+  "esp-hub75/esp32",
+  "esp-metadata-generated/esp32",
+]
+esp32s3 = [
+  "embedded-test/xtensa-semihosting",
+  "esp-bootloader-esp-idf/esp32s3",
+  "esp-hal/esp32s3",
+  "esp-hub75/esp32s3",
+  "esp-metadata-generated/esp32s3",
+]
+esp32c6 = [
+  "esp-bootloader-esp-idf/esp32c6",
+  "esp-hal/esp32c6",
+  "esp-hub75/esp32c6",
+  "esp-metadata-generated/esp32c6",
+]
+# The ESP32-C5's `PARL_IO` has no 16-bit parallel mode (`TxSixteenBits` does
+# not exist for it, and the driver gates its 16-bit impls on
+# `not(esp32c5)`), so this chip only exists with `bus8`; `src/lib.rs` rejects
+# `esp32c5` combined with `bus16`.
+esp32c5 = [
+  "esp-bootloader-esp-idf/esp32c5",
+  "esp-hal/esp32c5",
+  "esp-hub75/esp32c5",
+  "esp-metadata-generated/esp32c5",
+]
+
+# ---- esp-hub75 driver configuration pass-through ----
+full-chain-dma = ["esp-hub75/full-chain-dma"]
+circular-dma = ["esp-hub75/circular-dma"]

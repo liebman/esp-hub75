@@ -1,0 +1,34 @@
+[alias]
+# `<verb>-<chip>` exercises the 16-bit direct-drive wiring (the `bus16`
+# default feature) and `<verb>-<chip>-8` the 8-bit latched one (`bus8`). The
+# `-8` aliases pass `--no-default-features` so that `bus16` is not enabled
+# alongside it. The ESP32-C5 has no 16-bit mode, so it only has a `-8` alias.
+#
+# The underlying commands are
+#   cargo <verb> --config .cargo/config-<chip>.toml --features <chip>[,bus8]
+# with `--release` for `test`.
+
+# Compile-only check (no hardware): the quickest way to catch a broken test.
+check-esp32     = "check --tests --config .cargo/config-esp32.toml   --features esp32"
+check-esp32s3   = "check --tests --config .cargo/config-esp32s3.toml --features esp32s3"
+check-esp32c6   = "check --tests --config .cargo/config-esp32c6.toml --features esp32c6"
+check-esp32-8   = "check --tests --config .cargo/config-esp32.toml   --no-default-features --features esp32,bus8"
+check-esp32s3-8 = "check --tests --config .cargo/config-esp32s3.toml --no-default-features --features esp32s3,bus8"
+check-esp32c6-8 = "check --tests --config .cargo/config-esp32c6.toml --no-default-features --features esp32c6,bus8"
+check-esp32c5-8 = "check --tests --config .cargo/config-esp32c5.toml --no-default-features --features esp32c5,bus8"
+
+# Flash and run on the connected board, e.g. `cargo test-esp32s3 --test construct`.
+# Add `--no-run` to link the test ELFs without touching hardware (this used to
+# be the separate `build-<chip>` aliases).
+test-esp32     = "test --release --config .cargo/config-esp32.toml   --features esp32"
+test-esp32s3   = "test --release --config .cargo/config-esp32s3.toml --features esp32s3"
+test-esp32c6   = "test --release --config .cargo/config-esp32c6.toml --features esp32c6"
+test-esp32-8   = "test --release --config .cargo/config-esp32.toml   --no-default-features --features esp32,bus8"
+test-esp32s3-8 = "test --release --config .cargo/config-esp32s3.toml --no-default-features --features esp32s3,bus8"
+test-esp32c6-8 = "test --release --config .cargo/config-esp32c6.toml --no-default-features --features esp32c6,bus8"
+test-esp32c5-8 = "test --release --config .cargo/config-esp32c5.toml --no-default-features --features esp32c5,bus8"
+
+[env]
+# Only consulted when the `defmt` feature is enabled; `embedded_test` is kept
+# quiet because the runner already reports each test.
+DEFMT_LOG = "info,embedded_test=warn"
