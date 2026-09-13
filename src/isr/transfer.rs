@@ -3,7 +3,7 @@
 //! Owns the per-backend driver/transfer types ([`TxDriver`], [`TxXfer`]) and
 //! [`Transfer`], which holds the driver handle, its BCM buffer, and the
 //! transfer lifecycle ([`TransferPhase`]). This is the single place that knows
-//! how to (re)start a transfer, consume a completed one, and drain the active
+//! how to (re)start a transfer, consume a completed one, and clear the active
 //! backend's frame-boundary flag, so the mode- and backend-specific parameters
 //! live here rather than at their call sites in [`super`].
 
@@ -82,7 +82,7 @@ enum TransferPhase {
 /// The DMA driver handle, its BCM buffer, and the transfer lifecycle.
 ///
 /// This is the single place that knows how to (re)start a transfer, how to
-/// consume a completed one, and how to drain the active backend's
+/// consume a completed one, and how to clear the active backend's
 /// frame-boundary flag. It absorbs every per-backend `cfg_select!` and the
 /// backend-specific parameters (`word_size` on `LCD_CAM`; the `PARL_IO`
 /// transfer length, derived from the buffer) so callers — [`start_internal`]
@@ -224,26 +224,39 @@ impl Transfer {
 
     /// Consumes the in-flight transfer and parks the engine again.
     ///
-    /// `.wait()` returns instantly — the interrupt already fired — but the
-    /// `wait()` calls still check peripheral state, so this is safe from ISR
-    /// context on every backend.
-    ///
     /// Per-backend completion/flag semantics:
     ///
     /// | Backend | `is_done()` polls | `wait()` polls & clears |
     /// |---|---|---|
-    /// | I2S (ESP32) | `state.tx_idle` | polls `tx_idle`; clears `out_done`/`out_total_eof` in `INT_CLR` |
+    /// | I2S (ESP32) | `state.tx_idle` (lags `out_total_eof`) | polls `tx_idle`; clears `out_done`/`out_total_eof` in `INT_CLR` |
     /// | `LCD_CAM` (S3) | `lcd_start == 0` | polls `lcd_start`; clears `lcd_trans_done` in `LC_DMA_INT_CLR` |
     /// | `PARL_IO` (C5) | (via `wait`) | polls `INT_RAW.tx_eof` and clears it itself |
     ///
-    /// Circular mode (compiled only with `circular-dma`) additionally drains
-    /// the boundary flag that fired the ISR before waiting, and asserts
-    /// `is_done()`: the armed chain ends on the spare boundary descriptor, so
-    /// the DMA must have halted and busy-waiting in an interrupt handler is
-    /// not acceptable. `PARL_IO` is the one backend that must **not** be
-    /// cleared first — `clear_frame_interrupt` writes `INT_CLR`, which
-    /// write-clears `INT_RAW`, the very flag its `wait()` polls — so that
-    /// backend-specific ordering lives here rather than at the ISR call site.
+    /// `wait()` may block briefly for the peripheral to drain what the DMA has
+    /// already committed (most visibly on ESP32 I2S, where `tx_idle` trails
+    /// `out_total_eof` by the FIFO/shift-register drain time), but it only
+    /// ever reads peripheral state, so this is safe from ISR context on every
+    /// backend.
+    ///
+    /// Circular mode (compiled only with `circular-dma`) asserts `is_done()` on
+    /// the backends where the boundary interrupt *is* the completion signal
+    /// that `wait()` polls, i.e. where the assert proves `wait()` cannot block:
+    /// `PARL_IO`'s `wait()` polls `INT_RAW.tx_eof`, the very flag that fired
+    /// the ISR, and `LCD_CAM` raises `lcd_trans_done` with `lcd_start` already
+    /// cleared. I2S is the exception — its `is_done()` polls `state.tx_idle`,
+    /// which lags the boundary flag — so the arm below skips the assert and
+    /// lets `wait()` block for the FIFO/shift-register drain.
+    ///
+    /// The boundary flag that fired the interrupt is deliberately **not**
+    /// cleared here: every backend's `wait()` clears its own flag before it
+    /// returns (`I2S`: `INT_CLR.out_done`/`out_total_eof`; `LCD_CAM`:
+    /// `LC_DMA_INT_CLR.lcd_trans_done`; `PARL_IO`: `INT_CLR.tx_eof`), so it is
+    /// clean after this returns on every path — including error paths, which
+    /// therefore cannot re-fire it. Leaving it latched keeps `PARL_IO`'s
+    /// completion poll satisfied and keeps the flag available as evidence that
+    /// the boundary really happened. The ISR's stale-flag gate is the only
+    /// remaining caller of
+    /// [`clear_frame_interrupt`](Self::clear_frame_interrupt).
     ///
     /// # Errors
     ///
@@ -260,28 +273,34 @@ impl Transfer {
             }
         };
 
-        // Circular only: drain the boundary flag that fired this interrupt.
-        // Safe before `wait()` on I2S/LCD_CAM, whose `wait()` polls peripheral
-        // *state* registers, not interrupt flags. `PARL_IO` must not clear
-        // here — its `wait()` polls `INT_RAW.tx_eof`, the very flag that fired
-        // this ISR — but `wait()` itself clears the flag on completion, so the
-        // flag is clean after this returns on every backend (and therefore on
-        // every error path too, which cannot re-fire it).
+        // Circular only: assert that `wait()`'s completion poll is already
+        // satisfied — i.e. that it cannot block — on the backends where the
+        // boundary interrupt *is* that signal: `PARL_IO`'s `wait()` polls
+        // `INT_RAW.tx_eof`, the very flag that just fired this ISR, and
+        // `LCD_CAM` raises `lcd_trans_done` with `lcd_start` (what
+        // `is_done()`/`wait()` poll) already cleared.
+        //
+        // I2S is the exception: `is_done()` polls `state.tx_idle`, which the
+        // DMA's `out_total_eof` leads by the FIFO/shift-register drain time.
+        // At the pass boundary the transfer is *ending*, not ended, so
+        // `wait()` blocks for that drain — microseconds, once per swap,
+        // exactly as it already does at every group boundary in the linear
+        // mode. It cannot block forever: the armed chain ended on the boundary
+        // descriptor (`suc_eof`, `next = NULL`), so the DMA has stopped
+        // feeding the FIFO and `tx_idle` is reached.
+        //
+        // The boundary flag that fired this interrupt is deliberately left for
+        // `wait()` to clear (see the doc comment above).
         #[cfg(feature = "circular-dma")]
         cfg_select! {
-            hub75_use_parl_io => {}
+            hub75_use_i2s_parallel => {}
             _ => {
-                Self::clear_frame_interrupt();
+                assert!(
+                    xfer.is_done(),
+                    "circular boundary ISR: transfer not complete at the pass boundary"
+                );
             }
         }
-
-        // Circular only: the armed chain ends on the boundary descriptor, so
-        // the transfer must already have completed.
-        #[cfg(feature = "circular-dma")]
-        assert!(
-            xfer.is_done(),
-            "circular boundary ISR: transfer not complete at the pass boundary"
-        );
 
         let (result, tx, buf) = Self::wait(xfer);
 
@@ -319,14 +338,15 @@ impl Transfer {
         }
     }
 
-    /// Drains the active backend's frame-boundary flag.
+    /// Clears the active backend's frame-boundary flag.
     ///
-    /// Circular mode only. Called by the refresh ISR (a stale flag with no
-    /// swap armed) and by [`finish`](Self::finish) (the flag that fired the
-    /// interrupt). The flag registers live in the peripherals rather than in
-    /// the DMA transfers, so each backend exposes the clear through its own
-    /// module; on ESP32 the constructor records which `I2S` instance the
-    /// driver owns.
+    /// Circular mode only, and called from exactly one place: the refresh
+    /// ISR's stale-flag gate (a boundary flag found latched with no swap
+    /// armed). [`finish`](Self::finish) deliberately leaves the flag that
+    /// fired the interrupt to the backend's own `wait()`, which clears it. The
+    /// flag registers live in the peripherals rather than in the DMA
+    /// transfers, so each backend exposes the clear through its own module; on
+    /// ESP32 the constructor records which `I2S` instance the driver owns.
     #[cfg(feature = "circular-dma")]
     #[cfg_attr(feature = "iram", ram)]
     pub(crate) fn clear_frame_interrupt() {

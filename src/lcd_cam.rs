@@ -58,9 +58,10 @@ use crate::isr::BcmBuf;
 
 /// Clears the `lcd_trans_done` flag on the `LCD_CAM` peripheral.
 ///
-/// Called by the boundary ISR (circular mode) to drain the handled boundary
-/// flag and any stale flag. `wait()` polls the peripheral's state registers
-/// rather than this flag, so clearing it before `wait()` is safe.
+/// Called by the boundary ISR (circular mode) to drop a stale flag when no
+/// swap is armed; the flag that fires a handled boundary is left for the
+/// transfer's own `wait()`, which clears it. `wait()` polls the peripheral's
+/// state registers rather than this flag, so this clear is safe at any point.
 // SAFETY: The `LCD_CAM` peripheral handle is owned by the driver; this steals
 // a second handle only to write the interrupt-clear register from ISR
 // context. The write is a single register store, and the driver never touches

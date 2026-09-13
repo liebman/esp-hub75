@@ -83,10 +83,10 @@ fn select_dma_eof_source() {
 
 /// Clears the `tx_eof` flag on the `PARL_IO` peripheral.
 ///
-/// Called by the boundary ISR (circular mode) to drain a stale flag. The
-/// ISR must **not** clear this flag on the handled boundary before
-/// `wait()`: `wait()` polls `INT_RAW.tx_eof` — the very flag that fired the
-/// ISR — and clears it itself on completion.
+/// Called by the boundary ISR (circular mode) to drop a stale flag when no
+/// swap is armed. The handled boundary is never cleared this way: `wait()`
+/// polls `INT_RAW.tx_eof` — the very flag that fired the ISR — and clears it
+/// itself on completion.
 // SAFETY: The `PARL_IO` peripheral handle is owned by the driver; this
 // steals a second handle only to write the interrupt-clear register from
 // ISR context. The write is a single register store, and the driver never

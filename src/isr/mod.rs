@@ -321,7 +321,8 @@ pub(crate) fn isr() {
         // enabled for the driver's lifetime (see the platform constructor),
         // but the disarmed ring carries no `suc_eof`, so in steady state
         // nothing fires. Should a stale boundary flag ever appear, clear it
-        // (safe here: no transfer is being waited on, even on `PARL_IO`) so
+        // (the only remaining caller of `clear_frame_interrupt`, and safe
+        // here because no transfer is being waited on, even on `PARL_IO`) so
         // it cannot re-fire, and leave the display untouched.
         #[cfg(feature = "circular-dma")]
         if state.pending_delta.is_none() {
@@ -334,8 +335,8 @@ pub(crate) fn isr() {
             return;
         }
 
-        // Consume the completed transfer and park the engine. The per-backend
-        // pre-`wait()` flag handling and the circular boundary assertion live
+        // Consume the completed transfer and park the engine. The circular
+        // boundary assertion and the backend-specific completion handling live
         // in `Transfer::finish`.
         if state.transfer.finish().is_err() {
             HAS_ERROR.store(true, Ordering::Release);
