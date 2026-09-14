@@ -13,7 +13,7 @@
 //! single `#[main]` loop.
 //!
 //! This example draws a simple gradient on the display and shows the refresh
-//! rate, render rate and a simple counter.
+//! rate, the frame render time in milliseconds and a simple counter.
 //!
 //! Note that you most likely need level converters 3.3v to 5v for all HUB75
 //! signals.
@@ -269,14 +269,15 @@ fn main() -> ! {
         .background_color(Color::BLACK)
         .build();
 
-    let mut render_count = 0u32;
-    let mut start = Instant::now();
-    let mut render_rate = 0u32;
+    // Milliseconds the previous frame took to draw into the framebuffer.
+    let mut render_ms = 0u64;
 
     let mut simple_counter = 0u32;
     let mut counter_start = Instant::now();
 
     loop {
+        let render_start = Instant::now();
+
         fb.erase();
 
         const STEP: u8 = (256 / COLS) as u8;
@@ -308,7 +309,7 @@ fn main() -> ! {
         .unwrap();
 
         buffer.clear();
-        fmt::write(&mut buffer, format_args!("Render: {:5}", render_rate)).unwrap();
+        fmt::write(&mut buffer, format_args!("Render: {:>3}ms", render_ms)).unwrap();
         Text::with_alignment(
             buffer.as_str(),
             Point::new(0, LINE2),
@@ -329,18 +330,16 @@ fn main() -> ! {
         .draw(fb)
         .unwrap();
 
+        // Time taken to draw this frame into the framebuffer (erase, gradient
+        // and status text). The value shown above is therefore from the
+        // previous frame, which is indistinguishable at panel refresh rates.
+        render_ms = render_start.elapsed().as_millis();
+
         fb = hub75
             .swap(fb)
             .expect("swap already in flight")
             .wait()
             .expect("DMA transfer failed");
-
-        render_count += 1;
-        if start.elapsed() > Duration::from_secs(1) {
-            render_rate = render_count;
-            render_count = 0;
-            start = Instant::now();
-        }
 
         // Increment the simple counter once every ~100 ms.
         if counter_start.elapsed() >= Duration::from_millis(100) {
