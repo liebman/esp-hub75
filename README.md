@@ -126,17 +126,103 @@ every `esp-hub75` feature) are listed in its `Cargo.toml`; see
 example-only features are available on top of those:
 
 - `row`: Use the row-major framebuffer layout (all bit-planes of a row
-  stored contiguously) instead of the default plane-major layout.
+  stored contiguously) instead of the default plane-major layout. On the
+  quarter-scan panel this layout removed noticeably more ghosting than the
+  plane-major default (see the quarter-scan block below).
 - `20mhz`: Drive the panel at 20 MHz instead of the default 10 MHz for a
   higher refresh rate. The ESP32's I2S peripheral tops out at 19 MHz, which
   the examples handle automatically.
 
-**Note**: Other than `gradient-latched`, the examples use plain
-(direct-drive) framebuffers, which by default insert no blanking before or
-after the row address change. Adding at least `trail-blank-2` is recommended
-to avoid row ghosting. The latched framebuffers have this blanking built in
-(1 clock before and 2 clocks after the address change) due to the
-framebuffer structure.
+#### Feature sets that work on real panels
+
+Out of the box the examples are usable, but on many panels they show
+*ghosting*: dimly lit pixels where the framebuffer is black. The features
+that matter for that are the DMA shape (`full-chain-dma`/`circular-dma`),
+`tail-closes-latch`, the blanking windows (`trail-blank-N`), and the
+`invert-blank` + `invert-oe` pair; see [Crate Features](#crate-features)
+for what each one does. Ghosting is specific to the panel and the wiring,
+so treat the commands below as starting points: if it persists, raise
+`trail-blank-N` or try `inter-row-blank-N`; if the display gets too dim,
+lower them.
+
+The four 16-bit examples (`gradient`, `gradient-embassy`, `gradient-quarter`,
+and `gradient-tiled`) take the same feature set on every chip, with one
+exception: `gradient-quarter` also wants the `row` layout (see the
+quarter-scan block below). `gradient-latched` is the only 8-bit example.
+
+**16-bit direct drive** (`gradient`, `gradient-embassy`, `gradient-quarter`,
+`gradient-tiled`):
+
+    # ESP32-S3
+    cargo run-esp32s3 -F circular-dma,20mhz,iram,trail-blank-4,invert-blank,invert-oe
+
+    # ESP32 and ESP32-Trinity
+    cargo run-esp32   -F circular-dma,20mhz,iram,tail-closes-latch,trail-blank-8,invert-blank,invert-oe
+    cargo run-trinity -F circular-dma,20mhz,iram,tail-closes-latch,trail-blank-8,invert-blank,invert-oe
+
+    # ESP32-C6 (no full-chain-dma/circular-dma, see the notes below)
+    cargo run-esp32c6 -F 20mhz,iram,trail-blank-4
+
+**Quarter-scan panels** (`gradient-quarter`): on the 1/16-scan (quarter-scan)
+panel the plane-major default still left visible ghosting; the row-major
+framebuffer (`row`) removed much more of it, so `gradient-quarter` wants one
+more feature on top of the 16-bit set. On the ESP32-C6 `row` also raises the
+BCM depth from 5 to 6 planes, because the row-major layout fits more planes
+under the `PARL_IO` per-transfer limit, and that panel needed a longer trail
+blank as well:
+
+    # ESP32-S3
+    cargo run-esp32s3 -F circular-dma,20mhz,iram,trail-blank-4,invert-blank,invert-oe,row
+
+    # ESP32 and ESP32-Trinity
+    cargo run-esp32   -F circular-dma,20mhz,iram,tail-closes-latch,trail-blank-8,invert-blank,invert-oe,row
+    cargo run-trinity -F circular-dma,20mhz,iram,tail-closes-latch,trail-blank-8,invert-blank,invert-oe,row
+
+    # ESP32-C6
+    cargo run-esp32c6 -F 20mhz,iram,trail-blank-8,row
+
+**8-bit latched** (`gradient-latched`):
+
+    # ESP32
+    cargo run-esp32   -F circular-dma,20mhz,iram,trail-blank-4
+
+    # ESP32-S3
+    cargo run-esp32s3 -F circular-dma,20mhz,iram,trail-blank-4
+
+    # ESP32-C6
+    cargo run-esp32c6 -F full-chain-dma,20mhz,iram,trail-blank-4
+
+    # ESP32-C5 (8-bit only: its PARL_IO has no 16-bit mode)
+    cargo run-esp32c5 -F circular-dma,20mhz,iram,trail-blank-4
+
+**Notes**:
+
+- The `invert-blank` + `invert-oe` pair appears only in the ESP32 (`I2S`) and
+  ESP32-S3 (`LCD_CAM`) commands. Those peripherals drive all output pins low
+  when a transfer completes, which un-blanks the panel between transfers;
+  inverting the blank pin in hardware (and the OE bit in the framebuffer to
+  compensate) makes that idle state blank instead. The `PARL_IO` backends
+  (ESP32-C5/C6) idle with the panel already blanked, so they need neither
+  feature.
+- `tail-closes-latch` applies to the direct-drive framebuffers only, so it is
+  absent from the 8-bit commands.
+- `iram` is in the examples' default feature set (with `skip-black-pixels` and
+  `log`), so passing it again is redundant; it is kept in the commands so the
+  recommended set is stated in one place.
+- `20mhz` is optional: drop it for the 10 MHz default if your panel or cabling
+  is unhappy at the higher clock.
+- The direct-drive framebuffers insert no blanking around the row address
+  change by default, so at least `trail-blank-2` is recommended to avoid row
+  ghosting. The latched framebuffer has 1 clock of lead and 2 clocks of trail
+  blanking built in, and the 8-bit commands add `trail-blank-4` on top.
+- **ESP32-C6**: `PARL_IO` cannot do circular chains, so `circular-dma` is a
+  compile error there, and it caps a transfer at 65 535 bytes. A 16-bit
+  transfer is twice the size of an 8-bit one, so `full-chain-dma` only fits in
+  8-bit mode: the C6 16-bit command stays on the default
+  one-plane-per-interrupt path, while the C6 8-bit command can use
+  `full-chain-dma`.
+- **ESP32-C5** has no 16-bit `PARL_IO` mode, so only `gradient-latched` runs
+  there.
 
 ## Hardware Tests
 

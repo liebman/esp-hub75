@@ -13,7 +13,7 @@
 //! the application (single-core setup).
 //!
 //! This example draws a simple gradient on the display and shows the refresh
-//! rate, render rate and a simple counter.
+//! rate, the frame render time in milliseconds and a simple counter.
 //!
 //! Note that you most likely need level converters 3.3v to 5v for all HUB75
 //! signals.
@@ -84,7 +84,9 @@ macro_rules! mk_static {
     }};
 }
 
-static RENDER_RATE: AtomicU32 = AtomicU32::new(0);
+// Milliseconds the last frame took to draw into the framebuffer (u32: these
+// targets have no 64-bit atomics).
+static RENDER_MS: AtomicU32 = AtomicU32::new(0);
 static SIMPLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 const ROWS: usize = 64;
@@ -136,10 +138,10 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         .text_color(Color::YELLOW)
         .background_color(Color::BLACK)
         .build();
-    let mut render_count = 0u32;
-    let mut start = Instant::now();
 
     loop {
+        let render_start = Instant::now();
+
         fb.erase();
 
         const STEP: u8 = (256 / COLS) as u8;
@@ -173,7 +175,7 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         buffer.clear();
         fmt::write(
             &mut buffer,
-            format_args!("Render: {:5}", RENDER_RATE.load(Ordering::Relaxed)),
+            format_args!("Render: {:>3}ms", RENDER_MS.load(Ordering::Relaxed)),
         )
         .unwrap();
         Text::with_alignment(
@@ -200,17 +202,14 @@ async fn display_task(hub75: Hub75<esp_hal::Async, FBType>, mut fb: &'static mut
         .draw(fb)
         .unwrap();
 
+        // Time taken to draw this frame into the framebuffer (erase, gradient
+        // and status text). The value shown above is therefore from the
+        // previous frame, which is indistinguishable at panel refresh rates.
+        RENDER_MS.store(render_start.elapsed().as_millis() as u32, Ordering::Relaxed);
+
         let mut xfer = hub75.swap(fb).expect("swap already in flight");
         xfer.wait_for_done().await;
         fb = xfer.wait().expect("DMA transfer failed");
-
-        render_count += 1;
-        const FPS_INTERVAL: Duration = Duration::from_secs(1);
-        if start.elapsed() > FPS_INTERVAL {
-            RENDER_RATE.store(render_count, Ordering::Relaxed);
-            render_count = 0;
-            start = Instant::now();
-        }
     }
 }
 
